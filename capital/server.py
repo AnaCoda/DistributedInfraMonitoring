@@ -53,29 +53,25 @@ lock = threading.Lock()
     # if you need to do something other than read it is hidden behind this lock
 @app.route("/api/update_state", methods=["POST"])
 def update_state():
+    # collect the data
     data = request.json
     state_name = data.get("name")
     state_data = data.get("state")
-    meta = data.get("meta", {})
-    ts = meta.get("timestamp", time.time())
-    sites = meta.get("sites", None)
 
+    # return errors just in case there's an issue
     if not state_name or not state_data:
         return jsonify({"error":"Missing name or state"}), 400
-
+    
+    # This does the update if everything is working
     with lock:
-        national_infrastructure[state_name] = {
-            "state": state_data,
-            "meta": meta,
-            "last_seen": ts,
-            "sites": sites
-        }
+        # Updates overview of all states
+        national_infrastructure[state_name] = state_data
 
+        # if updated state is the capital then update it's local one as well
         if state_name == "Capital":
-            global state_infrastructure
+            global state_infrastructure 
             state_infrastructure = state_data
-
-    return jsonify({"message": f"State {state_name} updated successfully."}), 200
+    return jsonify({"message":f"State {state_name} updated successfully."}), 200
 
 
 if __name__ == "__main__":
