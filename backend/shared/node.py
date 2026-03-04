@@ -20,6 +20,8 @@ def _send_raw(connection: socket.socket, body: dict):
 def _recv_raw(connection: socket.socket) -> dict:
     length = int.from_bytes(connection.recv(4), byteorder='little', signed=False)
     body = connection.recv(length)
+    if len(body) == 0:
+        raise ConnectionAbortedError()
     return json.loads(body.decode('utf-8'))
     # connection.sendall(len(stringified))
     
@@ -34,6 +36,17 @@ class ConnectionRegistry:
     name: str
     connection: socket.socket
     address: tuple[str, int]
+    
+    
+@dataclass
+class EventOnConnectRegistry:
+    functor: Callable[["NodeBase", str], None]
+    method: NodeConnectionType
+    
+@dataclass
+class EventOnDisconnectRegistry:
+    functor: Callable[["NodeBase", str], None]
+    method: NodeConnectionType
 
 def _unpack_response(body: dict) -> EndpointResponse:
     if 'status' in body:
@@ -77,7 +90,8 @@ class NodeBase:
         self.stop_event = Event()
         self.server = None
         self.event_maps = {
-            'on_connect': []
+            'on_connect': [],
+            'on_dc': []
         }
         
 
@@ -93,10 +107,15 @@ class NodeBase:
                 self.__launch_interval_functor(fn, interval)
             elif 'on_connect' in annotations:
                 # print(self.event_maps['o'])
-                self.event_maps['on_connect'].append({
-                    'functor': fn,
-                    'method': annotations['on_connect']
-                })
+                self.event_maps['on_connect'].append(EventOnConnectRegistry(
+                    functor=fn,
+                    method=annotations['on_connect']
+                ))
+            elif 'on_dc' in annotations:
+                self.event_maps['on_dc'].append(EventOnDisconnectRegistry(
+                    functor=fn,
+                    method=annotations['on_dc']
+                ))
                 
         def connection_handler(connection, address):
             registry = _recv_raw(connection)
@@ -119,12 +138,21 @@ class NodeBase:
             
             for evtha in self.event_maps['on_connect']:
                 # evtha: dict = name
-                if evtha['method'] == NodeConnectionType.INBOUND:
-                    evtha['functor'](self, name)
+                if evtha.method == NodeConnectionType.INBOUND:
+                    evtha.functor(self, name)
                 # functor(self)
 
             _send_raw(connection, { 'status': 'success', 'name': self.network_name })
             
+            while True:
+                try:
+                    message = _recv_raw(connection)
+                    self.call(message)
+                except ConnectionAbortedError:
+                    for evtha in self.event_maps['on_dc']:
+                        if evtha.method == NodeConnectionType.INBOUND:
+                            evtha.functor(self, name)
+                    break
             # pass
             
         
@@ -147,6 +175,14 @@ class NodeBase:
                 
         self.__launch_background_thread(listener)
                 
+    def disconnect(self, name: str):
+        if name in self.outbound_connections:
+            self.outbound_connections[name].connection.close()
+            del self.outbound_connections[name]
+        for evtha in self.event_maps['on_dc']:
+            if evtha.method == NodeConnectionType.OUTBOUND:
+                evtha.functor(self, name)
+                
     def connect(self, address: tuple[str, int]):
         connection: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         connection.connect(address)
@@ -167,8 +203,8 @@ class NodeBase:
         
         for name in self.event_maps['on_connect']:
             evtha: dict = name
-            if evtha['method'] == NodeConnectionType.OUTBOUND:
-                evtha['functor'](self, target_name)
+            if evtha.method == NodeConnectionType.OUTBOUND:
+                evtha.functor(self, target_name)
         
                 
     def __launch_background_thread(self, functor, fargs = None):
@@ -234,7 +270,7 @@ class NodeBase:
     def send_message(self):
         pass
     
-def node_handler(name: str = None, internal_ms: int = None, on_connect: NodeConnectionType = None):
+def node_handler(name: str = None, internal_ms: int = None, on_connect: NodeConnectionType = None, on_disconnect: NodeConnectionType = None):
     if name is not None and internal_ms is not None:
         raise RuntimeError("Both 'name' and 'internal_ms' cannot be set.")
     if name is not None:
@@ -256,6 +292,11 @@ def node_handler(name: str = None, internal_ms: int = None, on_connect: NodeConn
     elif on_connect is not None:
         def decorator(fn):
             fn.__annotations__['on_connect'] = on_connect
+            return fn
+        return decorator
+    elif on_disconnect is not None:
+        def decorator(fn):
+            fn.__annotations__['on_dc'] = on_disconnect
             return fn
         return decorator
     else:
@@ -283,6 +324,11 @@ class Test(NodeBase):
     @node_handler(on_connect=NodeConnectionType.OUTBOUND)
     def outbound(self, name):
         print(f'Hello, I have made an outbound to {name}')
+        
+        
+    @node_handler(on_disconnect=NodeConnectionType.INBOUND)
+    def inbound_dc(self, name):
+        print(f'Disconnection event from {name}')
     
 model_A = Test(network_name="CentralA", address=('127.0.0.1', 3000))
 model_B = Test(network_name="CentralB", address=('127.0.0.1', 3001))
@@ -299,6 +345,9 @@ def a():
     
 def b():
     model_B.connect(('127.0.0.1', 3000))
+    
+    time.sleep(0.5)
+    model_B.disconnect(name='CentralA')
     # model = Test(network_name="Central", address=('127.0.0.1', 3000))
     # model.call({
     #     "route": "api.call",
