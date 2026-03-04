@@ -19,6 +19,15 @@ class base_site(ABC):
     def update_resource(self, new_value):
         self.resource_value = new_value
 
+    # to_dict is basically report without the post
+    def to_dict(self):
+        return {
+            "name": self.name,
+            "region_name": self.region_name,
+            "resource_type": self.resource_type,
+            "resource_value": self.resource_value
+        }
+
     # POST the heartbeat containing all infrastructure info to the regional address in charge
     def report(self):
         data = {
