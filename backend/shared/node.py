@@ -5,6 +5,12 @@ import time
 import socket
 import json
 from dataclasses import dataclass
+from enum import Enum
+
+
+class NodeConnectionType(Enum):
+    INBOUND = 0
+    OUTBOUND = 1
 
 def _send_raw(connection: socket.socket, body: dict):
     stringified: str = json.dumps(body)
@@ -21,8 +27,29 @@ def _recv_raw(connection: socket.socket) -> dict:
 class EndpointResponse:
     status: str
     reason: Optional[str]
+    body: dict
 
-def _unpack_response(response: dict) -> 
+@dataclass
+class ConnectionRegistry:
+    name: str
+    connection: socket.socket
+    address: tuple[str, int]
+
+def _unpack_response(body: dict) -> EndpointResponse:
+    if 'status' in body:
+        status: str = body['status']
+        if status == 'fail':
+            if 'reason' in body:
+                reason: str = body['reason']
+                raise RuntimeError(f'Server refused to accept connection with reason: {reason}')
+            else:
+                raise RuntimeError('Server reported a status of "fail" but failed to provide a reason. Server is not following format correctly.')
+        elif status == 'success':
+            return EndpointResponse(status, body['reason'] if 'reason' in body else None, body=body)
+        else:
+            raise RuntimeError(f'Unknown status value: "{status}"')
+    else:
+        raise RuntimeError('Server did not have the "status" key in the message body, indicating that the server is not following the protocol format.')
 
 class NodeBase:
     """
@@ -44,7 +71,16 @@ class NodeBase:
         self.network_name = network_name
         self.address = address
         
-    
+        self.routing_dict = {}
+        self.inbound_connections = {}
+        self.outbound_connections = {}
+        self.stop_event = Event()
+        self.server = None
+        self.event_maps = {
+            'on_connect': []
+        }
+        
+
         for _, fn in inspect.getmembers(self.__class__, predicate=inspect.isfunction):
             annotations: dict = fn.__annotations__
             if 'node_route' in annotations:
@@ -56,7 +92,11 @@ class NodeBase:
                 # print(interval)
                 self.__launch_interval_functor(fn, interval)
             elif 'on_connect' in annotations:
-                self.event_maps['on_connect'].append(fn)
+                # print(self.event_maps['o'])
+                self.event_maps['on_connect'].append({
+                    'functor': fn,
+                    'method': annotations['on_connect']
+                })
                 
         def connection_handler(connection, address):
             registry = _recv_raw(connection)
@@ -69,17 +109,21 @@ class NodeBase:
                 _send_raw(connection, { 'status': 'fail', 'reason': 'name currently in use.' })
                 connection.close()
                 return
-            self.inbound_connections[name] = {
-                'connection': connection,
-                'address': address,
-                "name": name
-            }
+            self.inbound_connections[name] = ConnectionRegistry(
+                name=name,
+                connection=connection,
+                address=address
+            )
             
-            if name in self.event_maps['on_connect']:
-                functor = self.event_maps['on_connect'][name]
-                functor(self)
-            print("SENDING SUCCESS")
-            _send_raw(connection, { 'status': 'success' })
+
+            
+            for evtha in self.event_maps['on_connect']:
+                # evtha: dict = name
+                if evtha['method'] == NodeConnectionType.INBOUND:
+                    evtha['functor'](self, name)
+                # functor(self)
+
+            _send_raw(connection, { 'status': 'success', 'name': self.network_name })
             
             # pass
             
@@ -111,22 +155,21 @@ class NodeBase:
         _send_raw(connection, { 'name': self.network_name })
         
         body: dict = _recv_raw(connection)
-        if 'status' in body:
-            status: str = body['status']
-            if status == 'fail':
-                if 'reason' in body:
-                    reason: str = body['reason']
-                    raise RuntimeError(f'Server refused to accept connection with reason: {reason}')
-                else:
-                    raise RuntimeError('Server reported a status of "fail" but failed to provide a reason. Server is not following format correctly.')
-            elif status == 'success':
-                pass
-            else:
-                raise RuntimeError(f'Unknown status value: "{status}"')
-        else:
-            raise RuntimeError('Server did not have the "status" key in the message body, indicating that the server is not following the protocol format.')
-        print("CONNECTED")
-        # pass
+        response: EndpointResponse = _unpack_response(body)
+        if 'name' not in response.body:
+            raise RuntimeError("No 'name' key in the response body.")
+        target_name: str = response.body['name']
+        self.outbound_connections[target_name] = ConnectionRegistry(
+            name=target_name,
+            connection=connection,
+            address=address
+        )
+        
+        for name in self.event_maps['on_connect']:
+            evtha: dict = name
+            if evtha['method'] == NodeConnectionType.OUTBOUND:
+                evtha['functor'](self, target_name)
+        
                 
     def __launch_background_thread(self, functor, fargs = None):
         if fargs is None:
@@ -152,6 +195,14 @@ class NodeBase:
     def shutdown(self):
         self.stop_event.set()
         self.server.close()
+        
+        
+        for connection in self.outbound_connections.values():
+            connection.connection.close()
+        for connection in self.inbound_connections.values():
+            connection.connection.close()
+    
+            
 
     def call(self, message: dict):
         """
@@ -183,7 +234,7 @@ class NodeBase:
     def send_message(self):
         pass
     
-def node_handler(name: str = None, internal_ms: int = None, on_connect: str = None):
+def node_handler(name: str = None, internal_ms: int = None, on_connect: NodeConnectionType = None):
     if name is not None and internal_ms is not None:
         raise RuntimeError("Both 'name' and 'internal_ms' cannot be set.")
     if name is not None:
@@ -204,7 +255,7 @@ def node_handler(name: str = None, internal_ms: int = None, on_connect: str = No
         return decorator
     elif on_connect is not None:
         def decorator(fn):
-            fn.__annotations__['on_connect'] = True
+            fn.__annotations__['on_connect'] = on_connect
             return fn
         return decorator
     else:
@@ -225,9 +276,13 @@ class Test(NodeBase):
     def good_morning(self):
         print("helloo")
         
-    @node_handler(on_connect=True)
-    def notifier(self):
-        print("hello, received connection")
+    @node_handler(on_connect=NodeConnectionType.INBOUND)
+    def inbound(self, name):
+        print(f"hello, received connection from {name}")
+    
+    @node_handler(on_connect=NodeConnectionType.OUTBOUND)
+    def outbound(self, name):
+        print(f'Hello, I have made an outbound to {name}')
     
 model_A = Test(network_name="CentralA", address=('127.0.0.1', 3000))
 model_B = Test(network_name="CentralB", address=('127.0.0.1', 3001))
