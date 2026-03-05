@@ -1,9 +1,9 @@
 from .base_site import base_site
+from .common import InfrastructureNode
 
-class powerplant(base_site):
-
-    # Pass up to base_site then define self as a powerplant
-    def __init__(self, name, region_name):
-        super().__init__(name, region_name)
+class Powerplant(InfrastructureNode):
+    def __init__(self, network_name, address):
+        super().__init__(network_name, address)
         self.resource_type = "Powerplant"
-        self.resource_value = "Stable"              # is power stable, semi-stable, unstable or gone
+        self.resource_value = "Stable" # is power stable, semi-stable, unstable or gone
+
