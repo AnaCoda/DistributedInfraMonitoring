@@ -1,80 +1,71 @@
-import argparse
+# backend/regional/base.py
 import time
 import random
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-import requests
+from shared.node import NodeBase, node_handler, NodeConnectionType
 
-class RegionalNode(ABC):
+
+class RegionalNode(NodeBase, ABC):
     """
-    A regional node is a separate process that:
-      - owns local infrastructure sites
-      - simulates and/or reads local site values
-      - aggregates to a region summary
-      - heartbeats to the capital server
+    TCP-based regional node.
+    - Listens on its own address (required by NodeBase)
+    - Connects outbound to Capital
+    - Periodically sends infra heartbeat via TCP RPC
     """
 
-    def __init__(self, region_name: str, capital_url: str, interval_s: float = 2.0):
+    def __init__(
+        self,
+        region_name: str,
+        address: Tuple[str, int],
+        capital_address: Tuple[str, int],
+        interval_ms: int = 2000,
+    ):
+        super().__init__(network_name=region_name, address=address)
+
         if region_name.strip().lower() == "capital":
             raise ValueError("Region name cannot be 'Capital' (reserved).")
 
         self.region_name = region_name
-        self.capital_url = capital_url.rstrip("/")
-        self.interval_s = interval_s
+        self.capital_address = capital_address
+        self.interval_ms = interval_ms
 
         self.sites = self.build_sites()
 
-        # backoff for network failures
-        self._backoff_s = 1.0
+        # Establish outbound connection to capital (target registered by capital's network_name)
+        self.connect(capital_address)
 
     @abstractmethod
     def build_sites(self) -> List[Any]:
-        """Return a list of infrastructure site objects owned by this region."""
         raise NotImplementedError
 
     @abstractmethod
     def aggregate_state(self) -> Dict[str, Any]:
-        """
-        Produce the summarized state_infrastructure dict expected by the capital.
-        Must return keys: power, medical_capacity, transport, water_capacity, fuel_storage
-        """
         raise NotImplementedError
 
     def simulate_tick(self) -> None:
-        """
-        Default simulation: make plausible small changes.
-        Region subclasses can override for different dynamics.
-        """
         for s in self.sites:
             t = getattr(s, "resource_type", "")
 
             if t == "Powerplant":
                 s.resource_value = random.choices(
-                    ["stable", "unstable", "down"],
-                    weights=[0.75, 0.20, 0.05],
-                    k=1
+                    ["stable", "unstable", "down"], weights=[0.75, 0.20, 0.05], k=1
                 )[0]
-
             elif t == "Railroad":
                 s.resource_value = random.choices(
-                    ["operational", "degraded", "down"],
-                    weights=[0.75, 0.20, 0.05],
-                    k=1
+                    ["operational", "degraded", "down"], weights=[0.75, 0.20, 0.05], k=1
                 )[0]
-
             elif t in ["Hospital", "Fuel Depot", "Water Treatment Plant"]:
                 cur = int(s.resource_value)
-                delta = random.randint(-8, 4)  # drift downward more often
+                delta = random.randint(-8, 4)
                 s.resource_value = max(0, min(100, cur + delta))
 
     def sites_snapshot(self) -> List[Dict[str, Any]]:
-        """Full details for debugging/UI/reporting."""
         snap = []
         for s in self.sites:
-            # prefer report() if present
             if hasattr(s, "report") and callable(getattr(s, "report")):
-                snap.append(s.to_dict())
+                snap.append(s.to_dict())  # IMPORTANT: to_dict(), not report()
             else:
                 snap.append({
                     "name": getattr(s, "name", "unknown"),
@@ -85,33 +76,35 @@ class RegionalNode(ABC):
         return snap
 
     def heartbeat_payload(self) -> Dict[str, Any]:
-        now = time.time()
         return {
             "name": self.region_name,
             "state": self.aggregate_state(),
             "meta": {
-                "timestamp": now,
+                "timestamp": time.time(),
                 "region_type": self.__class__.__name__,
                 "sites": self.sites_snapshot(),
-            }
+            },
         }
 
-    def send_heartbeat(self) -> None:
+    @node_handler(name="region.ping")
+    def ping(self, message: dict):
+        return {"pong": True, "region": self.network_name}
+
+    @node_handler(on_connect=NodeConnectionType.OUTBOUND)
+    def on_outbound_connect(self, name: str):
+        print(f"[{self.region_name}] outbound connected to {name}")
+
+    @node_handler(on_disconnect=NodeConnectionType.OUTBOUND)
+    def on_outbound_disconnect(self, name: str):
+        print(f"[{self.region_name}] outbound disconnected from {name}")
+
+    # ---- Heartbeat loop ----
+    # NOTE: node_handler(internal_ms=...) is static; we’ll set it in subclasses OR use a background thread.
+    # For now we’ll NOT use the decorator here.
+    def tick_and_send(self):
+        self.simulate_tick()
         payload = self.heartbeat_payload()
-        r = requests.post(f"{self.capital_url}/api/update_state", json=payload, timeout=3)
-        r.raise_for_status()
 
-    def run_forever(self) -> None:
-        print(f"[regional] {self.region_name} ({self.__class__.__name__}) -> {self.capital_url} every {self.interval_s}s")
-        while True:
-            self.simulate_tick()
-
-            try:
-                self.send_heartbeat()
-                self._backoff_s = 1.0
-                time.sleep(self.interval_s)
-
-            except Exception as e:
-                print(f"[regional:{self.region_name}] heartbeat failed: {e} (retry in {self._backoff_s:.1f}s)")
-                time.sleep(self._backoff_s)
-                self._backoff_s = min(self._backoff_s * 2.0, 30.0)
+        # Capital must have network_name="Capital"
+        # and a route handler name="infra.heartbeat"
+        self.send_message(target="Capital", method="infra.heartbeat", body=payload)
