@@ -6,11 +6,22 @@ import socket
 import json
 from dataclasses import dataclass
 from enum import Enum
+import uuid
+
+
+@dataclass
+class NodeRpcError(Exception):
+    message: str
 
 
 class NodeConnectionType(Enum):
     INBOUND = 0
     OUTBOUND = 1
+    
+@dataclass
+class ResponseRegistryEntry:
+    event: Event
+    response: Optional[dict]
 
 def _send_raw(connection: socket.socket, body: dict):
     stringified: str = json.dumps(body)
@@ -23,7 +34,6 @@ def _recv_raw(connection: socket.socket) -> dict:
     if len(body) == 0:
         raise ConnectionAbortedError()
     return json.loads(body.decode('utf-8'))
-    # connection.sendall(len(stringified))
     
 @dataclass
 class EndpointResponse:
@@ -94,6 +104,8 @@ class NodeBase:
             'on_dc': []
         }
         
+        self.response_registrar = {}
+        
 
         for _, fn in inspect.getmembers(self.__class__, predicate=inspect.isfunction):
             annotations: dict = fn.__annotations__
@@ -103,10 +115,8 @@ class NodeBase:
                 self.routing_dict[route] = fn
             elif 'interval_functor' in annotations:
                 interval: int = annotations['interval_functor']['interval']
-                # print(interval)
                 self.__launch_interval_functor(fn, interval)
             elif 'on_connect' in annotations:
-                # print(self.event_maps['o'])
                 self.event_maps['on_connect'].append(EventOnConnectRegistry(
                     functor=fn,
                     method=annotations['on_connect']
@@ -118,43 +128,8 @@ class NodeBase:
                 ))
                 
         def connection_handler(connection, address):
-            registry = _recv_raw(connection)
-            if 'name' not in registry:
-                _send_raw(connection, { 'status': 'fail', 'reason': 'no registry name present' })
-                connection.close()
-                return
-            name: str = registry['name']
-            if name in self.inbound_connections:
-                _send_raw(connection, { 'status': 'fail', 'reason': 'name currently in use.' })
-                connection.close()
-                return
-            self.inbound_connections[name] = ConnectionRegistry(
-                name=name,
-                connection=connection,
-                address=address
-            )
-            
-
-            
-            for evtha in self.event_maps['on_connect']:
-                # evtha: dict = name
-                if evtha.method == NodeConnectionType.INBOUND:
-                    evtha.functor(self, name)
-                # functor(self)
-
-            _send_raw(connection, { 'status': 'success', 'name': self.network_name })
-            
-            while True:
-                try:
-                    message = _recv_raw(connection)
-                    self.call(message)
-                except ConnectionAbortedError:
-                    for evtha in self.event_maps['on_dc']:
-                        if evtha.method == NodeConnectionType.INBOUND:
-                            evtha.functor(self, name)
-                    break
-            # pass
-            
+            self.__handle_conn_recv(connection, address)
+                
         
         
         def listener():
@@ -166,16 +141,99 @@ class NodeBase:
                     conn, addr = self.server.accept()
                     self.__launch_background_thread(connection_handler, fargs=(conn, addr))
                 except OSError as e:
-                    # print(e.winerror)
                     if e.winerror == 10038:
                         break
                     else:
                         print(e)
-                    # break
                 
+
+
+
         self.__launch_background_thread(listener)
+        
+    def __handle_registered_connection(self, name: str, connection: str, address: str):
+        while True:
+            try:
+                message = _recv_raw(connection)
+                self.__dispatch_received_message(name, message)
+            except (ConnectionAbortedError, ConnectionResetError):
+                for evtha in self.event_maps['on_dc']:
+                    if evtha.method == NodeConnectionType.INBOUND:
+                        evtha.functor(self, name)
+                break
+            # except ConnectionResetError:
+            except NodeRpcError as nre:
+                payload: dict = {
+                    'route': '__response',
+                    'response_target': {
+                        'status': 'fail',
+                        'reason': nre.message
+                    }
+                }
+                
+                if 'rid' in message:
+                    payload['rid'] = message['rid']
+                
+                _send_raw(connection, payload)
+    def __handle_conn_recv(self, connection, address):
+        registry = _recv_raw(connection)
+        if 'name' not in registry:
+            _send_raw(connection, { 'status': 'fail', 'reason': 'no registry name present' })
+            connection.close()
+            return
+        name: str = registry['name']
+        if name in self.inbound_connections:
+            _send_raw(connection, { 'status': 'fail', 'reason': 'name currently in use.' })
+            connection.close()
+            return
+        
+        # Register the connection internally to keep track.
+        self.__register_duplex_connection(name, ConnectionRegistry(name, connection, address))
+
+        
+
+        
+        for evtha in self.event_maps['on_connect']:
+            if evtha.method == NodeConnectionType.INBOUND:
+                evtha.functor(self, name)
+        
+        _send_raw(connection, { 'status': 'success', 'name': self.network_name })
+        
+        self.__handle_registered_connection(name, connection, address)
+        
+    def __dispatch_received_message(
+        self,
+        source: str,
+        payload: dict
+    ):
+        print(f'[{self.network_name}] Received {payload}')
+        if 'route' not in payload:
+            raise NodeRpcError('No "route" key in the received payload.')
+        if 'rid' not in payload:
+            raise NodeRpcError("No 'rid' key in the received payload.")
+        route: str = payload['route']
+        rid: str = payload['rid']
+        if route == '__response':
+            # Set the event.
+            self.response_registrar[rid].event.set()
+            self.response_registrar[rid].response = payload['body']
+        else:
+            output = self.call(payload)
+            if output is None:
+                
+                self.send_message(source, '__response', rid=rid, body={
+                    'status': 'success'
+                }, fire_and_forget=True)
+            else:
+                self.send_message(source, '__response', rid=rid, body=output, fire_and_forget=True)
+            
+    def __register_duplex_connection(self, target: str, entry: ConnectionRegistry):
+        self.outbound_connections[target] = entry
+        self.inbound_connections[target] = entry
+
                 
     def disconnect(self, name: str):
+        
         if name in self.outbound_connections:
             self.outbound_connections[name].connection.close()
             del self.outbound_connections[name]
@@ -205,6 +263,11 @@ class NodeBase:
             evtha: dict = name
             if evtha.method == NodeConnectionType.OUTBOUND:
                 evtha.functor(self, target_name)
+                
+        def con_handle(connection, address):
+            self.__handle_registered_connection(target_name, connection, address)
+                
+        self.__launch_background_thread(con_handle, fargs=(connection, address))
         
                 
     def __launch_background_thread(self, functor, fargs = None):
@@ -237,10 +300,11 @@ class NodeBase:
             connection.connection.close()
         for connection in self.inbound_connections.values():
             connection.connection.close()
-    
+        for event in self.response_registrar.values():
+            event.event.set()
             
 
-    def call(self, message: dict):
+    def call(self, message: dict) -> Optional[dict]:
         """
         Takes a message and forwards it to the correct handler method.
 
@@ -256,19 +320,48 @@ class NodeBase:
             _type_: _description_
         """
         if 'route' not in message:
-            raise RuntimeError('Could not find the "route" key in message.')
+            raise NodeRpcError('Could not find the "route" key in message.')
         if 'body' not in message:
-            raise RuntimeError('Could not find the "body" key in message.')
+            raise NodeRpcError('Could not find the "body" key in message.')
         route: str = message['route']
         body: dict = message['body']
         if route in self.routing_dict:
             return self.routing_dict[route](self, body)
         else:
-            raise RuntimeError(f'Could not find route {route}')
+            raise NodeRpcError(f'Could not find route {route}')
+        
+    def __send_internal(
+        self,
+        target: str,
+        body: dict
+    ) -> None:
+        conn: ConnectionRegistry = self.outbound_connections[target]
+        # print(f'[{self.network_name}] Outbox: {conn.address}, payload={body}')
+        _send_raw(conn.connection, body)
         
     
-    def send_message(self):
-        pass
+    def send_message(self, target: str, method: str, body: dict, rid: Optional[str] = None, fire_and_forget: bool = False):
+        rid: str = str(uuid.uuid4()) if rid is None else rid
+        payload: dict = {
+            'route': method,
+            'rid': rid,
+            'body': body
+        }
+        
+        print(f'[{self.network_name}] Sending {payload}')
+        if not fire_and_forget:
+            ev: Event = Event()
+            self.response_registrar[rid] = ResponseRegistryEntry(
+                event=ev,
+                response=None
+            )
+        self.__send_internal(target, payload)
+        
+        if not fire_and_forget:
+            ev.wait()
+            response: Optional[dict] = self.response_registrar[rid].response
+            del self.response_registrar[rid]
+            return response
     
 def node_handler(name: str = None, internal_ms: int = None, on_connect: NodeConnectionType = None, on_disconnect: NodeConnectionType = None):
     if name is not None and internal_ms is not None:
@@ -312,6 +405,9 @@ class Test(NodeBase):
     @node_handler(name='api.call')
     def hello(self, message: dict):
         print(message)
+        return {
+            "ping": "pong"
+        }
         
     @node_handler(internal_ms=1000)
     def good_morning(self):
@@ -328,12 +424,17 @@ class Test(NodeBase):
         
     @node_handler(on_disconnect=NodeConnectionType.INBOUND)
     def inbound_dc(self, name):
-        print(f'Disconnection event from {name}')
+        print(f'Disconnection event from {name} [inbound]')
+        
+    @node_handler(on_disconnect=NodeConnectionType.OUTBOUND)
+    def outbound_dc(self, name):
+        print(f'Disconnection event from {name} [outbound]')
     
 model_A = Test(network_name="CentralA", address=('127.0.0.1', 3000))
 model_B = Test(network_name="CentralB", address=('127.0.0.1', 3001))
 
 def a():
+    print('Started TestA')
     
     # model.call({
         # "route": "api.call",
@@ -341,13 +442,24 @@ def a():
             # "hello": "world"
         # }
     # })
-    print(f'Started TestA')
+    
     
 def b():
+    print('Started TestA')
     model_B.connect(('127.0.0.1', 3000))
     
-    time.sleep(0.5)
-    model_B.disconnect(name='CentralA')
+    print('Msg 1:', model_B.send_message(target='CentralA', method='api.call', body={
+        'hello': 'world'
+    }))
+    print("DONEZO!")
+    
+    # model_B.send_message(target='CentralA', method='api.call2', body={
+    #     'hello': 'world'
+    # })
+    
+    
+    # time.sleep(0.5)
+    # model_B.disconnect(name='CentralA')
     # model = Test(network_name="Central", address=('127.0.0.1', 3000))
     # model.call({
     #     "route": "api.call",
@@ -355,7 +467,7 @@ def b():
     #         "hello": "world"
     #     }
     # })
-    print(f'Started TestA')
+    
     
 
 Thread(target=a).start()
@@ -364,8 +476,9 @@ Thread(target=b).start()
 
 
 try:
-    for i in range(3):
-        time.sleep(1)
+    while True:
+        time.sleep(0.2)
 except KeyboardInterrupt:
+    print("STOPPING")
     model_A.shutdown()
     model_B.shutdown()
