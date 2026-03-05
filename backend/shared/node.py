@@ -1,64 +1,200 @@
 from typing import Callable, Optional
 import inspect
-from threading import Thread, Event
+from threading import Thread, Event, Lock
 import time
 import socket
 import json
 from dataclasses import dataclass
 from enum import Enum
 import uuid
+import io
+
+class ThreadSafeSocket:
+    """
+    A thread-safe socket object that protects the writing end of the
+    connection to prevent interleaved writes.
+    
+    These are separated as reading and writing is something we want
+    to happen all the time on a duplex connection, and so they
+    must be handled separately.
+    """
+    read_end: io.BufferedReader
+    raw_socket: socket.socket
+    write_lock: Lock
+    
+    def __init__(self, sock: socket.socket):
+        """
+        Creates a new thread safe socket object.
+
+        Args:
+            sock (socket.socket): The socket object that
+            we wish to wrap.
+        """
+        self.read_end = sock.makefile('rb')
+        self.raw_socket = sock
+        self.write_lock = Lock()
+        self.closed = False
+        
+    def sendall(self, data: bytes):
+        """
+        Sends all the bytes across the socket.
+
+        Args:
+            data (bytes): The data to send over the socket.
+        """
+        with self.write_lock:
+            self.raw_socket.sendall(data)
+            
+    def recv(self, data: int) -> bytes:
+        """
+        Receives a certain number of bytes over the
+        thread safe socket.
+
+        Args:
+            data (int): The length of bytes we want to read.
+
+        Returns:
+            bytes: The byte buffer we received.
+        """
+        return self.read_end.read(data)
+    
+    def close(self):
+        """
+        Closes the thread safe socket.
+        """
+        if not self.closed:
+            # We want to make sure we only
+            # call close once, although I'm not
+            # necessarily sure if this makes a difference.
+            self.raw_socket.close()
+            self.closed = True
 
 
 @dataclass
 class NodeRpcError(Exception):
+    """
+    This exception indicates that there were problems executing a remote
+    procedure call with the node.
+    """
     message: str
 
 
 class NodeConnectionType(Enum):
+    """
+    The connection type of the event, i.e., if it is an inbound or an outbound
+    event.
+    """
     INBOUND = 0
     OUTBOUND = 1
     
 @dataclass
 class ResponseRegistryEntry:
+    """
+    This allows a response pattern (full-duplex communication over single connection)
+    """
     event: Event
     response: Optional[dict]
-
-def _send_raw(connection: socket.socket, body: dict):
-    stringified: str = json.dumps(body)
-    length_bytes: bytes = len(stringified).to_bytes(length=4, byteorder='little', signed=False)
-    connection.sendall(length_bytes + stringified.encode('utf-8'))
-    
-def _recv_raw(connection: socket.socket) -> dict:
-    length = int.from_bytes(connection.recv(4), byteorder='little', signed=False)
-    body = connection.recv(length)
-    if len(body) == 0:
-        raise ConnectionAbortedError()
-    return json.loads(body.decode('utf-8'))
     
 @dataclass
 class EndpointResponse:
+    """
+    The endpoint response object which is the format used for handshaking.
+    """
     status: str
     reason: Optional[str]
     body: dict
 
 @dataclass
 class ConnectionRegistry:
+    """
+    The connection registry entry, which stores the
+    connection object, the address, and the associated
+    registry name.
+    """
     name: str
-    connection: socket.socket
+    connection: ThreadSafeSocket
     address: tuple[str, int]
-    
     
 @dataclass
 class EventOnConnectRegistry:
-    functor: Callable[["NodeBase", str], None]
-    method: NodeConnectionType
-    
-@dataclass
-class EventOnDisconnectRegistry:
+    """
+    Registers an event handler for the OnConnect event.
+    There are two variants defined by method:
+        INBOUND: We have received a connection.
+        OUTBOUND: We have made a connection with an outbound
+        client.
+    """
     functor: Callable[["NodeBase", str], None]
     method: NodeConnectionType
 
+@dataclass
+class EventOnDisconnectRegistry:
+    """
+    Registers an event handler for the OnDisconnect event.
+    There are two variants defined by method:
+        INBOUND: We have received a connection.
+        OUTBOUND: We have made a connection with an outbound
+        client.
+    """
+    functor: Callable[["NodeBase", str], None]
+    method: NodeConnectionType
+
+def _send_raw(connection: ThreadSafeSocket, body: dict):
+    """
+    Using a ThreadSafeSocket object, this will send a dictionary
+    object across the connection.
+
+    Args:
+        connection (ThreadSafeSocket): The thread safe socket object
+        used for sending and receiving data.
+        body (dict): The actual message that should be sent over
+        the socket.
+    """
+    stringified: str = json.dumps(body)
+    length_bytes: bytes = len(stringified).to_bytes(length=4, byteorder='little', signed=False)
+    connection.sendall(length_bytes + stringified.encode('utf-8'))
+    
+def _recv_raw(connection: ThreadSafeSocket) -> dict:
+    """
+    Receives a JSON dictionary across the wire. This could
+    be improved with a library like protobuf.
+
+    Args:
+        connection (ThreadSafeSocket): The connection that should
+        be used for receiving.
+
+    Raises:
+        ConnectionAbortedError: If the length received is 0, then
+        we return this error which simplifies error handling.
+
+    Returns:
+        dict: The JSON message.
+    """
+    length = int.from_bytes(connection.recv(4), byteorder='little', signed=False)
+    body = connection.recv(length)
+    if len(body) == 0:
+        raise ConnectionAbortedError()
+    return json.loads(body.decode('utf-8'))
+    
+
+
 def _unpack_response(body: dict) -> EndpointResponse:
+    """
+    Unpacks a status response. This method is generally used
+    for unpacking the handshake sequence but may have various
+    other uses.
+
+    Args:
+        body (dict): The total payload to unpack.
+
+    Raises:
+        RuntimeError: Failed to unpack the status response because it was
+        malformed.
+
+    Returns:
+        EndpointResponse: The response from the endpoint we are trying
+        to connect to.
+    """
     if 'status' in body:
         status: str = body['status']
         if status == 'fail':
@@ -73,6 +209,46 @@ def _unpack_response(body: dict) -> EndpointResponse:
             raise RuntimeError(f'Unknown status value: "{status}"')
     else:
         raise RuntimeError('Server did not have the "status" key in the message body, indicating that the server is not following the protocol format.')
+
+@dataclass
+class MessagePackingResult:
+    """
+    Represents a packed message that is ready for sending.
+    """
+    message: dict
+    rid: str
+    
+    @staticmethod
+    def pack_msg(
+        route: str,
+        body: dict,
+        set_rid: Optional[str] = None
+    ) -> "MessagePackingResult":
+        """
+        This packs a message in the common format of the protocol,
+        we do this to keep things simple and keep the protocol simple
+        and allow maximal code reuse and reduce the testing surface area.
+
+        Args:
+            route (str): The method we want to call on the remote object.
+            body (dict): The body of the call, also known as the parameters.
+            set_rid (Optional[str], optional): Sets the response ID of the request, if not it will be generated. Defaults to None.
+
+        Returns:
+            MessagePackingResult: The packed message along with the rid we ended up
+            using.
+        """
+        rid: str = str(uuid.uuid4()) if set_rid is None else set_rid
+        return MessagePackingResult(
+            message={
+                'route': route,
+                'rid': rid,
+                'body': body
+            },
+            rid=rid
+        )
+
+
 
 class NodeBase:
     """
@@ -139,6 +315,7 @@ class NodeBase:
             while True:
                 try:
                     conn, addr = self.server.accept()
+                    conn = ThreadSafeSocket(conn)
                     self.__launch_background_thread(connection_handler, fargs=(conn, addr))
                 except OSError as e:
                     if e.winerror == 10038:
@@ -151,7 +328,7 @@ class NodeBase:
 
         self.__launch_background_thread(listener)
         
-    def __handle_registered_connection(self, name: str, connection: str, address: str):
+    def __handle_registered_connection(self, name: str, connection: ThreadSafeSocket, address: tuple[str, int]):
         while True:
             try:
                 message = _recv_raw(connection)
@@ -161,7 +338,6 @@ class NodeBase:
                     if evtha.method == NodeConnectionType.INBOUND:
                         evtha.functor(self, name)
                 break
-            # except ConnectionResetError:
             except NodeRpcError as nre:
                 payload: dict = {
                     'route': '__response',
@@ -175,7 +351,7 @@ class NodeBase:
                     payload['rid'] = message['rid']
                 
                 _send_raw(connection, payload)
-    def __handle_conn_recv(self, connection, address):
+    def __handle_conn_recv(self, connection: ThreadSafeSocket, address: tuple[str, int]):
         registry = _recv_raw(connection)
         if 'name' not in registry:
             _send_raw(connection, { 'status': 'fail', 'reason': 'no registry name present' })
@@ -218,7 +394,7 @@ class NodeBase:
             self.response_registrar[rid].event.set()
             self.response_registrar[rid].response = payload['body']
         else:
-            output = self.call(payload)
+            output = self.__call_route(payload)
             if output is None:
                 
                 self.send_message(source, '__response', rid=rid, body={
@@ -231,12 +407,17 @@ class NodeBase:
         self.outbound_connections[target] = entry
         self.inbound_connections[target] = entry
 
+    def __deregister_duplex_connection(self, target: str):
+        if target in self.outbound_connections:
+            self.outbound_connections[target].connection.close()
+            del self.outbound_connections[target]
+        if target in self.inbound_connections:
+            self.inbound_connections[target].connection.close()
+            del self.inbound_connections[target]
                 
     def disconnect(self, name: str):
         
-        if name in self.outbound_connections:
-            self.outbound_connections[name].connection.close()
-            del self.outbound_connections[name]
+        self.__deregister_duplex_connection(name)
         for evtha in self.event_maps['on_dc']:
             if evtha.method == NodeConnectionType.OUTBOUND:
                 evtha.functor(self, name)
@@ -304,20 +485,18 @@ class NodeBase:
             event.event.set()
             
 
-    def call(self, message: dict) -> Optional[dict]:
+    def __call_route(self, message: dict) -> Optional[dict]:
         """
         Takes a message and forwards it to the correct handler method.
 
         Args:
-            message (dict): _description_
+            message (dict): The message
 
         Raises:
-            RuntimeError: _description_
-            RuntimeError: _description_
-            RuntimeError: _description_
+            NodeRpcError: The packet was malformed whcih prevented proper routing.
 
         Returns:
-            _type_: _description_
+            Optional[dict]: The optional response object, which may be null.
         """
         if 'route' not in message:
             raise NodeRpcError('Could not find the "route" key in message.')
@@ -330,37 +509,49 @@ class NodeBase:
         else:
             raise NodeRpcError(f'Could not find route {route}')
         
-    def __send_internal(
+    def __send_internal_raw(
         self,
         target: str,
         body: dict
     ) -> None:
+        """
+        Sends a message internally using a registered connection
+        and a raw payload. This does not add any routing information
+        to the method and just sends it raw.
+
+        Args:
+            target (str): The targeted message.
+            body (dict): The body of the message, again this being the
+            raw payload.
+        """
         conn: ConnectionRegistry = self.outbound_connections[target]
-        # print(f'[{self.network_name}] Outbox: {conn.address}, payload={body}')
         _send_raw(conn.connection, body)
         
     
     def send_message(self, target: str, method: str, body: dict, rid: Optional[str] = None, fire_and_forget: bool = False):
-        rid: str = str(uuid.uuid4()) if rid is None else rid
-        payload: dict = {
-            'route': method,
-            'rid': rid,
-            'body': body
-        }
+        # rid: str = str(uuid.uuid4()) if rid is None else rid
+        # payload: dict = {
+        #     'route': method,
+        #     'rid': rid,
+        #     'body': body
+        # }
+        packed = MessagePackingResult.pack_msg(method, body, set_rid=rid)
         
-        print(f'[{self.network_name}] Sending {payload}')
+        # print(f'Payload A: {payload}\nPayload B: {packed.message}')
+        
+        print(f'[{self.network_name}] Sending {packed.message}')
         if not fire_and_forget:
             ev: Event = Event()
-            self.response_registrar[rid] = ResponseRegistryEntry(
+            self.response_registrar[packed.rid] = ResponseRegistryEntry(
                 event=ev,
                 response=None
             )
-        self.__send_internal(target, payload)
+        self.__send_internal_raw(target, packed.message)
         
         if not fire_and_forget:
             ev.wait()
-            response: Optional[dict] = self.response_registrar[rid].response
-            del self.response_registrar[rid]
+            response: Optional[dict] = self.response_registrar[packed.rid].response
+            del self.response_registrar[packed.rid]
             return response
     
 def node_handler(name: str = None, internal_ms: int = None, on_connect: NodeConnectionType = None, on_disconnect: NodeConnectionType = None):
