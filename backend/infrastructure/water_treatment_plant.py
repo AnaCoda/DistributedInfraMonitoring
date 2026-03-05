@@ -1,6 +1,7 @@
 from .base_site import base_site
+from .common import InfrastructureNode
 
-class water_treatment_plant(base_site):
+class WaterTreatmentPlant(InfrastructureNode):
 
     # Pass up to base_site then define self as a water_treatment_plant
     def __init__(self, name, region_name):
