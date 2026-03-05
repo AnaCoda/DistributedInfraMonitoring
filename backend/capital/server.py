@@ -7,6 +7,8 @@ from flask_cors import CORS
 import threading
 import time
 
+from capital.capital_tcp_node import CapitalTcpNode
+
 # This contains the states unique name (must be unique for logical reasons)
     # if 2 states share a name the system will treat 2 unique geographic entities as 1
     # should not cause code issues, but will be confusing for the user
@@ -28,6 +30,16 @@ national_infrastructure = {
 
 app = Flask(__name__)
 CORS(app)
+
+
+# More shit to implment tcp instead of http this entire file needs an overhaul
+lock = threading.Lock()
+tcp_node = CapitalTcpNode(
+    network_name="Capital",
+    address=("127.0.0.1", 6000), # Hardcoded for testing please dont leave this here
+    national_store=national_infrastructure,
+    store_lock=lock,
+)
 
 @app.route("/api/hello")
 def hello():
