@@ -18,7 +18,6 @@ class ThreadSafeSocket:
     to happen all the time on a duplex connection, and so they
     must be handled separately.
     """
-    read_end: io.BufferedReader
     raw_socket: socket.socket
     write_lock: Lock
     
@@ -30,7 +29,6 @@ class ThreadSafeSocket:
             sock (socket.socket): The socket object that
             we wish to wrap.
         """
-        self.read_end = sock.makefile('rb')
         self.raw_socket = sock
         self.write_lock = Lock()
         self.closed = False
@@ -56,24 +54,20 @@ class ThreadSafeSocket:
         Returns:
             bytes: The byte buffer we received.
         """
-        return self.read_end.read(data)
+        return self.raw_socket.recv(data)
     
     def close(self):
         """
         Closes the thread safe socket.
         """
         if not self.closed:
-            try:
-                self.raw_socket.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                return
             # We want to make sure we only
             # call close once, although I'm not
             # necessarily sure if this makes a difference.
             try:
-                self.read_end.close()
                 self.raw_socket.close()
-            except OSError:
+            except OSError as e:
+                print(f'Failed to close socket: {e}')
                 return
             self.closed = True
 
@@ -472,10 +466,11 @@ class NodeBase:
         
                 
     def __launch_background_thread(self, functor, fargs = None):
+        # TODO: Investigate how to make daemonless.
         if fargs is None:
-            Thread(target=functor).start()
+            Thread(target=functor, daemon=True).start()
         else:
-            Thread(target=functor, args=fargs).start()
+            Thread(target=functor, args=fargs, daemon=True).start()
         
 
     def __launch_interval_functor(self, functor, interval):
@@ -495,17 +490,13 @@ class NodeBase:
     def shutdown(self):
         self.stop_event.set()
         self.server.close()
-        
-        
+
         for connection in self.outbound_connections.values():
-            print(f'Conn: {connection.connection}')
             connection.connection.close()
         for connection in self.inbound_connections.values():
-            print(f'Conn: {connection.connection}')
             connection.connection.close()
         for event in self.response_registrar.values():
             event.event.set()
-            
 
     def __call_route(self, message: dict) -> Optional[dict]:
         """
@@ -621,39 +612,39 @@ def node_handler(name: str = None, internal_ms: int = None, on_connect: NodeConn
         raise RuntimeError("You must specify at least one mode of operation.")
     
     
-# class Test(NodeBase):
+class Test(NodeBase):
     
-#     def __init__(self, network_name, address):
-#         super().__init__(network_name, address)
+    def __init__(self, network_name, address):
+        super().__init__(network_name, address)
         
 
-#     @node_handler(name='api.call')
-#     def hello(self, message: dict):
-#         print(message)
-#         return {
-#             "ping": "pong"
-#         }
+    @node_handler(name='api.call')
+    def hello(self, message: dict):
+        print(message)
+        return {
+            "ping": "pong"
+        }
         
-#     @node_handler(internal_ms=1000)
-#     def good_morning(self):
-#         print("helloo")
+    @node_handler(internal_ms=1000)
+    def good_morning(self):
+        print("helloo")
         
-#     @node_handler(on_connect=NodeConnectionType.INBOUND)
-#     def inbound(self, name):
-#         print(f"hello, received connection from {name}")
+    @node_handler(on_connect=NodeConnectionType.INBOUND)
+    def inbound(self, name):
+        print(f"hello, received connection from {name}")
     
-#     @node_handler(on_connect=NodeConnectionType.OUTBOUND)
-#     def outbound(self, name):
-#         print(f'Hello, I have made an outbound to {name}')
+    @node_handler(on_connect=NodeConnectionType.OUTBOUND)
+    def outbound(self, name):
+        print(f'Hello, I have made an outbound to {name}')
         
         
-#     @node_handler(on_disconnect=NodeConnectionType.INBOUND)
-#     def inbound_dc(self, name):
-#         print(f'Disconnection event from {name} [inbound]')
+    @node_handler(on_disconnect=NodeConnectionType.INBOUND)
+    def inbound_dc(self, name):
+        print(f'Disconnection event from {name} [inbound]')
         
-#     @node_handler(on_disconnect=NodeConnectionType.OUTBOUND)
-#     def outbound_dc(self, name):
-#         print(f'Disconnection event from {name} [outbound]')
+    @node_handler(on_disconnect=NodeConnectionType.OUTBOUND)
+    def outbound_dc(self, name):
+        print(f'Disconnection event from {name} [outbound]')
     
 # model_A = Test(network_name="CentralA", address=('127.0.0.1', 3000))
 # model_B = Test(network_name="CentralB", address=('127.0.0.1', 3001))
