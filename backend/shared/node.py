@@ -11,6 +11,7 @@ import io
 from websockets.sync.server import serve
 from websockets.sync.client import ClientConnection, connect as ws_connect
 from websockets.sync.server import ServerConnection
+import websockets
 
 class ThreadSafeSocket:
     """
@@ -44,7 +45,7 @@ class ThreadSafeSocket:
             data (bytes): The data to send over the socket.
         """
         with self.write_lock:
-            self.raw_socket.send(data)
+            self.raw_socket.send(data, text=True)
             
     def recv(self, data: int) -> bytes:
         """
@@ -57,7 +58,12 @@ class ThreadSafeSocket:
         Returns:
             bytes: The byte buffer we received.
         """
-        return self.raw_socket.recv()
+        out = self.raw_socket.recv()
+        if type(out) == bytes:
+            return out
+        # print(out)
+        
+        return out.encode('utf-8')
     
     @staticmethod
     def connect(address: tuple[str, int]):
@@ -376,10 +382,11 @@ class NodeBase:
             try:
                 message = _recv_raw(connection)
                 self.__dispatch_received_message(name, message)
-            except (ConnectionAbortedError, ConnectionResetError):
+            except (ConnectionAbortedError, ConnectionResetError, websockets.exceptions.ConnectionClosedOK):
                 for evtha in self.event_maps[NodeEvent.ON_DISCONNECT]:
                     if evtha.method == NodeConnectionType.INBOUND:
                         evtha.functor(self, name)
+                self.__deregister_duplex_connection(name)
                 break
             except NodeRpcError as nre:
                 packed = MessagePackingResult.pack_msg('__response', { 'status': 'fail', 'reason': nre.message }, set_rid=message['rid'])
@@ -388,6 +395,7 @@ class NodeBase:
     
     def __handle_conn_recv(self, connection: ThreadSafeSocket):
         registry = _recv_raw(connection)
+        print(f"recevied registry: {registry}")
         if 'name' not in registry:
             _send_raw(connection, { 'status': 'fail', 'reason': 'no registry name present' })
             connection.close()
@@ -408,8 +416,9 @@ class NodeBase:
             if evtha.method == NodeConnectionType.INBOUND:
                 evtha.functor(self, name)
         
+        print("SENDING")
         _send_raw(connection, { 'status': 'success', 'name': self.network_name })
-        
+        print("DONE")
         self.__handle_registered_connection(name, connection)
         
     def __dispatch_received_message(
