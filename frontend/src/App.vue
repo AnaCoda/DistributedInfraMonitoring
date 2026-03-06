@@ -193,6 +193,7 @@ import SiteValue   from "./components/SiteValue.vue";
 // ---- State ----
 
 const data = ref({});
+const heartbeats = ref({});
 const loading = ref(false);
 const error = ref("");
 const lastFetch = ref(null);
@@ -222,13 +223,16 @@ function parseRegionType(raw) {
   return raw.toLowerCase().replace(/regionnode$|node$/, "").trim() || null;
 }
 
-function normalizeRegion(name, raw) {
+function normalizeRegion(name, raw, hb) {
   const isNew = raw && typeof raw === "object" && ("state" in raw || "meta" in raw);
   const state = isNew ? (raw.state ?? {}) : (raw ?? {});
   const meta = isNew ? (raw.meta ?? {}) : {};
-  const ts = typeof meta.timestamp === "number" ? meta.timestamp : null;
   const regionType = parseRegionType(meta.region_type || meta.regionType || null);
   const sites = Array.isArray(meta.sites) ? meta.sites : null;
+
+  const hbEntry = hb?.[name];
+  const lastContact = hbEntry?.last_contact ? new Date(hbEntry.last_contact).getTime() / 1000 : null;
+  const ts = lastContact;
 
   const now = Date.now() / 1000;
   const age = ts ? (now - ts) : null;
@@ -244,8 +248,9 @@ function normalizeRegion(name, raw) {
 
 const regions = computed(() => {
   const obj = data.value || {};
+  const hb = heartbeats.value || {};
   return Object.entries(obj)
-    .map(([name, raw]) => normalizeRegion(name, raw))
+    .map(([name, raw]) => normalizeRegion(name, raw, hb))
     .sort((a, b) => {
       if (a.regionType === "capital") return -1;
       if (b.regionType === "capital") return 1;
@@ -362,7 +367,9 @@ async function fetchNational() {
     aws.send({ route: "api.national_infrastructure", rid: crypto.randomUUID(), body: {} });
     const response = await aws.recv();
     console.log(response)
-    data.value = (response.body ?? response).state;
+    const body = response.body ?? response;
+    data.value = body.state;
+    heartbeats.value = body.heartbeats ?? {};
     lastFetch.value = Date.now();
   } catch (e) {
     error.value = e?.message ?? String(e);
