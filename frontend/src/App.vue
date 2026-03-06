@@ -47,7 +47,7 @@
 
     <div v-else>
       <!-- National summary -->
-      <div class="mb-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div class="mb-5 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
         <div class="summary-card">
           <div class="summary-label">Regions</div>
           <div class="summary-value text-gray-800">{{ regions.length }}</div>
@@ -65,6 +65,18 @@
           </div>
         </div>
         <div class="summary-card">
+          <div class="summary-label">Avg Water</div>
+          <div class="summary-value" :class="nationalWater >= 70 ? 'text-green-700' : nationalWater >= 30 ? 'text-yellow-600' : 'text-red-600'">
+            {{ nationalWater }}%
+          </div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-label">Avg Fuel</div>
+          <div class="summary-value" :class="nationalFuel >= 70 ? 'text-green-700' : nationalFuel >= 30 ? 'text-yellow-600' : 'text-red-600'">
+            {{ nationalFuel }}%
+          </div>
+        </div>
+        <div class="summary-card">
           <div class="summary-label">Stale Nodes</div>
           <div class="summary-value" :class="staleCount === 0 ? 'text-gray-400' : 'text-red-600'">
             {{ staleCount }}
@@ -73,10 +85,12 @@
       </div>
 
       <!-- Region cards -->
-      <div class="grid gap-4" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));">
+      <div class="grid gap-4 items-start" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));">
         <div v-for="r in regions" :key="r.name"
           class="border rounded-xl p-4 shadow-sm bg-white transition-colors"
-          :class="r.isStale ? 'border-red-300 opacity-70' : 'border-gray-200'">
+          :class="r.isStale ? 'border-red-300 opacity-70'
+                : r.regionType === 'capital' ? 'border-slate-400 bg-slate-50 shadow-md'
+                : 'border-gray-200'">
 
           <!-- Card header -->
           <div class="flex items-start justify-between gap-3 mb-3">
@@ -86,6 +100,7 @@
                 <span class="text-[11px] px-1.5 py-0.5 rounded border font-medium uppercase tracking-wide"
                   :class="r.regionType === 'urban'    ? 'border-purple-300 text-purple-700 bg-purple-50'
                         : r.regionType === 'standard' ? 'border-blue-300 text-blue-700 bg-blue-50'
+                        : r.regionType === 'capital'  ? 'border-slate-700 text-white bg-slate-700'
                         :                              'border-gray-300 text-gray-500'">
                   {{ r.regionType || "unknown" }}
                 </span>
@@ -161,7 +176,7 @@
           </div>
 
           <div v-else class="mt-2.5 text-[11px] text-gray-400 italic">
-            No site details — enable <code class="bg-gray-100 px-1 rounded not-italic">meta.sites</code> on update_state
+            No site details
           </div>
         </div>
       </div>
@@ -202,12 +217,17 @@ function toggleSites(name) {
   expanded[name] = !expanded[name];
 }
 
+function parseRegionType(raw) {
+  if (!raw) return null;
+  return raw.toLowerCase().replace(/regionnode$|node$/, "").trim() || null;
+}
+
 function normalizeRegion(name, raw) {
   const isNew = raw && typeof raw === "object" && ("state" in raw || "meta" in raw);
   const state = isNew ? (raw.state ?? {}) : (raw ?? {});
   const meta = isNew ? (raw.meta ?? {}) : {};
   const ts = typeof meta.timestamp === "number" ? meta.timestamp : null;
-  const regionType = meta.region_type || meta.regionType || null;
+  const regionType = parseRegionType(meta.region_type || meta.regionType || null);
   const sites = Array.isArray(meta.sites) ? meta.sites : null;
 
   const now = Date.now() / 1000;
@@ -226,7 +246,11 @@ const regions = computed(() => {
   const obj = data.value || {};
   return Object.entries(obj)
     .map(([name, raw]) => normalizeRegion(name, raw))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => {
+      if (a.regionType === "capital") return -1;
+      if (b.regionType === "capital") return 1;
+      return a.name.localeCompare(b.name);
+    });
 });
 
 const nationalPower = computed(() =>
@@ -238,6 +262,18 @@ const nationalPower = computed(() =>
 
 const nationalMedical = computed(() => {
   const vals = regions.value.map(r => Number(r.state.medical_capacity)).filter(v => !Number.isNaN(v));
+  if (!vals.length) return 0;
+  return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+});
+
+const nationalWater = computed(() => {
+  const vals = regions.value.map(r => Number(r.state.water_capacity)).filter(v => !Number.isNaN(v));
+  if (!vals.length) return 0;
+  return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+});
+
+const nationalFuel = computed(() => {
+  const vals = regions.value.map(r => Number(r.state.fuel_storage)).filter(v => !Number.isNaN(v));
   if (!vals.length) return 0;
   return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
 });

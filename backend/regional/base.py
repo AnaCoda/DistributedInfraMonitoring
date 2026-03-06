@@ -121,5 +121,14 @@ class RegionalNode(NodeBase, ABC):
         self.send_message(
             target="Capital",
             method="api.update_state",
-            body={"name": self.region_name, "state": state}
+            body={
+                "name": self.region_name,
+                "state": {
+                    "state": state,
+                    "meta": {
+                        "region_type": self.__class__.__name__,
+                        "sites": self.sites_snapshot(),
+                    },
+                },
+            }
         )

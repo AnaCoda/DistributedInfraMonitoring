@@ -29,7 +29,13 @@ class CapitalNode(NodeBase):
         }
         
         self.national_infrastructure = {
-            "Capital": self.state_infrastructure
+            "Capital": {
+                "state": self.state_infrastructure,
+                "meta": {
+                    "region_type": "CapitalNode",
+                    "sites": [],
+                },
+            }
         }
     
     @node_handler(name='api.hello')
