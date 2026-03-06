@@ -3,6 +3,7 @@
 # # - TCP listener on port 6000    (regional nodes talk here)
 from ..shared.node import NodeBase, node_handler
 import threading
+import datetime
 
 # from flask import Flask, jsonify, request
 # from flask_cors import CORS
@@ -31,12 +32,23 @@ class CapitalNode(NodeBase):
         self.national_infrastructure = {
             "Capital": self.state_infrastructure
         }
+        
+        self.heart_beat = {
+            
+        }
     
     @node_handler(name='api.hello')
     def handle_hello(self, message):
         return {
             "message": "Hello from the capital server!"
         }
+        
+    @node_handler(name='api.region.heartbeat')
+    def handle_region_heartbeat(self, message: dict, source: str):
+        print(f'Received heartbeat from {source}')
+        if source not in self.heart_beat:
+            self.heart_beat[source] = {}
+        self.heart_beat[source]['last_contact'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     
     @node_handler(name="api.state_infrastructure")
     def get_capital_status(self, _m):
@@ -44,7 +56,10 @@ class CapitalNode(NodeBase):
     
     @node_handler(name="api.national_infrastructure")
     def get_national_status(self, _m):
-        return self.national_infrastructure
+        return {
+            'state': self.national_infrastructure,
+            'heartbeats': self.heart_beat
+        }
     
     @node_handler(name="api.update_state")
     def update_state(self, data):

@@ -325,7 +325,8 @@ async function fetchNational() {
     error.value = "";
     aws.send({ route: "api.national_infrastructure", rid: crypto.randomUUID(), body: {} });
     const response = await aws.recv();
-    data.value = response.body ?? response;
+    console.log(response)
+    data.value = (response.body ?? response).state;
     lastFetch.value = Date.now();
   } catch (e) {
     error.value = e?.message ?? String(e);

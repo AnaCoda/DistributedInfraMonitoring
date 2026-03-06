@@ -90,6 +90,11 @@ class RegionalNode(NodeBase, ABC):
     @node_handler(name="region.ping")
     def ping(self, message: dict):
         return {"pong": True, "region": self.network_name}
+    
+    @node_handler(internal_ms=1000)
+    def heartbeater(self):
+        if self.has_connection('Capital'):
+            self.send_message('Capital', 'api.region.heartbeat', { 'status': 'ok' })
 
     @node_handler(name="api.report")
     def handle_report(self, msg: dict):
