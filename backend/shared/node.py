@@ -56,6 +56,24 @@ class ThreadSafeSocket:
         """
         return self.raw_socket.recv(data)
     
+    @staticmethod
+    def connect(address: tuple[str, int]):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(address)
+        return ThreadSafeSocket(sock)
+    
+    
+    @staticmethod
+    def create_listener(address: tuple[str, int]):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(address)
+        sock.listen()
+        return ThreadSafeSocket(sock)
+    
+    def accept(self) -> tuple["ThreadSafeSocket", tuple[str, int]]:
+        conn, addr = self.raw_socket.accept()
+        return ThreadSafeSocket(conn), addr
+    
     def close(self):
         """
         Closes the thread safe socket.
@@ -326,13 +344,11 @@ class NodeBase:
         
         
         def listener():
-            self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server.bind(self.address)
-            self.server.listen()
+            self.server = ThreadSafeSocket.create_listener(self.address)
             while True:
                 try:
                     conn, addr = self.server.accept()
-                    conn = ThreadSafeSocket(conn)
+                    # conn = ThreadSafeSocket(conn)
                     self.__launch_background_thread(connection_handler, fargs=(conn, addr))
                 except OSError as e:
                     if e.winerror == 10038:
@@ -434,9 +450,9 @@ class NodeBase:
                 evtha.functor(self, name)
                 
     def connect(self, address: tuple[str, int]):
-        connection: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        connection.connect(address)
-        connection = ThreadSafeSocket(connection)
+        # connection: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # connection.connect(address)
+        connection = ThreadSafeSocket.connect(address)
         
 
         # self.__send_message_targeted(target=)
