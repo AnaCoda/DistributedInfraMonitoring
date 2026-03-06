@@ -21,15 +21,22 @@
 
       <span v-if="error" class="text-red-700 text-sm">{{ error }}</span>
       <span v-else class="opacity-70 text-sm">Last fetch: {{ lastFetchText }}</span>
+
+      <span
+        class="ml-auto text-xs px-2 py-0.5 rounded-full border font-medium"
+        :class="wsStatus === 'connected'
+          ? 'border-green-600 text-green-700'
+          : wsStatus === 'connecting'
+            ? 'border-yellow-500 text-yellow-600'
+            : 'border-gray-400 text-gray-500'"
+      >{{ wsStatus }}</span>
     </div>
 
     <div v-if="loading && regions.length === 0" class="text-sm opacity-70">Loading...</div>
 
     <div v-else-if="regions.length === 0" class="p-3.5 border border-dashed border-gray-400 rounded text-sm">
       No regions reporting yet. Start nodes like:
-      <pre class="mt-2.5 bg-gray-100 p-2.5 overflow-x-auto rounded text-xs"><code>python -m capital.server
-python -m regional.node --name Alberta --type standard
-python -m regional.node --name Calgary --type urban --interval 1.5</code></pre>
+      <pre class="mt-2.5 bg-gray-100 p-2.5 overflow-x-auto rounded text-xs"><code>{{ exampleCommands }}</code></pre>
     </div>
 
     <div v-else class="grid gap-3.5" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));">
@@ -99,74 +106,85 @@ python -m regional.node --name Calgary --type urban --interval 1.5</code></pre>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 
-const data = ref({})
-const loading = ref(false)
-const error = ref('')
-const lastFetch = ref(null)
+const data = ref({});
+const loading = ref(false);
+const error = ref("");
+const lastFetch = ref(null);
 
-const polling = ref(true)
-const pollMs = ref(1000)
-let timer = null
+const polling = ref(true);
+const pollMs = ref(1000);
+let timer = null;
+let reconnectTimer = null;
 
-const expanded = reactive({})
+const expanded = reactive({});
+
+// WebSocket state
+let aws = null;
+let fetching = false;
+const wsStatus = ref("disconnected");
+
+const exampleCommands = [
+  "python -m capital.server",
+  "python -m regional.node --name Alberta --type standard",
+  "python -m regional.node --name Calgary --type urban --interval 1.5",
+].join("\n");
 
 function toggleSites(name) {
-  expanded[name] = !expanded[name]
+  expanded[name] = !expanded[name];
 }
 
 function formatPct(v) {
-  if (v === undefined || v === null || Number.isNaN(Number(v))) return '?'
-  return `${Number(v)}%`
+  if (v === undefined || v === null || Number.isNaN(Number(v))) return "?";
+  return `${Number(v)}%`;
 }
 
 function normalizeRegion(name, raw) {
   // raw can be either:
   // 1) old: state dict directly
   // 2) new: { state: {...}, meta: {...} }
-  const isNew = raw && typeof raw === 'object' && ('state' in raw || 'meta' in raw)
+  const isNew = raw && typeof raw === "object" && ("state" in raw || "meta" in raw);
 
-  const state = isNew ? (raw.state ?? {}) : (raw ?? {})
-  const meta = isNew ? (raw.meta ?? {}) : {}
+  const state = isNew ? (raw.state ?? {}) : (raw ?? {});
+  const meta = isNew ? (raw.meta ?? {}) : {};
 
-  const ts = typeof meta.timestamp === 'number' ? meta.timestamp : null
-  const regionType = meta.region_type || meta.regionType || null
-  const sites = Array.isArray(meta.sites) ? meta.sites : null
+  const ts = typeof meta.timestamp === "number" ? meta.timestamp : null;
+  const regionType = meta.region_type || meta.regionType || null;
+  const sites = Array.isArray(meta.sites) ? meta.sites : null;
 
-  const now = Date.now() / 1000
-  const age = ts ? (now - ts) : null
-  const isStale = age !== null ? age > 5 : false
+  const now = Date.now() / 1000;
+  const age = ts ? (now - ts) : null;
+  const isStale = age !== null ? age > 5 : false;
 
   const lastSeenText =
-    age === null ? 'no heartbeat timestamp' :
-      age < 1 ? 'just now' :
-        `${age.toFixed(1)}s ago`
+    age === null ? "no heartbeat timestamp" :
+      age < 1 ? "just now" :
+        `${age.toFixed(1)}s ago`;
 
-  return { name, state, regionType, sites, ts, isStale, lastSeenText }
+  return { name, state, regionType, sites, ts, isStale, lastSeenText };
 }
 
 const regions = computed(() => {
-  const obj = data.value || {}
+  const obj = data.value || {};
   return Object.entries(obj)
     .map(([name, raw]) => normalizeRegion(name, raw))
-    .sort((a, b) => a.name.localeCompare(b.name))
-})
+    .sort((a, b) => a.name.localeCompare(b.name));
+});
 
 const lastFetchText = computed(() => {
-  if (!lastFetch.value) return 'never'
-  return new Date(lastFetch.value).toLocaleTimeString()
-})
+  if (!lastFetch.value) return "never";
+  return new Date(lastFetch.value).toLocaleTimeString();
+});
 
-var CAPITAL_CONN = null
-var CONNECTED = false
+// --- WebSocket ---
 
 function openWebsocket(address) {
-    return new Promise((resolve, reject) => {
-        const ws = new WebSocket(address)
-        ws.addEventListener("open", () => resolve(ws))
-        ws.addEventListener("error", (e) => reject(e))
-    })  
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(address);
+    ws.addEventListener("open", () => resolve(ws));
+    ws.addEventListener("error", (e) => reject(e));
+  });
 }
 
 class AsyncWebSocket {
@@ -176,7 +194,7 @@ class AsyncWebSocket {
     this.waiters = [];
 
     ws.addEventListener("message", (event) => {
-      const datum = JSON.parse(event.data)
+      const datum = JSON.parse(event.data);
       if (this.waiters.length) {
         this.waiters.shift()(datum);
       } else {
@@ -189,82 +207,95 @@ class AsyncWebSocket {
     if (this.queue.length) {
       return Promise.resolve(this.queue.shift());
     }
-
     return new Promise(resolve => {
       this.waiters.push(resolve);
     });
   }
 
   send(msg) {
-    const encoder = new TextEncoder()
-    this.ws.send(encoder.encode(JSON.stringify(msg)));
+    this.ws.send(JSON.stringify(msg));
+  }
+}
+
+async function connectWs() {
+  wsStatus.value = "connecting";
+  try {
+    const ws = await openWebsocket("ws://localhost:3042");
+    aws = new AsyncWebSocket(ws);
+
+    aws.send({ name: `Frontend-${crypto.randomUUID()}` });
+    const handshake = await aws.recv();
+
+    if (handshake.status !== "success") {
+      error.value = `WS handshake failed: ${handshake.reason ?? "unknown"}`;
+      wsStatus.value = "disconnected";
+      reconnectTimer = setTimeout(connectWs, 2000);
+      return;
+    }
+
+    wsStatus.value = "connected";
+    error.value = "";
+
+    ws.addEventListener("close", () => {
+      wsStatus.value = "disconnected";
+      aws = null;
+      stopTimer();
+      reconnectTimer = setTimeout(connectWs, 2000);
+    });
+
+    await fetchNational();
+    startTimer();
+  } catch (e) {
+    error.value = "WebSocket error — is the capital server running?";
+    wsStatus.value = "disconnected";
+    reconnectTimer = setTimeout(connectWs, 2000);
   }
 }
 
 async function fetchNational() {
-  if(CAPITAL_CONN == null) {
-      console.log('[Connection] Starting connection.')
-      CAPITAL_CONN = new AsyncWebSocket(await openWebsocket('ws://127.0.0.1:3042'))
-      CAPITAL_CONN.send({
-        "name": "__webserver"
-      })
-      console.log("[Connection] Sent opening backet.")
-      let msg = await CAPITAL_CONN.recv()
-      console.log("[Connection] Received handshake response.")
-      if(msg.status == 'fail') {
-        console.error(msg.reason)
-      } else if(msg.status == "success") {
-        console.log("Connection succesful.")
-      }
+  if (!aws || fetching) return;
+  fetching = true;
+  loading.value = true;
+  try {
+    error.value = "";
+    aws.send({
+      route: "api.national_infrastructure",
+      rid: crypto.randomUUID(),
+      body: {}
+    });
+    const response = await aws.recv();
+    data.value = response.body ?? response;
+    lastFetch.value = Date.now();
+  } catch (e) {
+    error.value = e?.message ?? String(e);
+  } finally {
+    loading.value = false;
+    fetching = false;
   }
-
-  CAPITAL_CONN.send({
-    'route': 'api.national_infrastructure',
-    'rid': window.crypto.randomUUID().toString(),
-    'body': {}
-  })
-
-  let response = await CAPITAL_CONN.recv()
-  console.log(response)
-
-  // loading.value = true
-  // try {
-  //   error.value = ''
-  //   const res = await fetch('/api/national_infrastructure')
-  //   if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  //   data.value = await res.json()
-  //   lastFetch.value = Date.now()
-  // } catch (e) {
-  //   error.value = e?.message ?? String(e)
-  // } finally {
-  //   loading.value = false
-  // }
-
-  
- 
 }
 
 function refreshNow() {
-  fetchNational()
+  fetchNational();
 }
 
 function startTimer() {
-  stopTimer()
-  if (!polling.value) return
-  timer = setInterval(fetchNational, Math.max(250, pollMs.value || 1000))
+  stopTimer();
+  if (!polling.value) return;
+  timer = setInterval(fetchNational, Math.max(250, pollMs.value || 1000));
 }
 
 function stopTimer() {
-  if (timer) clearInterval(timer)
-  timer = null
+  if (timer) clearInterval(timer);
+  timer = null;
 }
 
-onMounted(async () => {
-  await fetchNational()
-  startTimer()
-})
+onMounted(() => connectWs());
 
-onUnmounted(() => stopTimer())
+onUnmounted(() => {
+  stopTimer();
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  if (aws) aws.ws.close();
+});
 
-watch([polling, pollMs], () => startTimer())
+watch([polling, pollMs], () => startTimer());
 </script>

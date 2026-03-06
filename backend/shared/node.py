@@ -189,7 +189,7 @@ def _send_raw(connection: ThreadSafeSocket, body: dict):
     """
     stringified: str = json.dumps(body)
     # length_bytes: bytes = len(stringified).to_bytes(length=4, byteorder='little', signed=False)
-    connection.sendall(stringified.encode('utf-8'))
+    connection.sendall(stringified)
     
 def _recv_raw(connection: ThreadSafeSocket) -> dict:
     """
@@ -209,10 +209,9 @@ def _recv_raw(connection: ThreadSafeSocket) -> dict:
     """
     # length = int.from_bytes(connection.recv(4), byteorder='little', signed=False)
     body = connection.recv(0)
-    # if len(body) == 0:
-        # raise ConnectionAbortedError()
-        
-    return json.loads(body.decode('utf-8'))
+    if isinstance(body, bytes):
+        body = body.decode('utf-8')
+    return json.loads(body)
     
 
 
