@@ -26,7 +26,7 @@ class InfrastructureNode(NodeBase):
             "resource_value": self.resource_value
         }
 
-    @node_handler(internal_ms=500)
+    @node_handler(internal_ms=3000)
     def broadcast_update(self):
         # Don't crash the interval thread if something is half-initialized
         try:

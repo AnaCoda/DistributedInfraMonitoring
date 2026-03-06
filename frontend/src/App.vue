@@ -158,19 +158,90 @@ const lastFetchText = computed(() => {
   return new Date(lastFetch.value).toLocaleTimeString()
 })
 
-async function fetchNational() {
-  loading.value = true
-  try {
-    error.value = ''
-    const res = await fetch('/api/national_infrastructure')
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    data.value = await res.json()
-    lastFetch.value = Date.now()
-  } catch (e) {
-    error.value = e?.message ?? String(e)
-  } finally {
-    loading.value = false
+var CAPITAL_CONN = null
+var CONNECTED = false
+
+function openWebsocket(address) {
+    return new Promise((resolve, reject) => {
+        const ws = new WebSocket(address)
+        ws.addEventListener("open", () => resolve(ws))
+        ws.addEventListener("error", (e) => reject(e))
+    })  
+}
+
+class AsyncWebSocket {
+  constructor(ws) {
+    this.ws = ws;
+    this.queue = [];
+    this.waiters = [];
+
+    ws.addEventListener("message", (event) => {
+      const datum = JSON.parse(event.data)
+      if (this.waiters.length) {
+        this.waiters.shift()(datum);
+      } else {
+        this.queue.push(datum);
+      }
+    });
   }
+
+  recv() {
+    if (this.queue.length) {
+      return Promise.resolve(this.queue.shift());
+    }
+
+    return new Promise(resolve => {
+      this.waiters.push(resolve);
+    });
+  }
+
+  send(msg) {
+    const encoder = new TextEncoder()
+    this.ws.send(encoder.encode(JSON.stringify(msg)));
+  }
+}
+
+async function fetchNational() {
+  if(CAPITAL_CONN == null) {
+      console.log('[Connection] Starting connection.')
+      CAPITAL_CONN = new AsyncWebSocket(await openWebsocket('ws://127.0.0.1:3042'))
+      CAPITAL_CONN.send({
+        "name": "__webserver"
+      })
+      console.log("[Connection] Sent opening backet.")
+      let msg = await CAPITAL_CONN.recv()
+      console.log("[Connection] Received handshake response.")
+      if(msg.status == 'fail') {
+        console.error(msg.reason)
+      } else if(msg.status == "success") {
+        console.log("Connection succesful.")
+      }
+  }
+
+  CAPITAL_CONN.send({
+    'route': 'api.national_infrastructure',
+    'rid': window.crypto.randomUUID().toString(),
+    'body': {}
+  })
+
+  let response = await CAPITAL_CONN.recv()
+  console.log(response)
+
+  // loading.value = true
+  // try {
+  //   error.value = ''
+  //   const res = await fetch('/api/national_infrastructure')
+  //   if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  //   data.value = await res.json()
+  //   lastFetch.value = Date.now()
+  // } catch (e) {
+  //   error.value = e?.message ?? String(e)
+  // } finally {
+  //   loading.value = false
+  // }
+
+  
+ 
 }
 
 function refreshNow() {
