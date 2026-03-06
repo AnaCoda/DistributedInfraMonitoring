@@ -1,10 +1,9 @@
-# backend/regional/base.py
 import time
 import random
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple
 
-from shared.node import NodeBase, node_handler, NodeConnectionType
+from ..shared.node import NodeBase, node_handler, NodeConnectionType
 
 
 class RegionalNode(NodeBase, ABC):
@@ -47,18 +46,13 @@ class RegionalNode(NodeBase, ABC):
     def simulate_tick(self) -> None:
         for s in self.sites:
             t = getattr(s, "resource_type", "")
-
             if t == "Powerplant":
-                s.resource_value = random.choices(
-                    ["stable", "unstable", "down"], weights=[0.75, 0.20, 0.05], k=1
-                )[0]
+                s.resource_value = random.choices(["stable","unstable","down"], [0.75,0.20,0.05])[0]
             elif t == "Railroad":
-                s.resource_value = random.choices(
-                    ["operational", "degraded", "down"], weights=[0.75, 0.20, 0.05], k=1
-                )[0]
+                s.resource_value = random.choices(["operational","degraded","down"], [0.75,0.20,0.05])[0]
             elif t in ["Hospital", "Fuel Depot", "Water Treatment Plant"]:
                 cur = int(s.resource_value)
-                delta = random.randint(-8, 4)
+                delta = random.randint(-3, 2)  # slower decay so demo doesn't instantly hit 0
                 s.resource_value = max(0, min(100, cur + delta))
 
     def sites_snapshot(self) -> List[Dict[str, Any]]:
@@ -86,9 +80,30 @@ class RegionalNode(NodeBase, ABC):
             },
         }
 
+    def infra_addr(self, site_id: str, host="127.0.0.1", base_port=32000, span=4000):
+        key = f"{self.region_name}:{site_id}"
+        h = 0
+        for ch in key:
+            h = (h * 31 + ord(ch)) % span
+        return (host, base_port + h)
+
     @node_handler(name="region.ping")
     def ping(self, message: dict):
         return {"pong": True, "region": self.network_name}
+
+    @node_handler(name="api.report")
+    def handle_report(self, msg: dict):
+        """
+        msg: {"name","region_name","resource_type","resource_value"}
+        """
+        print(f"[{self.region_name}] got report: {msg}")
+        # simplest: update the matching site object in self.sites
+        site_name = msg.get("name")
+        for s in self.sites:
+            if getattr(s, "name", None) == site_name:
+                s.resource_value = msg.get("resource_value")
+                break
+        return {"status": "ok"}
 
     @node_handler(on_connect=NodeConnectionType.OUTBOUND)
     def on_outbound_connect(self, name: str):
@@ -98,13 +113,13 @@ class RegionalNode(NodeBase, ABC):
     def on_outbound_disconnect(self, name: str):
         print(f"[{self.region_name}] outbound disconnected from {name}")
 
-    # ---- Heartbeat loop ----
-    # NOTE: node_handler(internal_ms=...) is static; we’ll set it in subclasses OR use a background thread.
-    # For now we’ll NOT use the decorator here.
-    def tick_and_send(self):
-        self.simulate_tick()
-        payload = self.heartbeat_payload()
 
-        # Capital must have network_name="Capital"
-        # and a route handler name="infra.heartbeat"
-        self.send_message(target="Capital", method="infra.heartbeat", body=payload)
+    def tick_and_send(self) -> None:
+        self.simulate_tick()
+        state = self.aggregate_state()
+
+        self.send_message(
+            target="Capital",
+            method="api.update_state",
+            body={"name": self.region_name, "state": state}
+        )

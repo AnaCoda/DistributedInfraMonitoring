@@ -1,13 +1,11 @@
-from .base_site import base_site
 from .common import InfrastructureNode
 
-
 class FuelDepot(InfrastructureNode):
-    
-    def __init__(self, network_name, region_name, address):
-        super().__init__(network_name, address)
-        
-        self.name = network_name
+    def __init__(self, name: str, region_name: str, address, region_address):
+        super().__init__(network_name=name, address=address, name=name, region_name=region_name)
+        self.name = name
         self.region_name = region_name
-        self.address = address
-        self.resource_value = 100 # % of fuel for the locale.
+        self.resource_type = "Fuel Depot"
+        self.resource_value = 100  # % fuel available
+
+        self.connect(region_address)
