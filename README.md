@@ -9,8 +9,7 @@ python -m venv .venv
 .venv/bin/activate       # Unix/Mac
 pip install -r requirements.txt
 
-python -m capital.server          # (Flask on :5000, TCP on :6000)
-python -m regional.node           
+python -m backend.setup     
 ```
 
 ## Frontend
