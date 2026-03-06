@@ -28,8 +28,8 @@
     <div v-else-if="regions.length === 0" class="p-3.5 border border-dashed border-gray-400 rounded text-sm">
       No regions reporting yet. Start nodes like:
       <pre class="mt-2.5 bg-gray-100 p-2.5 overflow-x-auto rounded text-xs"><code>python -m capital.server
-        python -m regional.node --name Alberta --type standard
-        python -m regional.node --name Calgary --type urban --interval 1.5</code></pre>
+python -m regional.node --name Alberta --type standard
+python -m regional.node --name Calgary --type urban --interval 1.5</code></pre>
     </div>
 
     <div v-else class="grid gap-3.5" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));">
