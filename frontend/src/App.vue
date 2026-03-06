@@ -1,66 +1,62 @@
 <template>
-  <div style="max-width: 980px; margin: 0 auto; padding: 20px;">
-    <h1>Infrastructure Monitor</h1>
+  <div class="max-w-[980px] mx-auto p-5">
+    <h1 class="text-2xl font-bold mb-4">Infrastructure Monitor</h1>
 
-    <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 12px;">
-      <button @click="refreshNow" :disabled="loading" style="padding: 8px 12px;">
+    <div class="flex gap-3 items-center mb-3 flex-wrap">
+      <button @click="refreshNow" :disabled="loading"
+        class="btn px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed">
         Refresh
       </button>
 
-      <label style="display: flex; gap: 8px; align-items: center;">
+      <label class="flex gap-2 items-center text-sm">
         Poll
-        <input type="checkbox" v-model="polling" />
+        <input type="checkbox" v-model="polling" class="cursor-pointer" />
       </label>
 
-      <label style="display: flex; gap: 8px; align-items: center;">
+      <label class="flex gap-2 items-center text-sm">
         Interval (ms)
-        <input type="number" v-model.number="pollMs" min="250" step="250" style="width: 110px;" />
+        <input type="number" v-model.number="pollMs" min="250" step="250"
+          class="w-[110px] border border-gray-300 rounded px-2 py-1 text-sm" />
       </label>
 
-      <span v-if="error" style="color: #b00020;">{{ error }}</span>
-      <span v-else style="opacity: 0.7;">Last fetch: {{ lastFetchText }}</span>
+      <span v-if="error" class="text-red-700 text-sm">{{ error }}</span>
+      <span v-else class="opacity-70 text-sm">Last fetch: {{ lastFetchText }}</span>
     </div>
 
-    <div v-if="loading && regions.length === 0">Loading...</div>
+    <div v-if="loading && regions.length === 0" class="text-sm opacity-70">Loading...</div>
 
-    <div v-else-if="regions.length === 0" style="padding: 14px; border: 1px dashed #aaa;">
+    <div v-else-if="regions.length === 0" class="p-3.5 border border-dashed border-gray-400 rounded text-sm">
       No regions reporting yet. Start nodes like:
-      <pre style="margin-top: 10px; background: #f6f6f6; padding: 10px; overflow-x: auto;"><code>python -m capital.server
-python -m regional.node --name Alberta --type standard
-python -m regional.node --name Calgary --type urban --interval 1.5</code></pre>
+      <pre class="mt-2.5 bg-gray-100 p-2.5 overflow-x-auto rounded text-xs"><code>python -m capital.server
+        python -m regional.node --name Alberta --type standard
+        python -m regional.node --name Calgary --type urban --interval 1.5</code></pre>
     </div>
 
-    <div v-else style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px;">
-      <div
-        v-for="r in regions"
-        :key="r.name"
-        style="border: 1px solid #ddd; border-radius: 10px; padding: 14px;"
-      >
-        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 10px;">
+    <div v-else class="grid gap-3.5" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));">
+      <div v-for="r in regions" :key="r.name" class="border border-gray-200 rounded-[10px] p-3.5 shadow-sm">
+        <div class="flex justify-between items-baseline gap-2.5">
           <div>
-            <h2 style="margin: 0;">{{ r.name }}</h2>
-            <div style="opacity: 0.75; font-size: 13px;">
+            <h2 class="text-lg font-semibold m-0 leading-tight">{{ r.name }}</h2>
+            <div class="opacity-75 text-[13px] mt-0.5">
               Type: {{ r.regionType || "unknown" }}
             </div>
           </div>
 
-          <div style="text-align: right;">
-            <div
-              v-if="r.isStale"
-              style="display: inline-block; padding: 3px 8px; border-radius: 999px; border: 1px solid #b00020; color: #b00020; font-size: 12px;"
-              title="Node heartbeat is old"
-            >
+          <div class="text-right shrink-0">
+            <div v-if="r.isStale"
+              class="inline-block px-2 py-0.5 rounded-full border border-red-700 text-red-700 text-xs"
+              title="Node heartbeat is old">
               STALE
             </div>
-            <div v-else style="opacity: 0.7; font-size: 12px;" title="Heartbeat freshness">
+            <div v-else class="opacity-70 text-xs" title="Heartbeat freshness">
               {{ r.lastSeenText }}
             </div>
           </div>
         </div>
 
-        <hr style="margin: 12px 0; border: none; border-top: 1px solid #eee;" />
+        <hr class="my-3 border-0 border-t border-gray-100" />
 
-        <ul style="margin: 0; padding-left: 18px;">
+        <ul class="m-0 pl-[18px] space-y-0.5 text-sm">
           <li><b>power:</b> {{ r.state.power ?? "?" }}</li>
           <li><b>medical_capacity:</b> {{ formatPct(r.state.medical_capacity) }}</li>
           <li><b>transport:</b> {{ r.state.transport ?? "?" }}</li>
@@ -68,33 +64,34 @@ python -m regional.node --name Calgary --type urban --interval 1.5</code></pre>
           <li><b>fuel_storage:</b> {{ formatPct(r.state.fuel_storage) }}</li>
         </ul>
 
-        <div v-if="r.sites && r.sites.length" style="margin-top: 12px;">
-          <button @click="toggleSites(r.name)" style="padding: 6px 10px;">
+        <div v-if="r.sites && r.sites.length" class="mt-3">
+          <button @click="toggleSites(r.name)" class="btn px-2.5 py-1.5">
             {{ expanded[r.name] ? "Hide" : "Show" }} sites ({{ r.sites.length }})
           </button>
 
-          <div v-if="expanded[r.name]" style="margin-top: 10px;">
-            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+          <div v-if="expanded[r.name]" class="mt-2.5">
+            <table class="w-full border-collapse text-[13px]">
               <thead>
-                <tr style="text-align: left;">
-                  <th style="border-bottom: 1px solid #eee; padding: 6px 4px;">Site</th>
-                  <th style="border-bottom: 1px solid #eee; padding: 6px 4px;">Type</th>
-                  <th style="border-bottom: 1px solid #eee; padding: 6px 4px;">Value</th>
+                <tr class="text-left">
+                  <th class="th-cell">Site</th>
+                  <th class="th-cell">Type</th>
+                  <th class="th-cell">Value</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="s in r.sites" :key="s.name + s.resource_type">
-                  <td style="border-bottom: 1px solid #f2f2f2; padding: 6px 4px;">{{ s.name }}</td>
-                  <td style="border-bottom: 1px solid #f2f2f2; padding: 6px 4px;">{{ s.resource_type }}</td>
-                  <td style="border-bottom: 1px solid #f2f2f2; padding: 6px 4px;">{{ s.resource_value }}</td>
+                  <td class="td-cell">{{ s.name }}</td>
+                  <td class="td-cell">{{ s.resource_type }}</td>
+                  <td class="td-cell">{{ s.resource_value }}</td>
                 </tr>
               </tbody>
             </table>
           </div>
         </div>
 
-        <div v-else style="margin-top: 10px; opacity: 0.65; font-size: 12px;">
-          (No site details — enable <code>meta.sites</code> in capital update_state to display.)
+        <div v-else class="mt-2.5 opacity-65 text-xs">
+          (No site details — enable <code class="bg-gray-100 px-1 rounded">meta.sites</code> in capital update_state to
+          display.)
         </div>
       </div>
     </div>
@@ -143,8 +140,8 @@ function normalizeRegion(name, raw) {
 
   const lastSeenText =
     age === null ? 'no heartbeat timestamp' :
-    age < 1 ? 'just now' :
-    `${age.toFixed(1)}s ago`
+      age < 1 ? 'just now' :
+        `${age.toFixed(1)}s ago`
 
   return { name, state, regionType, sites, ts, isStale, lastSeenText }
 }
