@@ -295,7 +295,9 @@ class MessagePackingResult:
             rid=rid
         )
 
-
+def param_count(fn):
+    sig = inspect.signature(fn)
+    return len(sig.parameters)
 
 class NodeBase:
     """
@@ -437,7 +439,7 @@ class NodeBase:
             self.response_registrar[rid].event.set()
             self.response_registrar[rid].response = payload['body']
         else:
-            output = self.__call_route(payload)
+            output = self.__call_route(payload, source)
             if output is None:
                 
                 self.__send_message_targeted(source, '__response', rid=rid, body={
@@ -530,12 +532,13 @@ class NodeBase:
         for event in self.response_registrar.values():
             event.event.set()
 
-    def __call_route(self, message: dict) -> Optional[dict]:
+    def __call_route(self, message: dict, sender: str) -> Optional[dict]:
         """
         Takes a message and forwards it to the correct handler method.
 
         Args:
             message (dict): The message
+            sender (str): The person who sent the message.
 
         Raises:
             NodeRpcError: The packet was malformed whcih prevented proper routing.
@@ -550,7 +553,12 @@ class NodeBase:
         route: str = message['route']
         body: dict = message['body']
         if route in self.routing_dict:
-            return self.routing_dict[route](self, body)
+            fn: Callable = self.routing_dict[route]
+            if param_count(fn) == 3:
+                # May optionally include the name
+                return fn(self, body, sender)
+            else:
+                return fn(self, body)
         else:
             raise NodeRpcError(f'Could not find route {route}')
         
@@ -560,6 +568,11 @@ class NodeBase:
     #     body: dict
     # ) -> None:
         
+    def has_connection(self, target: str) -> bool:
+        for conn in self.outbound_connections.keys():
+            if conn == target:
+                return True
+        return False
         
     def __send_message_raw(
         self,
@@ -611,10 +624,13 @@ class NodeBase:
             del self.response_registrar[packed.rid]
             return response
     
+
+    
 def node_handler(name: str = None, internal_ms: int = None, on_connect: NodeConnectionType = None, on_disconnect: NodeConnectionType = None):
     if name is not None and internal_ms is not None:
         raise RuntimeError("Both 'name' and 'internal_ms' cannot be set.")
     if name is not None:
+        # print(f'Function: {name}')
         def decorator(fn):
             fn.__annotations__['node_route'] = {
                 "name": name,
@@ -644,39 +660,39 @@ def node_handler(name: str = None, internal_ms: int = None, on_connect: NodeConn
         raise RuntimeError("You must specify at least one mode of operation.")
     
     
-class Test(NodeBase):
+# class Test(NodeBase):
     
-    def __init__(self, network_name, address):
-        super().__init__(network_name, address)
+#     def __init__(self, network_name, address):
+#         super().__init__(network_name, address)
         
 
-    @node_handler(name='api.call')
-    def hello(self, message: dict):
-        print(message)
-        return {
-            "ping": "pong"
-        }
+#     @node_handler(name='api.call')
+#     def hello(self, message: dict, sender: str):
+
+#         return {
+#             "ping": "pong"
+#         }
         
-    @node_handler(internal_ms=1000)
-    def good_morning(self):
-        print("helloo")
+#     @node_handler(internal_ms=1000)
+#     def good_morning(self):
+#         print("helloo")
         
-    @node_handler(on_connect=NodeConnectionType.INBOUND)
-    def inbound(self, name):
-        print(f"hello, received connection from {name}")
+#     @node_handler(on_connect=NodeConnectionType.INBOUND)
+#     def inbound(self, name):
+#         print(f"hello, received connection from {name}")
     
-    @node_handler(on_connect=NodeConnectionType.OUTBOUND)
-    def outbound(self, name):
-        print(f'Hello, I have made an outbound to {name}')
+#     @node_handler(on_connect=NodeConnectionType.OUTBOUND)
+#     def outbound(self, name):
+#         print(f'Hello, I have made an outbound to {name}')
         
         
-    @node_handler(on_disconnect=NodeConnectionType.INBOUND)
-    def inbound_dc(self, name):
-        print(f'Disconnection event from {name} [inbound]')
+#     @node_handler(on_disconnect=NodeConnectionType.INBOUND)
+#     def inbound_dc(self, name):
+#         print(f'Disconnection event from {name} [inbound]')
         
-    @node_handler(on_disconnect=NodeConnectionType.OUTBOUND)
-    def outbound_dc(self, name):
-        print(f'Disconnection event from {name} [outbound]')
+#     @node_handler(on_disconnect=NodeConnectionType.OUTBOUND)
+#     def outbound_dc(self, name):
+#         print(f'Disconnection event from {name} [outbound]')
     
 # model_A = Test(network_name="CentralA", address=('127.0.0.1', 3000))
 # model_B = Test(network_name="CentralB", address=('127.0.0.1', 3001))
