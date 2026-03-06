@@ -8,6 +8,9 @@ from dataclasses import dataclass
 from enum import Enum
 import uuid
 import io
+from websockets.sync.server import serve
+from websockets.sync.client import ClientConnection, connect as ws_connect
+from websockets.sync.server import ServerConnection
 
 class ThreadSafeSocket:
     """
@@ -18,10 +21,10 @@ class ThreadSafeSocket:
     to happen all the time on a duplex connection, and so they
     must be handled separately.
     """
-    raw_socket: socket.socket
+    websocket: ServerConnection
     write_lock: Lock
     
-    def __init__(self, sock: socket.socket):
+    def __init__(self, sock: ServerConnection):
         """
         Creates a new thread safe socket object.
 
@@ -41,7 +44,7 @@ class ThreadSafeSocket:
             data (bytes): The data to send over the socket.
         """
         with self.write_lock:
-            self.raw_socket.sendall(data)
+            self.raw_socket.send(data)
             
     def recv(self, data: int) -> bytes:
         """
@@ -54,10 +57,12 @@ class ThreadSafeSocket:
         Returns:
             bytes: The byte buffer we received.
         """
-        return self.raw_socket.recv(data)
+        return self.raw_socket.recv()
     
     @staticmethod
     def connect(address: tuple[str, int]):
+        
+        
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect(address)
         return ThreadSafeSocket(sock)
@@ -140,7 +145,6 @@ class ConnectionRegistry:
     """
     name: str
     connection: ThreadSafeSocket
-    address: tuple[str, int]
     
 @dataclass
 class EventOnConnectRegistry:
@@ -178,8 +182,8 @@ def _send_raw(connection: ThreadSafeSocket, body: dict):
         the socket.
     """
     stringified: str = json.dumps(body)
-    length_bytes: bytes = len(stringified).to_bytes(length=4, byteorder='little', signed=False)
-    connection.sendall(length_bytes + stringified.encode('utf-8'))
+    # length_bytes: bytes = len(stringified).to_bytes(length=4, byteorder='little', signed=False)
+    connection.sendall(stringified.encode('utf-8'))
     
 def _recv_raw(connection: ThreadSafeSocket) -> dict:
     """
@@ -197,10 +201,11 @@ def _recv_raw(connection: ThreadSafeSocket) -> dict:
     Returns:
         dict: The JSON message.
     """
-    length = int.from_bytes(connection.recv(4), byteorder='little', signed=False)
-    body = connection.recv(length)
-    if len(body) == 0:
-        raise ConnectionAbortedError()
+    # length = int.from_bytes(connection.recv(4), byteorder='little', signed=False)
+    body = connection.recv(0)
+    # if len(body) == 0:
+        # raise ConnectionAbortedError()
+        
     return json.loads(body.decode('utf-8'))
     
 
@@ -338,23 +343,26 @@ class NodeBase:
                     method=annotations['on_dc']
                 ))
                 
-        def connection_handler(connection, address):
-            self.__handle_conn_recv(connection, address)
+        def connection_handler(connection):
+            self.__handle_conn_recv(ThreadSafeSocket(connection))
                 
         
         
         def listener():
-            self.server = ThreadSafeSocket.create_listener(self.address)
-            while True:
-                try:
-                    conn, addr = self.server.accept()
-                    # conn = ThreadSafeSocket(conn)
-                    self.__launch_background_thread(connection_handler, fargs=(conn, addr))
-                except OSError as e:
-                    if e.winerror == 10038:
-                        break
-                    else:
-                        print(e)
+            with serve(connection_handler, address[0], address[1]) as server:
+                self.server = server
+                server.serve_forever()
+            # self.server = ThreadSafeSocket.create_listener(self.address)
+            # while True:
+            #     try:
+            #         conn, addr = self.server.accept()
+            #         # conn = ThreadSafeSocket(conn)
+            #         self.__launch_background_thread(connection_handler, fargs=(conn, addr))
+            #     except OSError as e:
+            #         if e.winerror == 10038:
+            #             break
+            #         else:
+            #             print(e)
                 
 
 
@@ -363,7 +371,7 @@ class NodeBase:
         
 
         
-    def __handle_registered_connection(self, name: str, connection: ThreadSafeSocket, address: tuple[str, int]):
+    def __handle_registered_connection(self, name: str, connection: ThreadSafeSocket):
         while True:
             try:
                 message = _recv_raw(connection)
@@ -378,7 +386,7 @@ class NodeBase:
                 
                 _send_raw(connection, packed.message)
     
-    def __handle_conn_recv(self, connection: ThreadSafeSocket, address: tuple[str, int]):
+    def __handle_conn_recv(self, connection: ThreadSafeSocket):
         registry = _recv_raw(connection)
         if 'name' not in registry:
             _send_raw(connection, { 'status': 'fail', 'reason': 'no registry name present' })
@@ -391,7 +399,7 @@ class NodeBase:
             return
         
         # Register the connection internally to keep track.
-        self.__register_duplex_connection(name, ConnectionRegistry(name, connection, address))
+        self.__register_duplex_connection(name, ConnectionRegistry(name, connection))
 
         
 
@@ -402,7 +410,7 @@ class NodeBase:
         
         _send_raw(connection, { 'status': 'success', 'name': self.network_name })
         
-        self.__handle_registered_connection(name, connection, address)
+        self.__handle_registered_connection(name, connection)
         
     def __dispatch_received_message(
         self,
@@ -452,7 +460,8 @@ class NodeBase:
     def connect(self, address: tuple[str, int]):
         # connection: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # connection.connect(address)
-        connection = ThreadSafeSocket.connect(address)
+        # connection = ThreadSafeSocket.connect(address)
+        connection = ThreadSafeSocket(ws_connect(f'ws://{address[0]}:{address[1]}'))
         
 
         # self.__send_message_targeted(target=)
@@ -467,7 +476,6 @@ class NodeBase:
         self.outbound_connections[target_name] = ConnectionRegistry(
             name=target_name,
             connection=connection,
-            address=address
         )
         
         for name in self.event_maps[NodeEvent.ON_CONNECT]:
@@ -475,10 +483,10 @@ class NodeBase:
             if evtha.method == NodeConnectionType.OUTBOUND:
                 evtha.functor(self, target_name)
                 
-        def con_handle(connection, address):
-            self.__handle_registered_connection(target_name, connection, address)
+        def con_handle(connection):
+            self.__handle_registered_connection(target_name, connection)
                 
-        self.__launch_background_thread(con_handle, fargs=(connection, address))
+        self.__launch_background_thread(con_handle, fargs=(connection,))
         
                 
     def __launch_background_thread(self, functor, fargs = None):
@@ -505,7 +513,7 @@ class NodeBase:
         
     def shutdown(self):
         self.stop_event.set()
-        self.server.close()
+        self.server.shutdown()
 
         for connection in self.outbound_connections.values():
             connection.connection.close()
