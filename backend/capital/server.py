@@ -1,9 +1,10 @@
 # # Capital server
 # # - Flask HTTP API on port 5000  (frontend talks here)
 # # - TCP listener on port 6000    (regional nodes talk here)
-from ..shared.node import NodeBase, node_handler
+from ..shared.node import NodeBase, node_handler, _send_raw
 import threading
 import datetime
+import uuid
 
 # from flask import Flask, jsonify, request
 # from flask_cors import CORS
@@ -55,7 +56,8 @@ class CapitalNode(NodeBase):
         if source not in self.heart_beat:
             self.heart_beat[source] = {}
         self.heart_beat[source]['last_contact'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    
+        self._broadcast_state()
+
     @node_handler(name="api.state_infrastructure")
     def get_capital_status(self, _m):
         return self.state_infrastructure
@@ -85,7 +87,29 @@ class CapitalNode(NodeBase):
             # if updated state is the capital then update it's local one as well
             if state_name == "Capital":
                 self.state_infrastructure = state_data
+
+        self._broadcast_state()
         return {"message":f"State {state_name} updated successfully."}
+
+    def _broadcast_state(self):
+        """Push current state to all connected frontend clients."""
+        payload = {
+            "route": "push.state_update",
+            "rid": str(uuid.uuid4()),
+            "body": {
+                "state": self.national_infrastructure,
+                "heartbeats": self.heart_beat,
+            }
+        }
+        dead = []
+        for name, entry in list(self.inbound_connections.items()):
+            if name.startswith("Frontend-"):
+                try:
+                    _send_raw(entry.connection, payload)
+                except Exception:
+                    dead.append(name)
+        for name in dead:
+            self.inbound_connections.pop(name, None)
 
 
 

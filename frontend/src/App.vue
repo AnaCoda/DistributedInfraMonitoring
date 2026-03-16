@@ -8,18 +8,6 @@
         ↺ Refresh
       </button>
 
-      <label class="flex gap-1.5 items-center text-sm cursor-pointer select-none">
-        <input type="checkbox" v-model="polling" class="cursor-pointer" />
-        Auto-poll
-      </label>
-
-      <div class="flex items-center gap-1.5 text-sm text-gray-600">
-        <span>Interval</span>
-        <input type="number" v-model.number="pollMs" min="250" step="250"
-          class="w-[90px] border border-gray-300 rounded px-2 py-1 text-sm" />
-        <span>ms</span>
-      </div>
-
       <span v-if="error" class="text-red-600 text-sm">{{ error }}</span>
       <span v-else class="text-gray-400 text-sm">Updated {{ lastFetchText }}</span>
 
@@ -185,7 +173,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import StatusBadge from "./components/StatusBadge.vue";
 import ProgressBar from "./components/ProgressBar.vue";
 import SiteValue   from "./components/SiteValue.vue";
@@ -194,20 +182,14 @@ import SiteValue   from "./components/SiteValue.vue";
 
 const data = ref({});
 const heartbeats = ref({});
-const loading = ref(false);
+const loading = ref(true);
 const error = ref("");
 const lastFetch = ref(null);
 
-const polling = ref(true);
-const pollMs = ref(1000);
-let timer = null;
 let reconnectTimer = null;
+let ws = null;
 
 const expanded = reactive({});
-
-// WebSocket state
-let aws = null;
-let fetching = false;
 const wsStatus = ref("disconnected");
 
 const exampleCommands = [
@@ -290,47 +272,33 @@ const lastFetchText = computed(() => {
   return new Date(lastFetch.value).toLocaleTimeString();
 });
 
-// --- WebSocket ---
+// ---- State update handler ----
 
-function openWebsocket(address) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(address);
-    ws.addEventListener("open", () => resolve(ws));
-    ws.addEventListener("error", (e) => reject(e));
-  });
+function applyStateUpdate(body) {
+  data.value = body.state ?? {};
+  heartbeats.value = body.heartbeats ?? {};
+  lastFetch.value = Date.now();
+  loading.value = false;
+  error.value = "";
 }
 
-class AsyncWebSocket {
-  constructor(ws) {
-    this.ws = ws;
-    this.queue = [];
-    this.waiters = [];
-    ws.addEventListener("message", (event) => {
-      const datum = JSON.parse(event.data);
-      if (this.waiters.length) {
-        this.waiters.shift()(datum);
-      } else {
-        this.queue.push(datum);
-      }
-    });
-  }
-
-  recv() {
-    if (this.queue.length) return Promise.resolve(this.queue.shift());
-    return new Promise(resolve => { this.waiters.push(resolve); });
-  }
-
-  send(msg) { this.ws.send(JSON.stringify(msg)); }
-}
+// ---- WebSocket ----
 
 async function connectWs() {
   wsStatus.value = "connecting";
   try {
-    const ws = await openWebsocket("ws://localhost:3042");
-    aws = new AsyncWebSocket(ws);
+    ws = new WebSocket("ws://localhost:3042");
 
-    aws.send({ name: `Frontend-${crypto.randomUUID()}` });
-    const handshake = await aws.recv();
+    await new Promise((resolve, reject) => {
+      ws.addEventListener("open", resolve, { once: true });
+      ws.addEventListener("error", reject, { once: true });
+    });
+
+    // Handshake
+    ws.send(JSON.stringify({ name: `Frontend-${crypto.randomUUID()}` }));
+    const handshake = await new Promise(resolve => {
+      ws.addEventListener("message", e => resolve(JSON.parse(e.data)), { once: true });
+    });
 
     if (handshake.status !== "success") {
       error.value = `WS handshake failed: ${handshake.reason ?? "unknown"}`;
@@ -344,13 +312,20 @@ async function connectWs() {
 
     ws.addEventListener("close", () => {
       wsStatus.value = "disconnected";
-      aws = null;
-      stopTimer();
+      ws = null;
       reconnectTimer = setTimeout(connectWs, 2000);
     });
 
-    await fetchNational();
-    startTimer();
+    // React to server-pushed state and explicit request responses
+    ws.addEventListener("message", (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.route === "push.state_update") {
+        applyStateUpdate(msg.body ?? {});
+      } else if (msg.route === "__response" && msg.body?.state) {
+        applyStateUpdate(msg.body);
+      }
+    });
+
   } catch (e) {
     error.value = "WebSocket error — is the capital server running?";
     wsStatus.value = "disconnected";
@@ -358,46 +333,18 @@ async function connectWs() {
   }
 }
 
-async function fetchNational() {
-  if (!aws || fetching) return;
-  fetching = true;
-  loading.value = true;
-  try {
-    error.value = "";
-    aws.send({ route: "api.national_infrastructure", rid: crypto.randomUUID(), body: {} });
-    const response = await aws.recv();
-    console.log(response)
-    const body = response.body ?? response;
-    data.value = body.state;
-    heartbeats.value = body.heartbeats ?? {};
-    lastFetch.value = Date.now();
-  } catch (e) {
-    error.value = e?.message ?? String(e);
-  } finally {
-    loading.value = false;
-    fetching = false;
-  }
-}
-
-function refreshNow() { fetchNational(); }
-
-function startTimer() {
-  stopTimer();
-  if (!polling.value) return;
-  timer = setInterval(fetchNational, Math.max(250, pollMs.value || 1000));
-}
-
-function stopTimer() {
-  if (timer) clearInterval(timer);
-  timer = null;
+function refreshNow() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({
+    route: "api.national_infrastructure",
+    rid: crypto.randomUUID(),
+    body: {}
+  }));
 }
 
 onMounted(() => connectWs());
 onUnmounted(() => {
-  stopTimer();
   if (reconnectTimer) clearTimeout(reconnectTimer);
-  if (aws) aws.ws.close();
+  if (ws) ws.close();
 });
-
-watch([polling, pollMs], () => startTimer());
 </script>
