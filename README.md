@@ -17,6 +17,16 @@ python -m backend.setup
 python -m replication.rmtest
 ```
 
+## Replica Failover Demo
+
+```bash
+python -m replication.failover_demo
+```
+- Around 10s, replica 1 goes down
+- Around 20s, replica 1 comes back up
+- Around 30s, replica 2 goes down
+- Around 40s, replica 1 goes down again, leaving only replica 3 up
+
 ## Frontend
 
 ```bash

@@ -307,7 +307,7 @@ class NodeBase:
     network_name: str
     routing_dict: dict = {}
     stop_event: Event = Event()
-    server: socket.socket = None
+    server: Any = None
     
     event_maps = {
         'on_connect': []
@@ -524,13 +524,15 @@ class NodeBase:
         
     def shutdown(self):
         self.stop_event.set()
-        self.server.shutdown()
+        if self.server is not None:
+            self.server.shutdown()
 
-        for connection in self.outbound_connections.values():
+        # Iterate over snapshots because close/disconnect handlers can mutate registries.
+        for connection in list(self.outbound_connections.values()):
             connection.connection.close()
-        for connection in self.inbound_connections.values():
+        for connection in list(self.inbound_connections.values()):
             connection.connection.close()
-        for event in self.response_registrar.values():
+        for event in list(self.response_registrar.values()):
             event.event.set()
 
     def __call_route(self, message: dict, sender: str) -> Optional[dict]:
