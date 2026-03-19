@@ -103,7 +103,7 @@ class CapitalNode(NodeBase):
         }
         dead = []
         for name, entry in list(self.inbound_connections.items()):
-            if name.startswith("Frontend-"):
+            if name.startswith("rm-"): # send to replication managers
                 try:
                     _send_raw(entry.connection, payload)
                 except Exception:

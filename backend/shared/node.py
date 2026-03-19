@@ -436,8 +436,9 @@ class NodeBase:
         rid: str = payload['rid']
         if route == '__response':
             # Set the event.
-            self.response_registrar[rid].event.set()
-            self.response_registrar[rid].response = payload['body']
+            if rid in self.response_registrar: # small fix for when replica managers send back ack message with same rid but isn't registered
+                self.response_registrar[rid].event.set()
+                self.response_registrar[rid].response = payload['body']
         else:
             output = self.__call_route(payload, source)
             if output is None:
