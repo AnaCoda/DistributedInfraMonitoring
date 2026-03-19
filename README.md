@@ -12,6 +12,11 @@ pip install -r requirements.txt
 python -m backend.setup     
 ```
 
+## Active Replication  (run INSTEAD of `python -m backend.setup`)
+```bash
+python -m replication.rmtest
+```
+
 ## Frontend
 
 ```bash

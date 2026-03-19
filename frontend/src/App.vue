@@ -10,6 +10,7 @@
 
       <span v-if="error" class="text-red-600 text-sm">{{ error }}</span>
       <span v-else class="text-gray-400 text-sm">Updated {{ lastFetchText }}</span>
+      <span v-if="endpointLabel" class="text-gray-400 text-xs">via {{ endpointLabel }}</span>
 
       <!-- WS status badge -->
       <span class="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border font-medium"
@@ -185,12 +186,28 @@ const heartbeats = ref({});
 const loading = ref(true);
 const error = ref("");
 const lastFetch = ref(null);
+const connectedEndpoint = ref("");
 
 let reconnectTimer = null;
 let ws = null;
 
 const expanded = reactive({});
 const wsStatus = ref("disconnected");
+
+const wsCandidates = (() => {
+  const raw = (import.meta.env.VITE_WS_ENDPOINTS || "").trim();
+  const defaults = [
+    "ws://localhost:4001",
+    "ws://localhost:4002",
+    "ws://localhost:4003",
+  ];
+
+  const parsed = raw
+    ? raw.split(",").map(v => v.trim()).filter(Boolean)
+    : defaults;
+
+  return [...new Set(parsed.filter(url => /^ws:\/\/localhost:4\d{3}$/i.test(url)))];
+})();
 
 const exampleCommands = [
   "python -m backend.setup",
@@ -272,6 +289,11 @@ const lastFetchText = computed(() => {
   return new Date(lastFetch.value).toLocaleTimeString();
 });
 
+const endpointLabel = computed(() => {
+  if (!connectedEndpoint.value) return "";
+  return connectedEndpoint.value.replace(/^ws:\/\//, "");
+});
+
 // ---- State update handler ----
 
 function applyStateUpdate(body) {
@@ -286,51 +308,71 @@ function applyStateUpdate(body) {
 
 async function connectWs() {
   wsStatus.value = "connecting";
-  try {
-    ws = new WebSocket("ws://localhost:3042");
-
-    await new Promise((resolve, reject) => {
-      ws.addEventListener("open", resolve, { once: true });
-      ws.addEventListener("error", reject, { once: true });
-    });
-
-    // Handshake
-    ws.send(JSON.stringify({ name: `Frontend-${crypto.randomUUID()}` }));
-    const handshake = await new Promise(resolve => {
-      ws.addEventListener("message", e => resolve(JSON.parse(e.data)), { once: true });
-    });
-
-    if (handshake.status !== "success") {
-      error.value = `WS handshake failed: ${handshake.reason ?? "unknown"}`;
-      wsStatus.value = "disconnected";
-      reconnectTimer = setTimeout(connectWs, 2000);
-      return;
-    }
-
-    wsStatus.value = "connected";
-    error.value = "";
-
-    ws.addEventListener("close", () => {
-      wsStatus.value = "disconnected";
-      ws = null;
-      reconnectTimer = setTimeout(connectWs, 2000);
-    });
-
-    // React to server-pushed state and explicit request responses
-    ws.addEventListener("message", (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.route === "push.state_update") {
-        applyStateUpdate(msg.body ?? {});
-      } else if (msg.route === "__response" && msg.body?.state) {
-        applyStateUpdate(msg.body);
-      }
-    });
-
-  } catch (e) {
-    error.value = "WebSocket error — is the capital server running?";
-    wsStatus.value = "disconnected";
-    reconnectTimer = setTimeout(connectWs, 2000);
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
   }
+
+  for (const endpoint of wsCandidates) {
+    try {
+      ws = new WebSocket(endpoint);
+
+      await new Promise((resolve, reject) => {
+        ws.addEventListener("open", resolve, { once: true });
+        ws.addEventListener("error", reject, { once: true });
+      });
+
+      // Handshake
+      ws.send(JSON.stringify({ name: `Frontend-${crypto.randomUUID()}` }));
+      const handshake = await new Promise(resolve => {
+        ws.addEventListener("message", e => resolve(JSON.parse(e.data)), { once: true });
+      });
+
+      if (handshake.status !== "success") {
+        ws.close();
+        ws = null;
+        continue;
+      }
+
+      wsStatus.value = "connected";
+      connectedEndpoint.value = endpoint;
+      error.value = "";
+      refreshNow();
+
+      ws.addEventListener("close", () => {
+        wsStatus.value = "disconnected";
+        connectedEndpoint.value = "";
+        ws = null;
+        reconnectTimer = setTimeout(connectWs, 2000);
+      });
+
+      // React to server-pushed state and explicit request responses
+      ws.addEventListener("message", (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.route === "push.state_update" || msg.route === "push.replica_state_update") {
+          applyStateUpdate(msg.body ?? {});
+        } else if (msg.route === "__response" && msg.body?.state) {
+          applyStateUpdate(msg.body);
+        }
+      });
+
+      return;
+    } catch (_e) {
+      if (ws) {
+        try {
+          ws.close();
+        } catch (_closeErr) {
+          //  continue trying other endpoints.
+        }
+      }
+      ws = null;
+    }
+  }
+
+  error.value = "WebSocket error: no replica reachable";
+  wsStatus.value = "disconnected";
+  connectedEndpoint.value = "";
+  reconnectTimer = setTimeout(connectWs, 2000);
 }
 
 function refreshNow() {

@@ -25,7 +25,7 @@ class ReplicationManager(NodeBase):
         self.manager_id = manager_id        
         self.capital_address = capital_address
         self.received_messages = []
-        self.national_states = {}
+        self.state = {}
         self.heartbeats = {}
 
     def _start(self):
@@ -42,10 +42,17 @@ class ReplicationManager(NodeBase):
         # store state, heartbeats from payload
         self.state = body["state"]
         self.heartbeats = body["heartbeats"]
-        print(f"[{self.network_name}] state updated from {sender}: {body["state"]}, {body["heartbeats"]}")
+        print(f"[{self.network_name}] state updated from {sender}")
 
         # pass to client
         self._broadcast_state()
+
+    @node_handler(name='api.national_infrastructure')
+    def get_national_status(self, _message):
+        return {
+            "state": self.state,
+            "heartbeats": self.heartbeats,
+        }
 
 
     def _broadcast_state(self):
