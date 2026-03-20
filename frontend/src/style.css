@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+.btn {
+  @apply border border-gray-300 rounded bg-white hover:bg-gray-50 cursor-pointer text-sm;
+}
+
+.th-cell {
+  @apply py-1.5 px-3 font-medium;
+}
+
+.td-cell {
+  @apply py-1.5 px-3;
+}
+
+.label-col {
+  @apply text-gray-500 w-[100px] shrink-0 text-xs;
+}
+
+.summary-card {
+  @apply rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm;
+}
+
+.summary-label {
+  @apply text-[11px] text-gray-400 uppercase tracking-wider mb-1;
+}
+
+.summary-value {
+  @apply text-2xl font-bold;
+}
