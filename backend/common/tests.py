@@ -1,5 +1,5 @@
 import unittest
-from .dictutil import merge_dictionaries, generate_patch
+from .dictutil import merge_dictionaries, generate_patch, Patch
 
 class DictUtils(unittest.TestCase):
 
@@ -13,11 +13,13 @@ class DictUtils(unittest.TestCase):
         original = { "version": 1, "hello": "fortran", "people": { "homer": 1 }, "sources": [1, 2] }
         updated = { "version": 2, "people": { "homer": 2, "seth": 3 }, "gamer": 4, "sources": [ 1, 3 ]}
         patch = generate_patch(original, updated)
-        print(patch)
+ 
+        patch = Patch.from_json(patch.to_json())
+
 
         patch.apply_inplace(original)
-
-        print(f'Original: {original}')
+        self.assertEqual(original, updated)
+        # print(f'Original: {original}')
 
 
     

@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import Any
 from enum import Enum
 
@@ -101,10 +102,17 @@ class PatchArray(PatchAction):
     index_sets: dict[int, Any]
     end: int
 
-    def __init__(self, path: str, end: int, sets: dict[int, Any]):
+    def __init__(self, path: str, end: int, index_sets: dict[int, Any]):
         super().__init__(PatchOp.PATCH_ARRAY, path)
+
+        # On occasion, we may receive a dictionary of type dict[str, Any],
+        # in this case we will try our best to parse it back to the correct form.
+        if isinstance(list(index_sets.keys())[0], str):
+            # print("YES")
+            index_sets = { int(k): v for k, v in index_sets.items() }
+
         self.end = end
-        self.index_sets = sets
+        self.index_sets = index_sets
 
     def apply(self, target):
         trg, name = _locate_patch(self.path, target)
@@ -124,6 +132,7 @@ def _get_patch_action_constructor(enum: PatchOp) -> type:
     else:
         raise RuntimeError(f'Unknown mapping for enum {enum}')
 
+from json import loads, dumps
 
 @dataclass
 class Patch:
@@ -132,7 +141,33 @@ class Patch:
     def __init__(self, actions: list[PatchAction]):
         self.actions = actions
 
+    def to_dict(self) -> dict:
+        return asdict(self)
     
+    def to_json(self) -> str:
+        return dumps(self.to_dict(), default=lambda x : str(x))
+        
+    @staticmethod
+    def from_json(obj: str) -> Patch:
+        return Patch.from_dict(loads(obj))
+    
+    @staticmethod
+    def from_dict(obj: dict) -> Patch:
+        actions = obj['actions']
+        real_actions: list[PatchAction] = []
+        for action in actions:
+            op = action['op']
+            if isinstance(op, str):
+                op = PatchOp[action['op'].split('.')[1]]
+
+            # op: str = action['op'].split('.')[1]
+            
+            del action['op']
+            # print(f'OP: {op}')
+            real_actions.append(_get_patch_action_constructor(op)(**action))
+        return Patch(real_actions)
+
+
 
     def apply_inplace(self, target: dict):
         for action in self.actions:
