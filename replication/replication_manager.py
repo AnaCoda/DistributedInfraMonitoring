@@ -27,6 +27,8 @@ class ReplicationManager(NodeBase):
         self.received_messages = []
         self.state = {}
         self.heartbeats = {}
+        self.synced = False
+        self.sync_event = threading.Event()
 
     def _start(self):
         """connect to capital"""
@@ -42,13 +44,18 @@ class ReplicationManager(NodeBase):
         # store state, heartbeats from payload
         self.state = body["state"]
         self.heartbeats = body["heartbeats"]
-        print(f"[{self.network_name}] state updated from {sender}")
+        # print(f"[{self.network_name}] state updated from {sender}")
+
+        self.synced = True
+        self.sync_event.set()
 
         # pass to client
         self._broadcast_state()
 
     @node_handler(name='api.national_infrastructure')
     def get_national_status(self, _message):
+        while not self.synced:
+            self.sync_event.wait()
         return {
             "state": self.state,
             "heartbeats": self.heartbeats,

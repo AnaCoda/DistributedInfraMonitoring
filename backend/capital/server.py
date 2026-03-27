@@ -52,7 +52,7 @@ class CapitalNode(NodeBase):
         
     @node_handler(name='api.region.heartbeat')
     def handle_region_heartbeat(self, message: dict, source: str):
-        print(f'Received heartbeat from {source}')
+        # print(f'Received heartbeat from {source}')
         if source not in self.heart_beat:
             self.heart_beat[source] = {}
         self.heart_beat[source]['last_contact'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -92,7 +92,7 @@ class CapitalNode(NodeBase):
         return {"message":f"State {state_name} updated successfully."}
 
     def _broadcast_state(self):
-        """Push current state to all connected frontend clients."""
+        """Push current state to all connected replication manager clients."""
         payload = {
             "route": "push.state_update",
             "rid": str(uuid.uuid4()),

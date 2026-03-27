@@ -47,18 +47,22 @@ def main():
         interval_ms=2000,
     )
 
-    replica_ports = {1: 4001, 2: 4002, 3: 4003}
+    replica_ports = {1: 4001, 2: 4005, 3: 4003}
     replicas: dict[int, ReplicationManager] = {
         rid: start_replica(rid, port) for rid, port in replica_ports.items()
     }
 
     # Timed failover events
     timeline = [
-        (10, "down", 1),
-        (20, "up", 1),
-        (30, "down", 2),
-        (40, "down", 1),
+        (5, "down", 1),
+        (10, "up", 1),
+        (15, "down", 2),
+        (20, "down", 1),
+        (25, "up", 2),
+        (26, "down", 3),
+        (30, "up", 3)
     ]
+    # timeline = []
 
     start_time = time.time()
     event_index = 0
@@ -77,7 +81,9 @@ def main():
                     elif action == "up" and manager_id not in replicas:
                         replicas[manager_id] = start_replica(manager_id, replica_ports[manager_id])
                     event_index += 1
-
+                    # print(f'Hello {event_index}')
+            else:
+                event_index = 0
             time.sleep(1)
 
     except KeyboardInterrupt:

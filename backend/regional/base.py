@@ -101,7 +101,7 @@ class RegionalNode(NodeBase, ABC):
         """
         msg: {"name","region_name","resource_type","resource_value"}
         """
-        print(f"[{self.region_name}] got report: {msg}")
+        # print(f"[{self.region_name}] got report: {msg}")
         # simplest: update the matching site object in self.sites
         site_name = msg.get("name")
         for s in self.sites:

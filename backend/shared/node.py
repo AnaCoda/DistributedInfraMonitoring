@@ -417,9 +417,9 @@ class NodeBase:
             if evtha.method == NodeConnectionType.INBOUND:
                 evtha.functor(self, name)
         
-        print("SENDING")
+        # print("SENDING")
         _send_raw(connection, { 'status': 'success', 'name': self.network_name })
-        print("DONE")
+        # print("DONE")
         self.__handle_registered_connection(name, connection)
         
     def __dispatch_received_message(
@@ -427,7 +427,7 @@ class NodeBase:
         source: str,
         payload: dict
     ):
-        print(f'[{self.network_name}] Received {payload}')
+        # print(f'[{self.network_name}] Received {payload}')
         if 'route' not in payload:
             raise NodeRpcError('No "route" key in the received payload.')
         if 'rid' not in payload:
@@ -620,7 +620,7 @@ class NodeBase:
         packed = self.__send_message_raw(conn.connection, method, body, rid=rid)
         # print(f'Payload A: {payload}\nPayload B: {packed.message}')
         
-        print(f'[{self.network_name}] Sending {packed.message}')
+        # print(f'[{self.network_name}] Sending {packed.message}')
         if not fire_and_forget:
             ev.wait()
             response: Optional[dict] = self.response_registrar[packed.rid].response
