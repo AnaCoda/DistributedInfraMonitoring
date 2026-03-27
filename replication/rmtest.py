@@ -10,7 +10,7 @@ import time
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from replication.replication_manager import ReplicationManager
+from backend.replication.replication_manager import ReplicationManager
 from backend.capital.server import CapitalNode
 from backend.regional.standard_region_node import StandardRegionNode
 from backend.regional.urban_region_node import UrbanRegionNode

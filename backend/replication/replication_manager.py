@@ -6,9 +6,9 @@ import json
 import os
 import uuid
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.shared.node import NodeBase, node_handler, NodeConnectionType, _send_raw
+from ..shared.node import NodeBase, node_handler, NodeConnectionType, _send_raw
 from typing import Optional
 
 
