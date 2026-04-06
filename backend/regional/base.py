@@ -18,22 +18,125 @@ class RegionalNode(NodeBase, ABC):
         self,
         region_name: str,
         address: Tuple[str, int],
-        capital_address: Tuple[str, int],
+        capital_candidates: List[Tuple[str, int]],
         interval_ms: int = 2000,
     ):
-        super().__init__(network_name=region_name, address=address)
-
         if region_name.strip().lower() == "capital":
             raise ValueError("Region name cannot be 'Capital' (reserved).")
 
+        # Pre-init fields BEFORE NodeBase starts interval threads
         self.region_name = region_name
-        self.capital_address = capital_address
+        self.capital_candidates = capital_candidates
+        self.current_capital_name: Optional[str] = None
         self.interval_ms = interval_ms
+
+        super().__init__(network_name=region_name, address=address)
 
         self.sites = self.build_sites()
 
-        # Establish outbound connection to capital (target registered by capital's network_name)
-        self.connect(capital_address)
+        self._connect_to_any_capital_candidate()
+
+
+    def _connect_to_any_capital_candidate(self):
+        for addr in self.capital_candidates:
+            try:
+                self.connect(addr)
+                print(f"[{self.region_name}] connected to candidate capital at {addr}")
+            except Exception as e:
+                print(f"[{self.region_name}] failed to connect to candidate {addr}: {e}")
+
+        self._discover_leader()
+
+    def _discover_leader(self):
+        # Reconnect to any missing candidate replicas first
+        for addr in self.capital_candidates:
+            try:
+                self.connect(addr)
+                print(f"[{self.region_name}] reconnected to candidate capital at {addr}")
+            except Exception:
+                pass
+
+        # Only trust a node that explicitly reports itself as leader
+        for name in list(self.outbound_connections.keys()):
+            if not name.startswith("rm-"):
+                continue
+
+            if not self.has_connection(name):
+                continue
+
+            try:
+                resp = self.send_message(name, "api.who_is_leader", {}, timeout=1.0)
+                leader = resp.get("leader")
+                is_leader = resp.get("is_leader", False)
+
+                if is_leader and leader == name:
+                    self.current_capital_name = leader
+                    print(f"[{self.region_name}] discovered active leader {leader}")
+                    return leader
+            except Exception:
+                # If this candidate is stale, drop it
+                try:
+                    if self.has_connection(name):
+                        self.disconnect(name)
+                except Exception:
+                    pass
+                continue
+
+        self.current_capital_name = None
+        return None
+
+    def _send_to_capital(self, method: str, body: dict):
+        if not self.current_capital_name or not self.has_connection(self.current_capital_name):
+            self.current_capital_name = None
+            self._discover_leader()
+
+        if not self.current_capital_name:
+            print(f"[{self.region_name}] no known capital leader for {method}")
+            return None
+
+        try:
+            return self.send_message(
+                target=self.current_capital_name,
+                method=method,
+                body=body,
+                timeout=1.0,
+            )
+        except Exception as e:
+            dead_leader = self.current_capital_name
+            print(f"[{self.region_name}] send to {dead_leader} failed: {e}")
+
+            # Clean out stale connection state for that leader
+            try:
+                if self.has_connection(dead_leader):
+                    self.disconnect(dead_leader)
+            except Exception:
+                pass
+
+            self.current_capital_name = None
+            self._discover_leader()
+
+            if not self.current_capital_name:
+                print(f"[{self.region_name}] retry failed: no leader available for {method}")
+                return None
+
+            try:
+                return self.send_message(
+                    target=self.current_capital_name,
+                    method=method,
+                    body=body,
+                    timeout=1.0,
+                )
+            except Exception as e2:
+                print(f"[{self.region_name}] retry to {self.current_capital_name} failed: {e2}")
+
+                try:
+                    if self.has_connection(self.current_capital_name):
+                        self.disconnect(self.current_capital_name)
+                except Exception:
+                    pass
+
+                self.current_capital_name = None
+                return None
 
     @abstractmethod
     def build_sites(self) -> List[Any]:
@@ -93,8 +196,10 @@ class RegionalNode(NodeBase, ABC):
     
     @node_handler(internal_ms=1000)
     def heartbeater(self):
-        if self.has_connection('Capital'):
-            self.send_message('Capital', 'api.region.heartbeat', { 'status': 'ok' })
+        if not any(name.startswith("rm-") for name in self.outbound_connections.keys()):
+            return
+
+        self._send_to_capital("api.region.heartbeat", {"status": "ok"})
 
     @node_handler(name="api.report")
     def handle_report(self, msg: dict):
@@ -123,8 +228,7 @@ class RegionalNode(NodeBase, ABC):
         self.simulate_tick()
         state = self.aggregate_state()
 
-        self.send_message(
-            target="Capital",
+        self._send_to_capital(
             method="api.update_state",
             body={
                 "name": self.region_name,

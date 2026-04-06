@@ -455,12 +455,19 @@ class NodeBase:
 
     def __deregister_duplex_connection(self, target: str):
         if target in self.outbound_connections:
-            self.outbound_connections[target].connection.close()
-            del self.outbound_connections[target]
+            try:
+                self.outbound_connections[target].connection.close()
+            except Exception:
+                pass
+            self.outbound_connections.pop(target, None)
+
         if target in self.inbound_connections:
-            self.inbound_connections[target].connection.close()
-            del self.inbound_connections[target]
-                
+            try:
+                self.inbound_connections[target].connection.close()
+            except Exception:
+                pass
+            self.inbound_connections.pop(target, None)
+                    
     def disconnect(self, name: str):
         
         self.__deregister_duplex_connection(name)
@@ -592,12 +599,27 @@ class NodeBase:
         self,
         target: str,
         method: str,
-        body: dict
+        body: dict,
+        timeout: Optional[float] = 2.0
     ):
-        return self.__send_message_targeted(target, method, body, rid=None, fire_and_forget=False)
+        return self.__send_message_targeted(
+            target,
+            method,
+            body,
+            rid=None,
+            fire_and_forget=False,
+            timeout=timeout
+        )
     
-    def __send_message_targeted(self, target: str, method: str, body: dict, rid: Optional[str] = None, fire_and_forget: bool = False):
-        # rid: str = str(uuid.uuid4()) if rid is None else rid
+    def __send_message_targeted(
+        self,
+        target: str,
+        method: str,
+        body: dict,
+        rid: Optional[str] = None,
+        fire_and_forget: bool = False,
+        timeout: Optional[float] = 2.0
+    ):        # rid: str = str(uuid.uuid4()) if rid is None else rid
         # payload: dict = {
         #     'route': method,
         #     'rid': rid,
@@ -622,12 +644,25 @@ class NodeBase:
         
         # print(f'[{self.network_name}] Sending {packed.message}')
         if not fire_and_forget:
-            ev.wait()
+            success = ev.wait(timeout=timeout)
+            if not success:
+                if packed.rid in self.response_registrar:
+                    del self.response_registrar[packed.rid]
+                raise TimeoutError(f"Timed out waiting for response from {target} on route {method}")
+
             response: Optional[dict] = self.response_registrar[packed.rid].response
             del self.response_registrar[packed.rid]
             return response
     
-
+    def send_message_no_wait(self, target: str, method: str, body: dict, rid: Optional[str] = None):
+        return self.__send_message_targeted(
+            target=target,
+            method=method,
+            body=body,
+            rid=rid,
+            fire_and_forget=True,
+            timeout=None,
+        )
     
 def node_handler(name: str = None, internal_ms: int = None, on_connect: NodeConnectionType = None, on_disconnect: NodeConnectionType = None):
     if name is not None and internal_ms is not None:
