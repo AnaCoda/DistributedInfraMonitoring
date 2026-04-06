@@ -14,13 +14,20 @@ class RegionalNode(NodeBase, ABC):
     - Periodically sends infra heartbeat via TCP RPC
     """
 
+    capital_name: str
+
     def __init__(
         self,
         region_name: str,
         address: Tuple[str, int],
         capital_candidates: List[Tuple[str, int]],
         interval_ms: int = 2000,
+        capital_name: str = 'Capital'
     ):
+        super().__init__(network_name=region_name, address=address)
+
+        self.capital_name = capital_name
+
         if region_name.strip().lower() == "capital":
             raise ValueError("Region name cannot be 'Capital' (reserved).")
 
@@ -195,7 +202,7 @@ class RegionalNode(NodeBase, ABC):
     def ping(self, message: dict):
         return {"pong": True, "region": self.network_name}
     
-    @node_handler(internal_ms=1000)
+    @node_handler(internal_ms=5000)
     def heartbeater(self):
         if not any(name.startswith("rm-") for name in self.outbound_connections.keys()):
             return

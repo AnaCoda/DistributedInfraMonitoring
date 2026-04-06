@@ -4,22 +4,26 @@ import time
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from backend.capital.server import CapitalNode
 from backend.regional.standard_region_node import StandardRegionNode
 from backend.regional.urban_region_node import UrbanRegionNode
 from backend.replication.replication_manager import ReplicationManager
 
 
-def start_replica(manager_id: int, port: int, peer_addresses: dict[int, tuple[str, int]]):
-    rm = ReplicationManager(
-        manager_id=manager_id,
-        peer_addresses=peer_addresses,
+def start_replica(manager_id: int, port: int) -> CapitalNode:
+    rm = CapitalNode(
+        network_name=f'rm_{manager_id}',
+        leader_address=("127.0.0.1", 3042),
         address=("127.0.0.1", port),
+        replica=True,
+        leader_name='rm_0'
     )
+    # rm._start()
     print(f"[demo] replica rm-{manager_id} started on ws://localhost:{port}")
     return rm
 
 
-def stop_replica(manager_id: int, replicas: dict[int, ReplicationManager]):
+def stop_replica(manager_id: int, replicas: dict[int, CapitalNode]):
     rm = replicas.pop(manager_id, None)
     if rm is None:
         return
@@ -27,129 +31,64 @@ def stop_replica(manager_id: int, replicas: dict[int, ReplicationManager]):
     print(f"[demo] replica rm-{manager_id} stopped")
 
 
-def start_region(region_type: str, name: str, port: int, capital_candidates):
-    if region_type == "standard":
-        region = StandardRegionNode(
-            region_name=name,
-            address=("127.0.0.1", port),
-            capital_candidates=capital_candidates,
-            interval_ms=2000,
-        )
-    else:
-        region = UrbanRegionNode(
-            region_name=name,
-            address=("127.0.0.1", port),
-            capital_candidates=capital_candidates,
-            interval_ms=2000,
-        )
-
-    print(f"[demo] region {name} started on ws://localhost:{port}")
-    return region
-
-
-def stop_region(region_name: str, regions: dict[str, object]):
-    region = regions.pop(region_name, None)
-    if region is None:
-        return
-    region.shutdown()
-    print(f"[demo] region {region_name} stopped")
-
-
-def tick_regions(regions: dict[str, object]):
-    for region in list(regions.values()):
-        try:
-            region.tick_and_send()
-        except Exception as e:
-            print(f"[demo] region tick failed for {getattr(region, 'region_name', 'unknown')}: {e}")
-
-
 def main():
-    replica_ports = {
-        1: 4001,
-        2: 4002,
-        3: 4003,
-        4: 4004,
-    }
-    peer_addresses = {rid: ("127.0.0.1", port) for rid, port in replica_ports.items()}
-    capital_candidates = list(peer_addresses.values())
+    print("[demo] starting capital + regions + replicas")
+    print("[demo] open frontend and watch 'via localhost:PORT' as failover occurs")
 
-    region_specs = {
-        "Carstairs": {"type": "standard", "port": 3051},
-        "Calgary": {"type": "urban", "port": 3052},
-    }
+    capital = CapitalNode(network_name="rm_0", leader_address=None, leader_name=None, address=("127.0.0.1", 3042))
+    carstairs = StandardRegionNode(
+        region_name="Carstairs",
+        address=("127.0.0.1", 3051),
+        capital_address=("127.0.0.1", 3042),
+        interval_ms=5000,
+        capital_name='rm_0'
+    )
+    calgary = UrbanRegionNode(
+        region_name="Calgary",
+        address=("127.0.0.1", 3052),
+        capital_address=("127.0.0.1", 3042),
+        interval_ms=5000,
+        capital_name='rm_0'
+    )
 
-    print("[demo] starting replicas")
-    replicas: dict[int, ReplicationManager] = {
-        rid: start_replica(rid, port, peer_addresses)
-        for rid, port in replica_ports.items()
-    }
-
-    time.sleep(2)
-
-    for rm in replicas.values():
-        rm._start()
-
-    time.sleep(2)
-
-    for rm in replicas.values():
-        rm.start_election()
-
-    print("[demo] starting regions")
-    regions: dict[str, object] = {
-        name: start_region(spec["type"], name, spec["port"], capital_candidates)
-        for name, spec in region_specs.items()
+    replica_ports = {1: 4003, 2: 4004, 3: 4005, 4: 4006, 5: 4007, 6: 4008}
+    replicas: dict[int, CapitalNode] = {
+        rid: start_replica(rid, port) for rid, port in replica_ports.items()
     }
 
+    # Timed failover events
     timeline = [
-        # Replica / capital failover
-        (8, "replica_down", 4),
-        (18, "replica_up", 4),
-        (28, "replica_down", 3),
-        (38, "replica_up", 3),
-
-        # Regional failure / recovery
-        (48, "region_down", "Calgary"),
-        (58, "region_up", "Calgary"),
-
-        # Another replica failure / recovery
-        (68, "replica_down", 2),
-        (78, "replica_up", 2),
+        (5, "down", 1),
+        (15, "up", 1),
+        (16, "down", 2),
+        (20, "down", 1),
+        (25, "up", 2),
+        (26, "down", 2),
+        (30, "up", 2)
     ]
+    # timeline = []
 
     start_time = time.time()
     event_index = 0
 
     try:
         while True:
-            tick_regions(regions)
+            carstairs.tick_and_send()
+            calgary.tick_and_send()
 
             elapsed = int(time.time() - start_time)
             if event_index < len(timeline):
-                trigger_second, action, target = timeline[event_index]
+                trigger_second, action, manager_id = timeline[event_index]
                 if elapsed >= trigger_second:
-                    if action == "replica_down":
-                        stop_replica(target, replicas)
-
-                    elif action == "replica_up" and target not in replicas:
-                        replicas[target] = start_replica(target, replica_ports[target], peer_addresses)
-                        time.sleep(1)
-                        replicas[target]._start()
-
-                    elif action == "region_down":
-                        stop_region(target, regions)
-
-                    elif action == "region_up" and target not in regions:
-                        time.sleep(3) # Avoid crash on existing infra nodes
-                        spec = region_specs[target]
-                        regions[target] = start_region(
-                            spec["type"],
-                            target,
-                            spec["port"],
-                            capital_candidates,
-                        )
-
+                    if action == "down":
+                        stop_replica(manager_id, replicas)
+                    elif action == "up" and manager_id not in replicas:
+                        replicas[manager_id] = start_replica(manager_id, replica_ports[manager_id])
                     event_index += 1
-
+                    # print(f'Hello {event_index}')
+            else:
+                start_time = time.time()
+                event_index = 0
             time.sleep(1)
 
     except KeyboardInterrupt:
@@ -158,8 +97,9 @@ def main():
         for manager_id in list(replicas.keys()):
             stop_replica(manager_id, replicas)
 
-        for region_name in list(regions.keys()):
-            stop_region(region_name, regions)
+        calgary.shutdown()
+        carstairs.shutdown()
+        capital.shutdown()
 
 
 if __name__ == "__main__":

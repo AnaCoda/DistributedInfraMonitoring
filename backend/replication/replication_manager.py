@@ -1,5 +1,11 @@
 import threading
 import time
+import random
+import sys
+import websockets
+import json
+import os
+from ..common.patching.mpatch import ManagedState, VersionedPatch
 import uuid
 
 from ..shared.node import NodeBase, node_handler, _send_raw
@@ -43,6 +49,10 @@ class ReplicationManager(BullyElectionMixin, NodeBase):
             address=address
         )
 
+        self.manager = ManagedState(version=0)
+
+        self.manager_id = manager_id        
+        self.capital_address = capital_address
         self.received_messages = []
         self.state = {}
         self.heartbeats = {}
@@ -51,6 +61,10 @@ class ReplicationManager(BullyElectionMixin, NodeBase):
         self.sync_event = threading.Event()
 
         self.state_version = 0
+        self.ready = False
+        self.ready_evt = threading.Event()
+        
+        
 
     def _start(self):
         """
@@ -185,6 +199,41 @@ class ReplicationManager(BullyElectionMixin, NodeBase):
 
         self.replicate_full_state()
         self._broadcast_state()
+    @node_handler(on_connect=NodeConnectionType.OUTBOUND)
+    def on_connect(self, name):
+        if name == 'Capital':
+            # We need to update the state.
+            rs = self.send_message('Capital', 'fast.forward', {})
+            # print(f"YAY {rs}")
+            self.manager.fast_forward(rs['__version'], rs['__state'])
+            self.ready = True
+            self.ready_evt.set()
+            print(f'[{self.network_name}] Fast-forwarded to version={self.manager.version}')
+
+    @node_handler(name='push.state_update')
+    def handle_state_update(self, body: dict, sender: str): 
+        """when capital node pushes out a state update, update these accordingly and push to clients"""
+
+
+        # print(f'received some state update')
+        # print(f'State: {body}')
+        version = VersionedPatch.from_dict(body)
+        # print(f'Version: {version}')
+       
+        # version = VersionedPatch.from_dict(body)
+        self.manager.apply_update(version)
+        # print(f'[{self.network_name}] Version = {self.manager.version}')
+        # # print(f'body: {body}')
+        # # store state, heartbeats from payload
+        # # self.state = body["state"]
+        # # self.heartbeats = body["heartbeats"]
+        # # print(f"[{self.network_name}] state updated from {sender}")
+
+        # self.synced = True
+        # self.sync_event.set()
+
+        # # pass to client
+        # self._broadcast_state()
 
         return {
             "status": "success",
