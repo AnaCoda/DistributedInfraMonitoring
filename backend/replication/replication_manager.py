@@ -1,6 +1,6 @@
 import threading
+import time
 import uuid
-from typing import Optional
 
 from ..shared.node import NodeBase, node_handler, _send_raw
 from ..shared.leader_election import BullyElectionMixin
@@ -23,10 +23,13 @@ class ReplicationManager(BullyElectionMixin, NodeBase):
         self.is_leader = False
         self.current_leader = None
 
+        # Capital-role state: the elected leader replica is the current capital
+        self.is_capital = False
+        self.current_capital = None
+
         self.heartbeat_interval_ms = 1000
         self.leader_timeout_ms = 3000
 
-        import time
         self.last_leader_heartbeat = time.time()
 
         self.election_lock = threading.Lock()
@@ -63,7 +66,6 @@ class ReplicationManager(BullyElectionMixin, NodeBase):
             except Exception as e:
                 print(f"[{self.network_name}] could not connect to peer rm-{rid}: {e}")
 
-        import time
         time.sleep(1)
 
         leader = self.discover_current_leader()
@@ -71,6 +73,16 @@ class ReplicationManager(BullyElectionMixin, NodeBase):
             return
 
         self.start_election()
+
+    def on_become_leader(self):
+        self.is_capital = True
+        self.current_capital = self.network_name
+        print(f"[{self.network_name}] became leader replica / capital")
+
+    def on_new_leader(self, leader: str):
+        self.is_capital = (leader == self.network_name)
+        self.current_capital = leader
+        print(f"[{self.network_name}] now following leader {leader}")
 
     @node_handler(internal_ms=1000)
     def election_tick(self):
@@ -116,6 +128,10 @@ class ReplicationManager(BullyElectionMixin, NodeBase):
             self.state = resp.get("state", self.state)
             self.heartbeats = resp.get("heartbeats", self.heartbeats)
             self.state_version = resp.get("version", self.state_version)
+            self.current_leader = resp.get("leader", self.current_leader)
+            self.current_capital = resp.get("capital", self.current_capital)
+            self.is_leader = (self.current_leader == self.network_name)
+            self.is_capital = (self.current_capital == self.network_name)
             self.synced = True
             self.sync_event.set()
         except Exception:
@@ -124,6 +140,18 @@ class ReplicationManager(BullyElectionMixin, NodeBase):
     @node_handler(name="api.who_is_leader")
     def who_is_leader(self, _body: dict):
         return {
+            "leader": self.current_leader,
+            "is_leader": self.is_leader,
+            "capital": self.current_capital,
+            "is_capital": self.is_capital,
+            "self": self.network_name,
+        }
+
+    @node_handler(name="api.who_is_capital")
+    def who_is_capital(self, _body: dict):
+        return {
+            "capital": self.current_capital,
+            "is_capital": self.is_capital,
             "leader": self.current_leader,
             "is_leader": self.is_leader,
             "self": self.network_name,
@@ -149,12 +177,19 @@ class ReplicationManager(BullyElectionMixin, NodeBase):
         self.synced = True
         self.sync_event.set()
 
+        # As leader, we are also the capital role holder.
+        self.current_leader = self.network_name
+        self.current_capital = self.network_name
+        self.is_leader = True
+        self.is_capital = True
+
         self.replicate_full_state()
         self._broadcast_state()
 
         return {
             "status": "success",
             "leader": self.network_name,
+            "capital": self.network_name,
             "version": self.state_version,
         }
 
@@ -171,6 +206,11 @@ class ReplicationManager(BullyElectionMixin, NodeBase):
             self.heartbeats[sender] = {}
         self.heartbeats[sender]["last_contact"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
+        self.current_leader = self.network_name
+        self.current_capital = self.network_name
+        self.is_leader = True
+        self.is_capital = True
+
         self.replicate_full_state()
         self._broadcast_state()
 
@@ -185,6 +225,12 @@ class ReplicationManager(BullyElectionMixin, NodeBase):
         self.state = body.get("state", {})
         self.heartbeats = body.get("heartbeats", {})
         self.state_version = version
+
+        self.current_leader = body.get("leader", self.current_leader)
+        self.current_capital = body.get("capital", self.current_capital)
+        self.is_leader = (self.current_leader == self.network_name)
+        self.is_capital = (self.current_capital == self.network_name)
+
         self.synced = True
         self.sync_event.set()
 
@@ -199,7 +245,9 @@ class ReplicationManager(BullyElectionMixin, NodeBase):
             "state": self.state,
             "heartbeats": self.heartbeats,
             "leader": self.current_leader,
+            "capital": self.current_capital,
             "is_leader": self.is_leader,
+            "is_capital": self.is_capital,
             "version": self.state_version,
         }
 
@@ -212,6 +260,7 @@ class ReplicationManager(BullyElectionMixin, NodeBase):
             "state": self.state,
             "heartbeats": self.heartbeats,
             "leader": self.network_name,
+            "capital": self.current_capital if self.current_capital else self.network_name,
         }
 
         for peer in self.connected_peer_names():
@@ -233,7 +282,9 @@ class ReplicationManager(BullyElectionMixin, NodeBase):
                 "state": self.state,
                 "heartbeats": self.heartbeats,
                 "leader": self.current_leader,
+                "capital": self.current_capital,
                 "is_leader": self.is_leader,
+                "is_capital": self.is_capital,
                 "version": self.state_version,
             }
         }
