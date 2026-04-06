@@ -1,5 +1,6 @@
 from .patch import Patch
-from dataclasses import dataclass
+from typing import Optional
+from dataclasses import dataclass, asdict
 import heapq
 
 @dataclass
@@ -13,6 +14,15 @@ class VersionedPatch(Patch):
     @staticmethod
     def diff(version, original: dict, updated: dict):
         return VersionedPatch(version, Patch.diff(original, updated))
+
+    def to_dict(self):
+        return asdict(self)
+    
+    @staticmethod
+    def from_dict(obj):
+        if 'actions' in obj:
+            return VersionedPatch(version=obj['version'], patch=Patch.from_dict(obj))
+        return VersionedPatch(**obj)
 
 from copy import deepcopy
 
@@ -65,17 +75,44 @@ class ManagedState:
             heapq.heappush(self.history, item)
         return status
     
+    def start_transaction(self) -> dict:
+        return deepcopy(self.inspect_dict())
+    
+    def end_transaction(self, obj: dict, apply: bool = False) -> Optional[VersionedPatch]:
+        patch = VersionedPatch.diff(-1, self.__internal, obj)
+        if len(patch.actions) == 0:
+            return None
+        else:
+            
+            # self.version += 1
+
+            patch.version = self.version + 1
+            if apply:
+                # print(f'Apply {apply}')
+                self.__apply_patch(patch)
+            return patch
+        # self.version += 1
+        # return VersionedPatch.diff(self.version + 1, original=)
+    
+    def fast_forward(self, version: int, obj: dict):
+        self.version = version
+        self.__internal = obj
+
+    def __apply_patch(self, patch: VersionedPatch):
+        heapq.heappush(self.history, (patch.version, patch))
+        if self.is_consistent():
+            # print(f'consistent')
+            while len(self.history) != 0:
+                vr, hs = heapq.heappop(self.history)
+                hs.apply_inplace(self.__internal)
+                self.version = vr
+
     def apply_update(self, patch: VersionedPatch):
         if patch.version <= self.version:
             # Discard update.
             return
         else:
-            heapq.heappush(self.history, (patch.version, patch))
-            if self.is_consistent():
-                while len(self.history) != 0:
-                    vr, hs = heapq.heappop(self.history)
-                    hs.apply_inplace(self.__internal)
-                    self.version = vr
+            self.__apply_patch(patch)
                 
         # print(f'Applying patch_version={patch.version}, current={self.last_applied_update}')
 

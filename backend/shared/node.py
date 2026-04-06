@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 import uuid
 import io
+import re
 from websockets.sync.server import serve
 from websockets.sync.client import ClientConnection, connect as ws_connect
 from websockets.sync.server import ServerConnection
@@ -187,7 +188,7 @@ def _send_raw(connection: ThreadSafeSocket, body: dict):
         body (dict): The actual message that should be sent over
         the socket.
     """
-    stringified: str = json.dumps(body)
+    stringified: str = json.dumps(body, default=lambda x : str(x))
     # length_bytes: bytes = len(stringified).to_bytes(length=4, byteorder='little', signed=False)
     connection.sendall(stringified)
     
@@ -326,6 +327,9 @@ class NodeBase:
             NodeEvent.ON_CONNECT: [],
             NodeEvent.ON_DISCONNECT: []
         }
+
+        self.initialized = False
+        self.init_evt = Event()
         
         self.response_registrar = {}
         
@@ -376,6 +380,8 @@ class NodeBase:
 
         self.__launch_background_thread(listener)
         
+        self.initialized = True
+        self.init_evt.set()
 
         
     def __handle_registered_connection(self, name: str, connection: ThreadSafeSocket):
@@ -396,7 +402,7 @@ class NodeBase:
     
     def __handle_conn_recv(self, connection: ThreadSafeSocket):
         registry = _recv_raw(connection)
-        print(f"recevied registry: {registry}")
+        # print(f"recevied registry: {registry}")
         if 'name' not in registry:
             _send_raw(connection, { 'status': 'fail', 'reason': 'no registry name present' })
             connection.close()
@@ -427,7 +433,6 @@ class NodeBase:
         source: str,
         payload: dict
     ):
-        # print(f'[{self.network_name}] Received {payload}')
         if 'route' not in payload:
             raise NodeRpcError('No "route" key in the received payload.')
         if 'rid' not in payload:
@@ -489,15 +494,17 @@ class NodeBase:
             connection=connection,
         )
         
-        for name in self.event_maps[NodeEvent.ON_CONNECT]:
-            evtha: dict = name
-            if evtha.method == NodeConnectionType.OUTBOUND:
-                evtha.functor(self, target_name)
+        
                 
         def con_handle(connection):
             self.__handle_registered_connection(target_name, connection)
                 
         self.__launch_background_thread(con_handle, fargs=(connection,))
+
+        for name in self.event_maps[NodeEvent.ON_CONNECT]:
+            evtha: dict = name
+            if evtha.method == NodeConnectionType.OUTBOUND:
+                evtha.functor(self, target_name)
         
                 
     def __launch_background_thread(self, functor, fargs = None):
@@ -517,6 +524,8 @@ class NodeBase:
             interval (_type_): _description_
         """
         def runnable():
+            while not self.initialized:
+                self.init_evt.wait()
             while not self.stop_event.is_set():
                 functor(self)
                 time.sleep(interval / 1000.0)
@@ -588,6 +597,35 @@ class NodeBase:
         _send_raw(connection, packed.message)
         return packed
     
+    def __send_message_loopback(
+        self,
+        method: str,
+        body: dict,
+        rid: Optional[str] = None
+    ):
+        packed = MessagePackingResult.pack_msg(method, body, set_rid=rid)
+        contents = json.loads(json.dumps(packed.message, default=lambda x : str(x)))
+        # print(f'contents: {contents}')
+        self.__call_route(contents, self.network_name)
+
+    def multicast(
+        self,
+        target_pattern: str,
+        method: str,
+        body: dict,
+        include_self: bool = False
+    ):
+        # print("YESS")
+        for name, _ in list(self.inbound_connections.items()):
+            
+            if re.match(target_pattern, name):
+                self.send_message(name, method, body)
+        # print("HEYEYE")
+        if include_self and re.match(target_pattern, self.network_name):
+            # print("SENDING TO SELF")
+            self.__send_message_loopback(method, body, rid=None)
+
+    
     def send_message(
         self,
         target: str,
@@ -620,7 +658,7 @@ class NodeBase:
         packed = self.__send_message_raw(conn.connection, method, body, rid=rid)
         # print(f'Payload A: {payload}\nPayload B: {packed.message}')
         
-        # print(f'[{self.network_name}] Sending {packed.message}')
+        # print(f'[{self.network_name}, dest={conn.name}] Sending {packed.message}')
         if not fire_and_forget:
             ev.wait()
             response: Optional[dict] = self.response_registrar[packed.rid].response

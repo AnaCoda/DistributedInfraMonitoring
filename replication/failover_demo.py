@@ -10,18 +10,20 @@ from backend.regional.urban_region_node import UrbanRegionNode
 from backend.replication.replication_manager import ReplicationManager
 
 
-def start_replica(manager_id: int, port: int):
-    rm = ReplicationManager(
-        manager_id=manager_id,
-        capital_address=("127.0.0.1", 3042),
+def start_replica(manager_id: int, port: int) -> CapitalNode:
+    rm = CapitalNode(
+        network_name=f'rm_{manager_id}',
+        leader_address=("127.0.0.1", 3042),
         address=("127.0.0.1", port),
+        replica=True,
+        leader_name='rm_0'
     )
-    rm._start()
+    # rm._start()
     print(f"[demo] replica rm-{manager_id} started on ws://localhost:{port}")
     return rm
 
 
-def stop_replica(manager_id: int, replicas: dict[int, ReplicationManager]):
+def stop_replica(manager_id: int, replicas: dict[int, CapitalNode]):
     rm = replicas.pop(manager_id, None)
     if rm is None:
         return
@@ -33,34 +35,36 @@ def main():
     print("[demo] starting capital + regions + replicas")
     print("[demo] open frontend and watch 'via localhost:PORT' as failover occurs")
 
-    capital = CapitalNode(network_name="Capital", address=("127.0.0.1", 3042))
+    capital = CapitalNode(network_name="rm_0", leader_address=None, leader_name=None, address=("127.0.0.1", 3042))
     carstairs = StandardRegionNode(
         region_name="Carstairs",
         address=("127.0.0.1", 3051),
         capital_address=("127.0.0.1", 3042),
-        interval_ms=2000,
+        interval_ms=5000,
+        capital_name='rm_0'
     )
     calgary = UrbanRegionNode(
         region_name="Calgary",
         address=("127.0.0.1", 3052),
         capital_address=("127.0.0.1", 3042),
-        interval_ms=2000,
+        interval_ms=5000,
+        capital_name='rm_0'
     )
 
-    replica_ports = {1: 4001, 2: 4005, 3: 4003}
-    replicas: dict[int, ReplicationManager] = {
+    replica_ports = {1: 4003, 2: 4004, 3: 4005, 4: 4006, 5: 4007, 6: 4008}
+    replicas: dict[int, CapitalNode] = {
         rid: start_replica(rid, port) for rid, port in replica_ports.items()
     }
 
     # Timed failover events
     timeline = [
         (5, "down", 1),
-        (10, "up", 1),
-        (15, "down", 2),
+        (15, "up", 1),
+        (16, "down", 2),
         (20, "down", 1),
         (25, "up", 2),
-        (26, "down", 3),
-        (30, "up", 3)
+        (26, "down", 2),
+        (30, "up", 2)
     ]
     # timeline = []
 
@@ -83,6 +87,7 @@ def main():
                     event_index += 1
                     # print(f'Hello {event_index}')
             else:
+                start_time = time.time()
                 event_index = 0
             time.sleep(1)
 
