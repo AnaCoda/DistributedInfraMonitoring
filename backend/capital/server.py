@@ -43,15 +43,37 @@ def _source_manager() -> ManagedState:
             }
         })
 
-class CapitalNode(NodeBase):
-    def __init__(self, network_name, leader_address, address, leader_name: str, replica: bool = False):
+from ..shared.leader_election import BullyElectionMixin
+
+class CapitalNode(BullyElectionMixin, NodeBase):
+    def __init__(
+            self,
+            network_name,
+            leader_address,
+            address,
+            leader_name: str,
+            replica: bool = False,
+            peer_addresses: dict[int, tuple[str, int]] = {}
+        ):
         
         self.ready = not replica
         self.ready_evt = threading.Event()
         super().__init__(network_name, address)
 
+
+        self.peer_addresses = peer_addresses
+        self.peer_names = [ p[0] for p in self.peer_addresses if p[0] != self.network_name ]
+        # self.peer_names = [f"rm-{rid}" for rid in peer_addresses.keys() if rid != manager_id]
+
+
         self.replica = replica
         self.leader_name = leader_name
+
+        self.is_capital = False
+        self.current_capital = None
+
+        self.is_leader = False
+        self.current_leader = None
         
         self.lock = threading.Lock()
         self.proxy_lock = threading.Lock()
@@ -60,9 +82,88 @@ class CapitalNode(NodeBase):
 
         self.replica_state = _source_manager() if not replica else ManagedState(version=0)
 
-        if replica:
-            self.connect(self.leader_address)
-            print(f'[{self.network_name}] Has connected to the capital.')
+
+        # Leader election stuff.
+        self.election_lock = threading.Lock()
+        self.election_in_progress = False
+        self.received_ok = False
+        self.awaiting_coordinator = False
+        self.coordinator_deadline = None
+        self.leader_timeout_ms = 3000
+
+
+
+        # if replica:
+            # self.connect(self.leader_address)
+            # print(f'[{self.network_name}] Has connected to the capital.')
+
+    
+
+    ####
+    ## ELECTION MGMT.
+    ####
+    @node_handler(name="api.who_is_leader")
+    def who_is_leader(self, _body: dict):
+        return {
+            "leader": self.current_leader,
+            "is_leader": self.is_leader,
+            "self": self.network_name,
+        }
+    
+    @node_handler(internal_ms=1000)
+    def election_tick(self):
+        if not hasattr(self, "is_leader"):
+            return
+        self.step_election()
+
+    @node_handler(internal_ms=2000)
+    def peer_reconnect_tick(self):
+
+        for rid, addr_str, port in self.peer_addresses:
+            # print(f'Item: {it}')
+            addr = (addr_str, port)
+            if rid == self.network_name:
+                continue
+
+            peer_name = f"rm-{rid}"
+            if self.has_connection(peer_name):
+                continue
+
+            try:
+                self.connect(addr)
+                print(f"[{self.network_name}] reconnected to peer {peer_name}")
+            except Exception:
+                try:
+                    if self.has_connection(peer_name):
+                        self.disconnect(peer_name)
+                except Exception:
+                    pass
+                continue
+
+    @node_handler(internal_ms=2500)
+    def leader_sync_tick(self):
+        if not self.is_leader:
+            self.try_refresh_from_leader()
+
+    def try_refresh_from_leader(self):
+        if not self.current_leader:
+            return
+        
+
+    def on_become_leader(self):
+        self.is_leader = True
+        self.current_leader = self.network_name
+        print(f'[{self.network_name}] I am the new leader.')
+
+    def on_new_leader(self, leader):
+        self.is_leader = True
+        self.current_leader = leader
+        # super().on_new_leader(leader)
+        print(f'[{self.network_name}] Acknowleding {leader} as leader.')
+
+    ####
+    ## OTHER CAPITAL STUFF
+    ####
 
     def __proxy_call(self, call, proxy_name: str, data, source = None):
         with self.proxy_lock:
@@ -93,7 +194,7 @@ class CapitalNode(NodeBase):
   
     @node_handler(name='push.state_update')
     def handle_state_update(self, body: dict, sender: str):
-        # print('Received a state update...')
+        print('Received a state update...')
         
         version = VersionedPatch.from_dict(body)
         
@@ -163,6 +264,8 @@ class CapitalNode(NodeBase):
 
             # og = copy.deepcopy(trs)
             # print(f'yoo: {state_data}')
+
+            # print(f'{self.network_name} | {trs}')
             # Updates overview of all states
             trs['state'][state_name] = state_data
 
@@ -179,6 +282,7 @@ class CapitalNode(NodeBase):
 
     @node_handler(name='api.region.heartbeat')
     def handle_region_heartbeat(self, message: dict, source: str):
+        print(f'Received msg={message}, src={source}')
         self.__proxy_call(
             call=self.__handle_heartbeat,
             proxy_name='api.proxy.region.heartbeat',

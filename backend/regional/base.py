@@ -20,13 +20,14 @@ class RegionalNode(NodeBase, ABC):
         self,
         region_name: str,
         address: Tuple[str, int],
-        capital_candidates: List[Tuple[str, int]],
+        capital_candidates: List[Tuple[str, str, int]],
         interval_ms: int = 2000,
         capital_name: str = 'Capital'
     ):
         super().__init__(network_name=region_name, address=address)
 
         self.capital_name = capital_name
+        
 
         if region_name.strip().lower() == "capital":
             raise ValueError("Region name cannot be 'Capital' (reserved).")
@@ -37,17 +38,23 @@ class RegionalNode(NodeBase, ABC):
         self.current_capital_name: Optional[str] = None
         self.interval_ms = interval_ms
 
-        super().__init__(network_name=region_name, address=address)
+        # super().__init__(network_name=region_name, address=address)
 
         self.sites = self.build_sites()
 
-        self._connect_to_any_capital_candidate()
 
 
-    def _connect_to_any_capital_candidate(self):
-        for addr in self.capital_candidates:
+        # self._connect_to_any_capital_candidate()
+
+
+    @node_handler(internal_ms=500)
+    def connect_to_any_capital_candidate(self):
+        for name, addr, port in self.capital_candidates:
+            # print(addr)
+            if self.has_connection(name):
+                continue
             try:
-                self.connect(addr)
+                self.connect((addr, port))
                 print(f"[{self.region_name}] connected to candidate capital at {addr}")
             except Exception as e:
                 print(f"[{self.region_name}] failed to connect to candidate {addr}: {e}")
@@ -74,6 +81,7 @@ class RegionalNode(NodeBase, ABC):
 
             try:
                 resp = self.send_message(name, "api.who_is_leader", {}, timeout=1.0)
+                print(f'Resp: {resp}')
                 leader = resp.get("leader")
                 is_leader = resp.get("is_leader", False)
 
@@ -202,11 +210,12 @@ class RegionalNode(NodeBase, ABC):
     def ping(self, message: dict):
         return {"pong": True, "region": self.network_name}
     
-    @node_handler(internal_ms=5000)
+    @node_handler(internal_ms=1000)
     def heartbeater(self):
+        # print('calling method')
         if not any(name.startswith("rm-") for name in self.outbound_connections.keys()):
             return
-
+        # print(f'Opening heartbeat')
         self._send_to_capital("api.region.heartbeat", {"status": "ok"})
 
     @node_handler(name="api.report")

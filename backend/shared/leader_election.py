@@ -31,6 +31,8 @@ class BullyElectionMixin:
         self.heartbeat_interval_ms = heartbeat_interval_ms
         self.leader_timeout_ms = leader_timeout_ms
 
+        
+
         self.last_leader_heartbeat = time.time()
 
         self.election_lock = threading.Lock()
@@ -47,17 +49,20 @@ class BullyElectionMixin:
             return int(name.split("-")[-1])
         except Exception:
             return -1
+        
+    def get_node_id(self):
+        return int(self.network_name.split('-')[1])
 
     def higher_peer_names(self):
         return [
             peer for peer in self.peer_names
-            if self._peer_id_from_name(peer) > self.node_id
+            if self._peer_id_from_name(peer) > self.get_node_id()
         ]
 
     def lower_peer_names(self):
         return [
             peer for peer in self.peer_names
-            if self._peer_id_from_name(peer) < self.node_id
+            if self._peer_id_from_name(peer) < self.get_node_id()
         ]
 
     def connected_peer_names(self):
@@ -88,7 +93,7 @@ class BullyElectionMixin:
                         method="election.start",
                         body={
                             "candidate": self.network_name,
-                            "candidate_id": self.node_id,
+                            "candidate_id": self.get_node_id(),
                         },
                     )
                 except Exception as e:
@@ -123,7 +128,7 @@ class BullyElectionMixin:
                     method="election.coordinator",
                     body={
                         "leader": self.network_name,
-                        "leader_id": self.node_id,
+                        "leader_id": self.get_node_id(),
                     },
                 )
             except Exception as e:
@@ -136,14 +141,20 @@ class BullyElectionMixin:
     def step_election(self):
         now = time.time()
 
+        
+
         if self.is_leader:
             self.send_leader_heartbeat()
             return
+        
+       
 
         # If we have no peer connections yet, do nothing
         if len(self.connected_peer_names()) == 0:
             return
-
+        
+      
+        
         if self.current_leader is None:
             self.start_election()
             return
@@ -181,7 +192,7 @@ class BullyElectionMixin:
                     method="leader.heartbeat",
                     body={
                         "leader": self.network_name,
-                        "leader_id": self.node_id,
+                        "leader_id": self.get_node_id(),
                         "ts": time.time(),
                     },
                 )
@@ -198,14 +209,14 @@ class BullyElectionMixin:
         candidate_id = body.get("candidate_id")
 
         # Reply OK if we outrank them
-        if self.node_id > int(candidate_id):
+        if self.get_node_id() > int(candidate_id):
             try:
                 self.send_message_no_wait(
                     target=sender,
                     method="election.ok",
                     body={
                         "responder": self.network_name,
-                        "responder_id": self.node_id,
+                        "responder_id": self.get_node_id(),
                     },
                 )
             except Exception as e:

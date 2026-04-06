@@ -587,12 +587,13 @@ class NodeBase:
     #     body: dict
     # ) -> None:
         
-    def has_connection(self, target: str) -> bool:
+    def has_connection(self, target: Optional[str], address: Optional[tuple[str, int]] = None) -> bool:
+        # if target is not None:
         for conn in self.outbound_connections.keys():
             if conn == target:
                 return True
         return False
-        
+    
     def __send_message_raw(
         self,
         connection: ThreadSafeSocket,

@@ -7,16 +7,17 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.capital.server import CapitalNode
 from backend.regional.standard_region_node import StandardRegionNode
 from backend.regional.urban_region_node import UrbanRegionNode
-from backend.replication.replication_manager import ReplicationManager
+# from backend.replication.replication_manager import ReplicationManager
 
 
-def start_replica(manager_id: int, port: int) -> CapitalNode:
+def start_replica(manager_id: int, port: int, peer_addresses: tuple[str, str, int]) -> CapitalNode:
     rm = CapitalNode(
-        network_name=f'rm_{manager_id}',
+        network_name=f'rm-{manager_id}',
         leader_address=("127.0.0.1", 3042),
         address=("127.0.0.1", port),
         replica=True,
-        leader_name='rm_0'
+        leader_name='rm-0',
+        peer_addresses=peer_addresses
     )
     # rm._start()
     print(f"[demo] replica rm-{manager_id} started on ws://localhost:{port}")
@@ -35,25 +36,34 @@ def main():
     print("[demo] starting capital + regions + replicas")
     print("[demo] open frontend and watch 'via localhost:PORT' as failover occurs")
 
-    capital = CapitalNode(network_name="rm_0", leader_address=None, leader_name=None, address=("127.0.0.1", 3042))
-    carstairs = StandardRegionNode(
-        region_name="Carstairs",
-        address=("127.0.0.1", 3051),
-        capital_address=("127.0.0.1", 3042),
-        interval_ms=5000,
-        capital_name='rm_0'
-    )
-    calgary = UrbanRegionNode(
-        region_name="Calgary",
-        address=("127.0.0.1", 3052),
-        capital_address=("127.0.0.1", 3042),
-        interval_ms=5000,
-        capital_name='rm_0'
-    )
+    # ports = []
 
-    replica_ports = {1: 4003, 2: 4004, 3: 4005, 4: 4006, 5: 4007, 6: 4008}
+    # capital = CapitalNode(network_name="rm-0", leader_address=None, leader_name=None, address=("127.0.0.1", 3042))
+    replica_ports = {0: 4003, 1:4004, 2:4005}
+
+    capital_addrs = [ (f'rm-{k}', '127.0.0.1', p) for k, p in replica_ports.items() ]
+    
+    # carstairs = StandardRegionNode(
+    #     region_name="Carstairs",
+    #     address=("127.0.0.1", 3051),
+    #     capital_candidates=capital_addrs,
+    #     interval_ms=5000,
+    #     capital_name='rm-0'
+    # )
+    # calgary = UrbanRegionNode(
+    #     region_name="Calgary",
+    #     address=("127.0.0.1", 3052),
+    #     capital_candidates=capital_addrs,
+    #     interval_ms=5000,
+    #     capital_name='rm-0'
+    # )
+
+    print("hello")
+
+    # replica_ports = {1: 4003, 2: 4004, 3: 4005, 4: 4006, 5: 4007, 6: 4008}
+    # replica_ports = {0: 4003, 1:4003, 2:4004}
     replicas: dict[int, CapitalNode] = {
-        rid: start_replica(rid, port) for rid, port in replica_ports.items()
+        rid: start_replica(rid, port, capital_addrs) for rid, port in replica_ports.items()
     }
 
     # Timed failover events
@@ -66,15 +76,15 @@ def main():
         (26, "down", 2),
         (30, "up", 2)
     ]
-    # timeline = []
+    timeline = []
 
     start_time = time.time()
     event_index = 0
 
     try:
         while True:
-            carstairs.tick_and_send()
-            calgary.tick_and_send()
+            # carstairs.tick_and_send()
+            # calgary.tick_and_send()
 
             elapsed = int(time.time() - start_time)
             if event_index < len(timeline):
@@ -97,9 +107,9 @@ def main():
         for manager_id in list(replicas.keys()):
             stop_replica(manager_id, replicas)
 
-        calgary.shutdown()
-        carstairs.shutdown()
-        capital.shutdown()
+        # calgary.shutdown()
+        # carstairs.shutdown()
+        # capital.shutdown()
 
 
 if __name__ == "__main__":
