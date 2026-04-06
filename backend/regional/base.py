@@ -46,6 +46,7 @@ class RegionalNode(NodeBase, ABC):
                 print(f"[{self.region_name}] failed to connect to candidate {addr}: {e}")
 
         self._discover_leader()
+        self.restore_from_capital()
 
     def _discover_leader(self):
         # Reconnect to any missing candidate replicas first
@@ -241,3 +242,42 @@ class RegionalNode(NodeBase, ABC):
                 },
             }
         )
+
+# -------------------------
+# Fault Tolerance Recovery
+# -------------------------
+
+    def restore_from_capital(self):
+        if not self.current_capital_name:
+            return False
+
+        try:
+            resp = self.send_message(
+                self.current_capital_name,
+                "api.get_region_state",
+                {"name": self.region_name},
+                timeout=1.0,
+            )
+        except Exception as e:
+            print(f"[{self.region_name}] failed to restore state from capital: {e}")
+            return False
+
+        if resp.get("status") != "success":
+            print(f"[{self.region_name}] no previous saved state available")
+            return False
+
+        data = resp.get("data", {})
+        meta = data.get("meta", {})
+        sites = meta.get("sites", [])
+
+        # Restore site-level state when possible
+        site_map = {s.get("name"): s for s in sites if isinstance(s, dict)}
+        for local_site in self.sites:
+            local_name = getattr(local_site, "name", None)
+            if local_name in site_map:
+                restored = site_map[local_name]
+                if "resource_value" in restored:
+                    local_site.resource_value = restored["resource_value"]
+
+        print(f"[{self.region_name}] restored previous state from capital {self.current_capital_name}")
+        return True

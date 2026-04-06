@@ -299,3 +299,70 @@ class ReplicationManager(BullyElectionMixin, NodeBase):
 
         for name in dead:
             self.inbound_connections.pop(name, None)
+
+# ----------------
+# Fault Detection
+# ----------------
+
+    def _heartbeat_age_seconds(self, iso_ts: str):
+        import datetime
+        try:
+            dt = datetime.datetime.fromisoformat(iso_ts)
+            now = datetime.datetime.now(datetime.timezone.utc)
+            return (now - dt).total_seconds()
+        except Exception:
+            return None
+        
+
+    @node_handler(internal_ms=2000)
+    def stale_region_check_tick(self):
+        if not self.is_leader:
+            return
+
+        stale_changed = False
+        for region_name, hb in self.heartbeats.items():
+            ts = hb.get("last_contact")
+            if not ts:
+                continue
+
+            age = self._heartbeat_age_seconds(ts)
+            is_stale = age is not None and age > 5
+
+            if hb.get("is_stale") != is_stale:
+                hb["is_stale"] = is_stale
+                stale_changed = True
+
+        if stale_changed:
+            self.replicate_full_state()
+            self._broadcast_state()
+
+    @node_handler(name="api.get_region_state")
+    def get_region_state(self, body: dict, _sender: str):
+        region_name = body.get("name")
+        if not region_name:
+            return {"status": "fail", "reason": "missing region name"}
+
+        region_state = self.state.get(region_name)
+        if region_state is None:
+            return {"status": "fail", "reason": f"no saved state for region {region_name}"}
+
+        return {
+            "status": "success",
+            "region": region_name,
+            "data": region_state,
+            "leader": self.current_leader,
+            "capital": self.current_capital,
+            "version": self.state_version,
+        }
+
+
+    def restart_site_by_name(self, site_name: str):
+        for i, s in enumerate(self.sites):
+            if getattr(s, "name", None) == site_name:
+                site_type = type(s)
+                region_addr = self.address
+                new_site = site_type(site_name, self.region_name, self.infra_addr(site_name), region_addr)
+                self.sites[i] = new_site
+                print(f"[{self.region_name}] restarted site {site_name}")
+                return True
+        return False
