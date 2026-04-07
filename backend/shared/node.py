@@ -300,6 +300,101 @@ def param_count(fn):
     sig = inspect.signature(fn)
     return len(sig.parameters)
 
+@dataclass
+class _NodeTrigger:
+    name: str
+    event: Event
+    state: bool
+    lock: Lock
+
+class TriggerMap:
+
+    def __init__(self):
+        self.map: dict[str, _NodeTrigger] = {}
+        self.lock = Lock()
+
+    def __guarantee_trigger(self, name: str):
+        if name not in self.map:
+            self.map[name] = _NodeTrigger(name, Event(), False, Lock())
+    
+    def set_trigger(self, name: str):
+        print(f"SETTING TRIGGER {name}")
+        with self.lock:
+            self.__guarantee_trigger(name)
+            with self.map[name].lock:
+                self.map[name].state = True
+            self.map[name].event.set()
+        
+    def add_or_wait_trigger(self, name: str):
+        trigger = None
+        with self.lock:
+            self.__guarantee_trigger(name)
+            trigger = self.map[name]
+        while True:
+            with trigger.lock:
+                if trigger.state:
+                    break
+            print(f'WAITING ON TRIGGER: {name}')
+            trigger.event.wait()
+
+class ConnectionMap:
+
+    def __init__(self):
+        self.lock = Lock()
+        # self.inbound_connections: dict[str, ConnectionRegistry] = {}
+        self.outbound_connections: dict[str, ConnectionRegistry] = {}
+
+    def register(self, name, entry: ConnectionRegistry):
+        with self.lock:
+            # self.inbound_connections[name] = entry
+            self.outbound_connections[name] = entry
+
+    def deregister(self, target: str):
+        with self.lock:
+            if target in self.outbound_connections:
+                try:
+                    self.outbound_connections[target].connection.close()
+                except Exception:
+                    pass
+                self.outbound_connections.pop(target, None)
+
+            # if target in self.inbound_connections:
+            #     try:
+            #         self.inbound_connections[target].connection.close()
+            #     except Exception:
+            #         pass
+            #     self.inbound_connections.pop(target, None)
+
+    def has_inbound_connection(self, name: str):
+        return self.has_outbound_connection(name)
+    
+    def has_outbound_connection(self, name: str):
+        with self.lock:
+            return name in self.outbound_connections
+    
+    def has_connection(self, name: str):
+        with self.lock:
+            return (name in self.outbound_connections)
+
+    def shutdown(self):
+        with self.lock:
+            for connection in list(self.outbound_connections.values()):
+                connection.connection.close()
+            # for connection in list(self.inbound_connections.values()):
+            #     connection.connection.close()
+                
+    def get_inbound_names(self):
+        with self.lock:
+            return list(self.get_outbound_names.keys())
+        
+    def get_outbound_names(self):
+        with self.lock:
+            return list(self.outbound_connections.keys())
+        
+    def get_connection(self, name: str) -> ConnectionRegistry:
+        with self.lock:
+            return self.outbound_connections[name]
+
 class NodeBase:
     """
     The basic node name providing connection details
@@ -319,8 +414,11 @@ class NodeBase:
         self.address = address
         
         self.routing_dict = {}
-        self.inbound_connections: dict[str, ConnectionRegistry] = {}
-        self.outbound_connections: dict[str, ConnectionRegistry] = {}
+
+        self.connection_map = ConnectionMap()
+
+        # self.inbound_connections: dict[str, ConnectionRegistry] = {}
+        # self.outbound_connections: dict[str, ConnectionRegistry] = {}
         self.stop_event = Event()
         self.server = None
         self.event_maps: dict[NodeEvent, list[Any]] = {
@@ -383,12 +481,24 @@ class NodeBase:
         self.initialized = True
         self.init_evt.set()
 
+        self.triggers = TriggerMap()
+
         
+    ###
+    ## TRIGGERS
+    ###
+    def wait_trigger(self, name: str):
+        self.triggers.add_or_wait_trigger(name)
+    
+    def set_trigger(self, name: str):
+        self.triggers.set_trigger(name)
+
+
     def __handle_registered_connection(self, name: str, connection: ThreadSafeSocket):
         while True:
             try:
                 message = _recv_raw(connection)
-                self.__dispatch_received_message(name, message)
+                self.__dispatch_received_message(name, message, response_connection=connection)
             except (ConnectionAbortedError, ConnectionResetError, websockets.exceptions.ConnectionClosedOK):
                 for evtha in self.event_maps[NodeEvent.ON_DISCONNECT]:
                     if evtha.method == NodeConnectionType.INBOUND:
@@ -400,6 +510,8 @@ class NodeBase:
                 
                 _send_raw(connection, packed.message)
     
+  
+
     def __handle_conn_recv(self, connection: ThreadSafeSocket):
         registry = _recv_raw(connection)
         # print(f"recevied registry: {registry}")
@@ -408,8 +520,8 @@ class NodeBase:
             connection.close()
             return
         name: str = registry['name']
-        if name in self.inbound_connections:
-            _send_raw(connection, { 'status': 'fail', 'reason': 'name currently in use.' })
+        if self.connection_map.has_inbound_connection(name):
+            _send_raw(connection, { 'status': 'fail', 'reason': f'connection already exists for {name}' })
             connection.close()
             return
         
@@ -431,7 +543,8 @@ class NodeBase:
     def __dispatch_received_message(
         self,
         source: str,
-        payload: dict
+        payload: dict,
+        response_connection: Optional[ThreadSafeSocket] = None
     ):
         if 'route' not in payload:
             raise NodeRpcError('No "route" key in the received payload.')
@@ -447,31 +560,40 @@ class NodeBase:
         else:
             output = self.__call_route(payload, source)
             if output is None:
-                
-                self.__send_message_targeted(source, '__response', rid=rid, body={
-                    'status': 'success'
-                }, fire_and_forget=True)
+                if response_connection is not None:
+                    self.__send_message_raw(response_connection, '__response', {
+                        'status': 'success'
+                    }, rid=rid)
+                else:
+                    self.__send_message_targeted(source, '__response', rid=rid, body={
+                        'status': 'success'
+                    }, fire_and_forget=True)
             else:
-                self.__send_message_targeted(source, '__response', rid=rid, body=output, fire_and_forget=True)
+                if response_connection is not None:
+                    self.__send_message_raw(response_connection, '__response', output, rid=rid)
+                else:
+                    self.__send_message_targeted(source, '__response', rid=rid, body=output, fire_and_forget=True)
             
     def __register_duplex_connection(self, target: str, entry: ConnectionRegistry):
-        self.outbound_connections[target] = entry
-        self.inbound_connections[target] = entry
+        self.connection_map.register(target, entry)
+        # self.outbound_connections[target] = entry
+        # self.inbound_connections[target] = entry
 
     def __deregister_duplex_connection(self, target: str):
-        if target in self.outbound_connections:
-            try:
-                self.outbound_connections[target].connection.close()
-            except Exception:
-                pass
-            self.outbound_connections.pop(target, None)
+        self.connection_map.deregister(target)
+        # if target in self.outbound_connections:
+        #     try:
+        #         self.outbound_connections[target].connection.close()
+        #     except Exception:
+        #         pass
+        #     self.outbound_connections.pop(target, None)
 
-        if target in self.inbound_connections:
-            try:
-                self.inbound_connections[target].connection.close()
-            except Exception:
-                pass
-            self.inbound_connections.pop(target, None)
+        # if target in self.inbound_connections:
+        #     try:
+        #         self.inbound_connections[target].connection.close()
+        #     except Exception:
+        #         pass
+        #     self.inbound_connections.pop(target, None)
                     
     def disconnect(self, name: str):
         
@@ -496,11 +618,15 @@ class NodeBase:
         if 'name' not in response.body:
             raise RuntimeError("No 'name' key in the response body.")
         target_name: str = response.body['name']
-        self.outbound_connections[target_name] = ConnectionRegistry(
-            name=target_name,
-            connection=connection,
-        )
+        if self.has_connection(target_name):
+            connection.close()
+            return
+        # self.outbound_connections[target_name] = ConnectionRegistry(
+        #     name=target_name,
+        #     connection=connection,
+        # )
         
+        self.__register_duplex_connection(target_name, ConnectionRegistry(target_name, connection))
         
                 
         def con_handle(connection):
@@ -544,10 +670,11 @@ class NodeBase:
             self.server.shutdown()
 
         # Iterate over snapshots because close/disconnect handlers can mutate registries.
-        for connection in list(self.outbound_connections.values()):
-            connection.connection.close()
-        for connection in list(self.inbound_connections.values()):
-            connection.connection.close()
+        # for connection in list(self.outbound_connections.values()):
+        #     connection.connection.close()
+        # for connection in list(self.inbound_connections.values()):
+        #     connection.connection.close()
+        self.connection_map.shutdown()
         for event in list(self.response_registrar.values()):
             event.event.set()
 
@@ -589,10 +716,14 @@ class NodeBase:
         
     def has_connection(self, target: Optional[str], address: Optional[tuple[str, int]] = None) -> bool:
         # if target is not None:
-        for conn in self.outbound_connections.keys():
-            if conn == target:
-                return True
-        return False
+        # for conn in self.outbound_connections.keys():
+        #     if conn == target:
+        #         return True
+        # for conn in self.inbound_connections.keys():
+        #     if conn == target:
+        #         return True
+        # return False
+        return self.connection_map.has_connection(target)
     
     def __send_message_raw(
         self,
@@ -624,7 +755,8 @@ class NodeBase:
         include_self: bool = False
     ):
         # print("YESS")
-        for name, _ in list(self.inbound_connections.items()):
+        # for name, _ in list(self.inbound_connections.items()):
+        for name in self.connection_map.get_inbound_names():
             
             if re.match(target_pattern, name):
                 self.send_message(name, method, body)
@@ -664,8 +796,12 @@ class NodeBase:
         #     'rid': rid,
         #     'body': body
         # }
-        
-        conn: ConnectionRegistry = self.outbound_connections[target]
+        # print(f'[{self.network_name}] -> {target}')
+        # conn: ConnectionRegistry = self.outbound_connections[target]
+        try:
+            conn = self.connection_map.get_connection(target)
+        except KeyError as exc:
+            raise ConnectionError(f"No active connection to target {target}") from exc
         
         # Here we need to preallocate a response ID because we need
         # to register the response entry in-case the response comes

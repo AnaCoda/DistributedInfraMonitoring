@@ -47,12 +47,20 @@ class RegionalNode(NodeBase, ABC):
         Keep trying to connect to all capital candidates.
         Once connected, discover leader and try restoring state once.
         """
-        for addr in self.capital_candidates:
-            try:
-                self.connect(addr)
-                print(f"[{self.region_name}] connected to candidate capital at {addr}")
-            except Exception:
-                pass
+        known_rm_links = [
+            name
+            for name in self.connection_map.get_outbound_names()
+            if name.startswith("rm-")
+        ]
+
+       
+        if not known_rm_links:
+            for addr in self.capital_candidates:
+                try:
+                    self.connect(addr)
+                    print(f"[{self.region_name}] connected to candidate capital at {addr}")
+                except Exception:
+                    pass
 
         self._discover_leader()
 
@@ -64,14 +72,7 @@ class RegionalNode(NodeBase, ABC):
         """
         Only trust a node that explicitly says it is the active leader.
         """
-        for addr in self.capital_candidates:
-            try:
-                self.connect(addr)
-                print(f"[{self.region_name}] reconnected to candidate capital at {addr}")
-            except Exception:
-                pass
-
-        for name in list(self.outbound_connections.keys()):
+        for name in self.connection_map.get_outbound_names():
             if not name.startswith("rm-"):
                 continue
 
@@ -80,12 +81,13 @@ class RegionalNode(NodeBase, ABC):
 
             try:
                 resp = self.send_message(name, "api.who_is_leader", {}, timeout=1.0)
+                # print(f'Response: {resp}')
                 leader = resp.get("leader")
                 is_leader = resp.get("is_leader", False)
 
                 if is_leader and leader == name:
                     self.current_capital_name = leader
-                    print(f"[{self.region_name}] discovered active leader {leader}")
+                    # print(f"[{self.region_name}] discovered active leader {leader}")
                     return leader
             except Exception:
                 try:
@@ -269,7 +271,7 @@ class RegionalNode(NodeBase, ABC):
 
     @node_handler(internal_ms=1000)
     def heartbeater(self):
-        if not any(name.startswith("rm-") for name in self.outbound_connections.keys()):
+        if not any(name.startswith("rm-") for name in self.connection_map.get_outbound_names()):
             return
 
         self._send_to_capital("api.region.heartbeat", {"status": "ok"})

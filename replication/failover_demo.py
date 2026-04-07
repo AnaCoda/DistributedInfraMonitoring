@@ -74,8 +74,7 @@ def main():
     replica_ports = {
         1: 4001,
         2: 4002,
-        3: 4003,
-        4: 4004,
+        3: 4003
     }
 
     peer_addresses = [
@@ -87,7 +86,7 @@ def main():
     
     region_specs = {
         "Carstairs": {"type": "standard", "port": 3051},
-        "Calgary": {"type": "urban", "port": 3052},
+        # "Calgary": {"type": "urban", "port": 3052},
     }
 
     # Start capital replicas
@@ -96,16 +95,16 @@ def main():
         for rid, port in replica_ports.items()
     }
 
-    time.sleep(2)
+    # time.sleep(2)
 
-    for node in replicas.values():
-        node._start()
+    # for node in replicas.values():
+    #     node._start()
 
-    time.sleep(2)
+    # time.sleep(2)
 
     # Kick off election once cluster is up
-    for node in replicas.values():
-        node.start_election()
+    # for node in replicas.values():
+        # node.start_election()
 
     print("[demo] starting regions")
     regions: dict[str, object] = {
@@ -128,6 +127,11 @@ def main():
         (68, "replica_down", 2),
         (78, "replica_up", 2),
     ]
+    timeline = [
+        (4, "replica_down", 3),
+        (10, "replica_up", 3),
+        # (5, "replica_up", 1)
+    ]
 
     start_time = time.time()
     event_index = 0
@@ -146,7 +150,7 @@ def main():
                     elif action == "replica_up" and target not in replicas:
                         replicas[target] = start_capital_replica(target, replica_ports[target], peer_addresses)
                         time.sleep(1)
-                        replicas[target]._start()
+                        # replicas[target]._start()
 
                     elif action == "region_down":
                         stop_region(target, regions)

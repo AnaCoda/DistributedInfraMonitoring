@@ -39,5 +39,5 @@ class InfrastructureNode(NodeBase):
 
         # Removed region filter since the names arent standard in setup.py
         # TODO: region filter after name standardization
-        for peer_name in self.outbound_connections.keys():
+        for peer_name in self.connection_map.get_outbound_names():
             self.send_message(peer_name, "api.report", payload)
