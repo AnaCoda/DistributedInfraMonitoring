@@ -374,8 +374,9 @@ const endpointLabel = computed(() => {
 // ---- State update handler ----
 
 function applyStateUpdate(body) {
-  data.value = body.state ?? {};
-  heartbeats.value = body.heartbeats ?? {};
+  const root = body.__state ?? body ?? {};
+  data.value = root.state ?? body.state ?? {};
+  heartbeats.value = root.heartbeat ?? body.heartbeats ?? {};
   leader.value = body.leader ?? "";
   capital.value = body.capital ?? body.leader ?? "";
   lastFetch.value = Date.now();
@@ -434,8 +435,8 @@ async function tryConnect(endpoint) {
       const msg = JSON.parse(event.data);
       if (msg.route === "push.state_update" || msg.route === "push.replica_state_update") {
         applyStateUpdate(msg.body ?? {});
-      } else if (msg.route === "__response" && msg.body?.state) {
-        applyStateUpdate(msg.body);
+      } else if (msg.route === "__response") {
+        applyStateUpdate(msg.body ?? {});
       }
     });
   } catch (_e) {
@@ -459,11 +460,14 @@ async function connectWs() {
     reconnectTimer = null;
   }
 
+  const attempts = [];
   for (const endpoint of wsCandidates) {
-    if (!connected.value.includes(endpoint)) {
-      tryConnect(endpoint);
+    if (!connected.value.includes(endpoint) && !sockets.has(endpoint)) {
+      attempts.push(tryConnect(endpoint));
     }
   }
+
+  await Promise.allSettled(attempts);
 
   if (connected.value.length === 0 && sockets.size === 0) {
     error.value = "WebSocket error: no replica reachable";

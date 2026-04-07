@@ -89,18 +89,19 @@ class CapitalNode(BullyElectionMixin, NodeBase):
             if name == peer_name:
                 return (host, port)
         return None
-
+    
     def _print_state_hash(self):
         serialized = json.dumps(
             obj=self.replica_state.inspect_dict(),
             default=lambda x: str(x),
             sort_keys=True,
         )
+        role = "leader" if self.is_leader else "follower"
         print(
-            f"[{self.network_name}] version={self.replica_state.version}, "
+            f"[{self.network_name} | {role}] version={self.replica_state.version}, "
             f"data={hashlib.sha256(serialized.encode()).hexdigest()}"
         )
-
+    
     def multicast(self, target_glob: str, route: str, body: dict, include_self: bool = False):
         prefix = target_glob[:-1] if target_glob.endswith("*") else target_glob
         for name in list(self.outbound_connections.keys()):
@@ -269,6 +270,7 @@ class CapitalNode(BullyElectionMixin, NodeBase):
             self.ready = True
             self.ready_evt.set()
             self.sync_event.set()
+            self._print_state_hash()
         except Exception:
             pass
 
@@ -285,15 +287,16 @@ class CapitalNode(BullyElectionMixin, NodeBase):
         }
 
     @node_handler(name='push.state_patch')
-    def handle_state_update(self, body: dict, _sender: str):
+    def handle_state_update(self, body: dict, sender: str):
         version = VersionedPatch.from_dict(body)
         self.replica_state.apply_update(version)
+
+        self._print_state_hash()
 
         if self.replica_state.is_consistent():
             self.sync_event.set()
             self.ready = True
             self.ready_evt.set()
-            self._print_state_hash()
 
         return {"status": "success"}
 
