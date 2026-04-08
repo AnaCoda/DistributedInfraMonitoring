@@ -131,13 +131,25 @@ class CapitalNode(BullyElectionMixin, NodeBase):
             try:
                 self.send_message(name, route, body, timeout=1.0)
             except Exception:
+                try:
+                    if self.has_connection(name):
+                        self.disconnect(name)
+                except Exception:
+                    pass
+
+    @node_handler(internal_ms=500)
+    def maintain_peer_links(self):
+        # Keep outbound replica links warm so a transient disconnect does not
+        # permanently remove a replica from gossip/replication traffic.
+        for peer_name, peer_ip, peer_port in self.peer_addresses:
+            if peer_name == self.network_name:
+                continue
+            if self.has_connection(peer_name):
+                continue
+            try:
+                self.connect((peer_ip, peer_port))
+            except Exception:
                 pass
-                # try:
-                #     if self.has_connection(name):
-                #         print(f'[{self.network_name}] Disconnecting... from {name}')
-                #         self.disconnect(name)
-                # except Exception:
-                #     pass
 
 
     # -------------------------------------------------------------------------
@@ -169,38 +181,46 @@ class CapitalNode(BullyElectionMixin, NodeBase):
         print("BECAME LEADER!!")
         print(f'[{self.network_name}] Release.')
         self.fast_forward.hold()
+        try:
+            versions = {}
+            for peer in self.peer_names:
+                if peer == self.network_name:
+                    continue
 
-        # print(f'[{self.network_name}] outbounds {self.connection_map.get_outbound_names()}')
+                if not self.has_connection(peer):
+                    for (a, b, c) in self.peer_addresses:
+                        if a == peer:
+                            try:
+                                self.connect((b, c))
+                            except Exception:
+                                pass
 
-        versions = {}
-        for peer in self.peer_names:
-            
-            if not self.has_connection(peer):
-                for (a, b, c) in self.peer_addresses:
-                    if a == peer:
-                        try:
-                            self.connect((b, c))
-                        except Exception as e:
-                            pass
-            # print(f'Peer: {peer}, {self.has_connection(peer)}')
+                if not self.has_connection(peer):
+                    continue
 
-            if peer == self.network_name or not self.has_connection(peer):
-                continue
-            vers = self.send_message(peer, 'version', {})['version']
-            versions[peer] = vers
+                try:
+                    vers = self.send_message(peer, 'version', {}, timeout=1.0)['version']
+                    versions[peer] = vers
+                except Exception:
+                    try:
+                        if self.has_connection(peer):
+                            self.disconnect(peer)
+                    except Exception:
+                        pass
+                    continue
 
-        versions = list(versions.items())
-        versions.sort(key=lambda x : x[1], reverse=True)
+            versions = list(versions.items())
+            versions.sort(key=lambda x: x[1], reverse=True)
 
-        if len(versions) > 0:
-            name, top_version = versions[0]
-            if self.replica_state.version < top_version:
-                print(f'[{self.network_name}] Leader fast forwarded to more up-to-date replica {name}')
-                self.__fast_forward_to_target(name)
-        print(f'Versions: {versions}')
-            # print(f'Peer: {peer}, Version: {vers}')
-        self.fast_forward.ready()
-        self.ready_signal.ready()
+            if len(versions) > 0:
+                name, top_version = versions[0]
+                if self.replica_state.version < top_version:
+                    print(f'[{self.network_name}] Leader fast forwarded to more up-to-date replica {name}')
+                    self.__fast_forward_to_target(name)
+            print(f'Versions: {versions}')
+        finally:
+            self.fast_forward.ready()
+            self.ready_signal.ready()
 
     def __fast_forward_to_target(
         self,
@@ -213,7 +233,12 @@ class CapitalNode(BullyElectionMixin, NodeBase):
     def on_elect_leader(self, leader, peer, target):
         # print(f'targ = {target}')
         # self.fast_forward.barrier()
-        vers = self.send_message(target, 'version', {})['version']
+        try:
+            vers = self.send_message(target, 'version', {}, timeout=1.0)['version']
+        except Exception:
+            print(f'[{self.network_name}] Could not reach leader {target} for version check.')
+            return
+
         if vers > self.replica_state.version:
             print(f'[{self.network_name}] Requires a fast forward to version {vers}.')
             self.__fast_forward_to_target(target)

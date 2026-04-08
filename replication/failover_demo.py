@@ -136,8 +136,8 @@ def main():
         (78, "replica_up", 2),
     ]
     timeline = [
-        (6, "replica_down", 4),
-        (20, "replica_up", 4),
+        (6, "replica_down", 3),
+        (20, "replica_up", 3),
         # (5, "replica_up", 1)
     ]
 

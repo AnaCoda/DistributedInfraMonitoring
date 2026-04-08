@@ -562,20 +562,29 @@ class NodeBase:
                 self.response_registrar[rid].response = payload['body']
         else:
             output = self.__call_route(payload, source)
-            if output is None:
+            response_body = {
+                'status': 'success'
+            } if output is None else output
+
+            try:
                 if response_connection is not None:
-                    self.__send_message_raw(response_connection, '__response', {
-                        'status': 'success'
-                    }, rid=rid)
+                    self.__send_message_raw(response_connection, '__response', response_body, rid=rid)
                 else:
-                    self.__send_message_targeted(source, '__response', rid=rid, body={
-                        'status': 'success'
-                    }, fire_and_forget=True)
-            else:
-                if response_connection is not None:
-                    self.__send_message_raw(response_connection, '__response', output, rid=rid)
-                else:
-                    self.__send_message_targeted(source, '__response', rid=rid, body=output, fire_and_forget=True)
+                    self.__send_message_targeted(source, '__response', rid=rid, body=response_body, fire_and_forget=True)
+            except (
+                ConnectionAbortedError,
+                ConnectionResetError,
+                BrokenPipeError,
+                websockets.exceptions.ConnectionClosed,
+            ):
+                # Peer disconnected before the response was written.
+                # Expected during failover/reconnect churn.
+                try:
+                    if self.has_connection(source):
+                        self.__deregister_duplex_connection(source)
+                except Exception:
+                    pass
+                return
             
     def __register_duplex_connection(self, target: str, entry: ConnectionRegistry):
         self.connection_map.register(target, entry)
@@ -740,7 +749,7 @@ class NodeBase:
             _send_raw(connection, packed.message)
         except Exception as e:
             print(f'ERROR: {e}, {method}, {body}')
-            raise e
+            raise
         return packed
     
     def __send_message_loopback(
