@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..shared.node import NodeBase, node_handler, NodeConnectionType
-
+from ..common.sync.mdns import DnsEntry
 
 class RegionalNode(NodeBase, ABC):
     """
@@ -20,7 +20,7 @@ class RegionalNode(NodeBase, ABC):
         self,
         region_name: str,
         address: Tuple[str, int],
-        capital_candidates: List[Tuple[str, int]],
+        capital_candidates: List[DnsEntry],
         interval_ms: int = 2000,
     ):
         if region_name.strip().lower() == "capital":
@@ -47,20 +47,24 @@ class RegionalNode(NodeBase, ABC):
         Keep trying to connect to all capital candidates.
         Once connected, discover leader and try restoring state once.
         """
-        known_rm_links = [
-            name
-            for name in self.connection_map.get_outbound_names()
-            if name.startswith("rm-")
-        ]
+        # known_rm_links = [
+        #     name
+        #     for name in self.connection_map.get_outbound_names()
+        #     if name.startswith("rm-")
+        # ]
+
+        # print(f'known: {known_rm_links}')
 
        
-        if not known_rm_links:
-            for addr in self.capital_candidates:
-                try:
-                    self.connect(addr)
+        # if not known_rm_links:
+        for addr in self.capital_candidates:
+            # print(f'[{self.network_name}] addr={addr}')
+            try:
+                if not self.has_connection(addr.name):
+                    self.connect((addr.ip, addr.port))
                     print(f"[{self.region_name}] connected to candidate capital at {addr}")
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
         self._discover_leader()
 
@@ -76,13 +80,30 @@ class RegionalNode(NodeBase, ABC):
             if not name.startswith("rm-"):
                 continue
 
+            # print(f'Can we send to {name}?')
+
+            # if not self.has_connection(name):
+            #     # Make best effort to connect.
+            #     entry = next(filter(lambda x : x.name == name, self.capital_candidates))
+            #     print(f'FOUND ENTRY: {entry}')
             if not self.has_connection(name):
                 continue
 
+            # print(f'trying to send to {name}')
+
             try:
                 resp = self.send_message(name, "api.who_is_leader", {}, timeout=1.0)
-                # print(f'Response: {resp}')
+                # print(f'({name}) Response: {resp}')
                 leader = resp.get("leader")
+
+                # if leader is not None and not self.has_connection(leader):
+                #     entry = list(filter(lambda x : x.name == leader, self.capital_candidates))
+                #     if len(entry) != 0:
+                #         entry = entry[0]
+                #         self.connect((entry.ip, entry.port))
+                        # print(f'Found entry: {entry}')
+
+
                 is_leader = resp.get("is_leader", False)
 
                 if is_leader and leader == name:

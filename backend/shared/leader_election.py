@@ -67,6 +67,8 @@ class BullyElectionMixin:
     def __on_elect_other(self):
         print(f'[{self.network_name}] Hi! Another person has been elected. {self.node.get_leader_id()}')
         leader: int = self.node.get_leader_id()
+            
+
 
         peer = next(filter(lambda x : x.id == leader, self.peer_translator.keys()))
         target = self.__translate_and_ensure_connect(peer)
@@ -106,7 +108,7 @@ class BullyElectionMixin:
             # print(f'[{self.network_name}] sending to {target} {message}')
             self.send_message_no_wait(target=target, method="handle.bully.msg", body=_serialize_bully_packet(message))
         except Exception as e:
-            print(f'[{self.network_name}] Churned {message} (cost={time.time() - clocked:.2f}, error={e})')
+            # print(f'[{self.network_name}] Churned {message} (cost={time.time() - clocked:.2f}, error={e})')
             # Connection churn is expected during elections/re-registers.
             # Drop this packet and rely on the next poll/heartbeat.
             pass

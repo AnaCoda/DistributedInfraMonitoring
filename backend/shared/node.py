@@ -498,7 +498,10 @@ class NodeBase:
         while True:
             try:
                 message = _recv_raw(connection)
-                self.__dispatch_received_message(name, message, response_connection=connection)
+
+                Thread(target=self.__dispatch_received_message, args=(name, message, connection)).start()
+
+                # self.__dispatch_received_message(name, message, response_connection=connection)
             except (ConnectionAbortedError, ConnectionResetError, websockets.exceptions.ConnectionClosedOK):
                 for evtha in self.event_maps[NodeEvent.ON_DISCONNECT]:
                     if evtha.method == NodeConnectionType.INBOUND:
@@ -733,7 +736,11 @@ class NodeBase:
         rid: Optional[str] = None
     ) -> MessagePackingResult:
         packed = MessagePackingResult.pack_msg(method, body, set_rid=rid)
-        _send_raw(connection, packed.message)
+        try:
+            _send_raw(connection, packed.message)
+        except Exception as e:
+            print(f'ERROR: {e}, {method}, {body}')
+            raise e
         return packed
     
     def __send_message_loopback(

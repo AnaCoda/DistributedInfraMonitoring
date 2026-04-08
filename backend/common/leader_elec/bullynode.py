@@ -107,7 +107,11 @@ class BullyElectionNode:
         """
         self.hooks[hook].append(functor)
         
-        
+    def __fire_hook(self, hook: BullyElectionHook):
+        for fn in self.hooks[hook]:
+            import threading
+            threading.Thread(target=fn).start()
+
     def __reset_heartbeats(self):
         self.heartbeat: dict[int, Optional[_HBState]] = { p: _HBState(_HBMsgState.IDLE, self.get_time()) for p in self.peer_list if p.id != self.node_id }
 
@@ -128,14 +132,17 @@ class BullyElectionNode:
 
 
         if j == self.node_id:
-            for hook in self.hooks[BullyElectionHook.ON_BECOME_LEADER]:
-                hook()
+            
+            self.__fire_hook(BullyElectionHook.ON_BECOME_LEADER)
+            # for hook in self.hooks[BullyElectionHook.ON_BECOME_LEADER]:
+            #     hook()
         if old_leader != self.current_leader:
             if j == self.node_id:
                 pass
             else:
-                for hook in self.hooks[BullyElectionHook.ON_ELECT_OTHER]:
-                    hook()
+                self.__fire_hook(BullyElectionHook.ON_ELECT_OTHER)
+                # for hook in self.hooks[BullyElectionHook.ON_ELECT_OTHER]:
+                    # hook()
 
         self.__set_state(_BullyState.IDLE)
         self.__print(f'[{self.node_info.name}] Elected node with ID={j} as leader!')
@@ -270,6 +277,13 @@ class BullyElectionNode:
 
         if packet is not None:
             if packet.type == 'LEADER':
+                # Ignore duplicate coordinator announcements once we are stable.
+                if (
+                    self.current_leader == packet.source.id
+                    and not self.election_in_progress
+                    and self.state == _BullyState.IDLE
+                ):
+                    return
                 # Set the leader to j.
                 self.__print(f'[{self.node_info.name}] Elected leader: {packet.source.name} (id={packet.source.id})')
                 j = packet.source.id
@@ -284,7 +298,10 @@ class BullyElectionNode:
                     # If j < i
                     # Then we send a bully packet.
                     self.outbox.append(BullyPacket('BULLY', packet.source))
-                    if not self.election_in_progress:
+                    if self.current_leader == self.node_id and not self.election_in_progress:
+                        # We are already coordinator; re-announce directly.
+                        self.outbox.append(BullyPacket('LEADER', packet.source))
+                    elif not self.election_in_progress:
                         self.__start_election()
             elif packet.type == 'BULLY':
                 # Wait for leader.

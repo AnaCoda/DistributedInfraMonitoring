@@ -49,11 +49,11 @@ class CapitalNode(BullyElectionMixin, NodeBase):
 
         self.node_id = self._node_id_from_name(network_name)
 
-        self.is_leader = bootstrap_leader
-        self.current_leader = network_name if bootstrap_leader else seed_leader_name
+        # self.is_leader = bootstrap_leader
+        # self.current_leader = network_name if bootstrap_leader else seed_leader_name
 
-        self.is_capital = bootstrap_leader
-        self.current_capital = network_name if bootstrap_leader else seed_leader_name
+        # self.is_capital = bootstrap_leader
+        # self.current_capital = network_name if bootstrap_leader else seed_leader_name
 
         self.last_leader_heartbeat = time.time()
         self.leader_timeout_ms = 3000
@@ -90,6 +90,7 @@ class CapitalNode(BullyElectionMixin, NodeBase):
         )
 
         self.ready_signal = HoldSignal()
+        self.fast_forward = HoldSignal()
 
     # -------------------------------------------------------------------------
     # Helpers
@@ -112,7 +113,7 @@ class CapitalNode(BullyElectionMixin, NodeBase):
             default=lambda x: str(x),
             sort_keys=True,
         )
-        role = "leader" if self.is_leader else "follower"
+        role = "leader" if self.node.is_leader() else "follower"
         print(
             f"[{self.network_name} | {role}] version={self.replica_state.version}, "
             f"data={hashlib.sha256(serialized.encode()).hexdigest()}"
@@ -130,187 +131,14 @@ class CapitalNode(BullyElectionMixin, NodeBase):
             try:
                 self.send_message(name, route, body, timeout=1.0)
             except Exception:
-                try:
-                    if self.has_connection(name):
-                        self.disconnect(name)
-                except Exception:
-                    pass
+                pass
+                # try:
+                #     if self.has_connection(name):
+                #         print(f'[{self.network_name}] Disconnecting... from {name}')
+                #         self.disconnect(name)
+                # except Exception:
+                #     pass
 
-    # def discover_current_leader(self):
-    #     for peer in self.connected_peer_names():
-    #         try:
-    #             resp = self.send_message(peer, "api.who_is_leader", {}, timeout=1.0)
-    #             leader = resp.get("leader")
-    #             is_leader = resp.get("is_leader", False)
-
-    #             if is_leader and leader == peer:
-    #                 self.current_leader = leader
-    #                 self.current_capital = leader
-    #                 self.is_leader = (leader == self.network_name)
-    #                 self.is_capital = (leader == self.network_name)
-    #                 self.last_leader_heartbeat = time.time()
-    #                 self.election_in_progress = False
-    #                 self.awaiting_coordinator = False
-    #                 self.coordinator_deadline = None
-    #                 self.received_ok = False
-    #                 print(f"[{self.network_name}] discovered active leader {leader}")
-    #                 return leader
-    #         except Exception:
-    #             try:
-    #                 if self.has_connection(peer):
-    #                     self.disconnect(peer)
-    #             except Exception:
-    #                 pass
-    #             continue
-    #     return None
-
-    # def _bootstrap_sync_from_leader(self):
-    #     if not self.current_leader or self.current_leader == self.network_name:
-    #         self.ready = True
-    #         self.ready_evt.set()
-    #         return
-
-    #     if not self.has_connection(self.current_leader):
-    #         return
-
-    #     try:
-    #         rs = self.send_message(self.current_leader, "fast.forward", {}, timeout=2.0)
-    #         self.replica_state.fast_forward(rs["__version"], rs["__state"])
-    #         self.ready = True
-    #         self.ready_evt.set()
-    #         print(f"[{self.network_name}] Fast-forwarded to version={self.replica_state.version}")
-    #         # self._print_state_hash()
-    #     except Exception as e:
-    #         print(f"[{self.network_name}] failed bootstrap sync from leader: {e}")
-
-    # @node_handler(internal_ms=1000)
-    # def connect_to_peers(self):
-    #     for peer_name, host, port in self.peer_addresses:
-    #         if peer_name == self.network_name:
-    #             continue
-    #         if self.has_connection(peer_name):
-    #             continue # We do not want to connect multiple times to the same node.
-    #         try:
-    #             self.connect((host, port))
-    #             print(f'[{self.network_name}] Connected to {peer_name}.')
-    #         except Exception as e:
-    #             print(f'[{self.network_name}] Tried to connect to {peer_name}: {e}')
-        
-
-    # def _start(self):
-    #     print("START")
-    #     for peer_name, host, port in self.peer_addresses:
-    #         if peer_name == self.network_name:
-    #             continue
-    #         try:
-    #             self.connect((host, port))
-    #             print(f"[{self.network_name}] connected to peer {peer_name}")
-    #         except Exception as e:
-    #             print(f"[{self.network_name}] could not connect to peer {peer_name}: {e}")
-
-    #     time.sleep(1)
-
-    #     leader = self.discover_current_leader()
-    #     if leader:
-    #         self._bootstrap_sync_from_leader()
-    #         return
-
-    #     self.start_election()
-
-    # # -------------------------------------------------------------------------
-    # # Leader election hooks / ticks
-    # # -------------------------------------------------------------------------
-    # def on_become_leader(self):
-    #     self.is_leader = True
-    #     self.current_leader = self.network_name
-    #     self.is_capital = True
-    #     self.current_capital = self.network_name
-    #     self.ready = True
-    #     self.ready_evt.set()
-    #     print(f"[{self.network_name}] became leader / capital")
-
-    # def on_new_leader(self, leader):
-    #     self.is_leader = (leader == self.network_name)
-    #     self.current_leader = leader
-    #     self.is_capital = (leader == self.network_name)
-    #     self.current_capital = leader
-    #     print(f'[{self.network_name}] acknowledging {leader} as leader/capital')
-
-    # @node_handler(name="api.who_is_leader")
-    # def who_is_leader(self, _body: dict):
-    #     return {
-    #         "leader": self.current_leader,
-    #         "is_leader": self.is_leader,
-    #         "capital": self.current_capital,
-    #         "is_capital": self.is_capital,
-    #         "self": self.network_name,
-    #     }
-
-    # @node_handler(name="api.who_is_capital")
-    # def who_is_capital(self, _body: dict):
-    #     return {
-    #         "capital": self.current_capital,
-    #         "is_capital": self.is_capital,
-    #         "leader": self.current_leader,
-    #         "is_leader": self.is_leader,
-    #         "self": self.network_name,
-    #     }
-
-    # @node_handler(internal_ms=1000)
-    # def election_tick(self):
-    #     if not hasattr(self, "is_leader"):
-    #         return
-    #     self.step_election()
-
-    # def __handle_peer_connect(self):
-    #     for peer_name, host, port in self.peer_addresses:
-    #         if peer_name == self.network_name:
-    #             continue
-
-    #         if self.has_connection(peer_name):
-    #             continue
-
-    #         try:
-    #             self.connect((host, port))
-    #             # print(f"[{self.network_name}] reconnected to peer {peer_name}")
-    #         except Exception:
-    #             try:
-    #                 if self.has_connection(peer_name):
-    #                     print(f'[{self.network_name}] Disconnecting from {peer_name}')
-    #                     self.disconnect(peer_name)
-    #             except Exception:
-    #                 pass
-
-        
-    # @node_handler(internal_ms=500)
-    # def peer_reconnect_tick(self):
-    #     self.__handle_peer_connect()
-
-    # @node_handler(internal_ms=2500)
-    # def leader_sync_tick(self):
-    #     if not self.is_leader:
-    #         self.try_refresh_from_leader()
-
-    # def try_refresh_from_leader(self):
-    #     if not self.current_leader or self.current_leader == self.network_name:
-    #         return
-
-    #     if not self.has_connection(self.current_leader):
-    #         return
-
-    #     try:
-    #         resp = self.send_message(self.current_leader, "api.national_infrastructure", {}, timeout=1.5)
-    #         self.replica_state.fast_forward(resp["__version"], resp["__state"])
-    #         self.current_capital = resp.get("capital", self.current_capital)
-    #         self.current_leader = resp.get("leader", self.current_leader)
-    #         self.is_leader = False
-    #         self.is_capital = False
-    #         self.ready = True
-    #         self.ready_evt.set()
-    #         self.sync_event.set()
-    #         # self._print_state_hash()
-    #     except Exception:
-    #         pass
 
     # -------------------------------------------------------------------------
     # State replication
@@ -333,19 +161,65 @@ class CapitalNode(BullyElectionMixin, NodeBase):
         # print(f'[{self.network_name}] Acquire.')
         # self.ready_signal.hold()
         pass
+
+    # def become_up_to_date(self):
+
     
     def on_become_leader(self):
         print("BECAME LEADER!!")
         print(f'[{self.network_name}] Release.')
+        self.fast_forward.hold()
+
+        # print(f'[{self.network_name}] outbounds {self.connection_map.get_outbound_names()}')
+
+        versions = {}
+        for peer in self.peer_names:
+            
+            if not self.has_connection(peer):
+                for (a, b, c) in self.peer_addresses:
+                    if a == peer:
+                        try:
+                            self.connect((b, c))
+                        except Exception as e:
+                            pass
+            # print(f'Peer: {peer}, {self.has_connection(peer)}')
+
+            if peer == self.network_name or not self.has_connection(peer):
+                continue
+            vers = self.send_message(peer, 'version', {})['version']
+            versions[peer] = vers
+
+        versions = list(versions.items())
+        versions.sort(key=lambda x : x[1], reverse=True)
+
+        if len(versions) > 0:
+            name, top_version = versions[0]
+            if self.replica_state.version < top_version:
+                print(f'[{self.network_name}] Leader fast forwarded to more up-to-date replica {name}')
+                self.__fast_forward_to_target(name)
+        print(f'Versions: {versions}')
+            # print(f'Peer: {peer}, Version: {vers}')
+        self.fast_forward.ready()
         self.ready_signal.ready()
+
+    def __fast_forward_to_target(
+        self,
+        target: str
+    ):
+        rs = self.send_message(target, "fast.forward", {}, timeout=2.0)
+        self.replica_state.fast_forward(rs["__version"], rs["__state"])
+        
 
     def on_elect_leader(self, leader, peer, target):
         # print(f'targ = {target}')
+        # self.fast_forward.barrier()
         vers = self.send_message(target, 'version', {})['version']
         if vers > self.replica_state.version:
             print(f'[{self.network_name}] Requires a fast forward to version {vers}.')
-            rs = self.send_message(target, "fast.forward", {}, timeout=2.0)
-            self.replica_state.fast_forward(rs["__version"], rs["__state"])
+            self.__fast_forward_to_target(target)
+            
+            # rs = self.send_message(target, "fast.forward", {}, timeout=2.0)
+            # self.replica_state.fast_forward(rs["__version"], rs["__state"])
         print(f'[{self.network_name}] Release.')
         self.ready_signal.ready()
         # print(f'targ = {target}, version = {vers}')

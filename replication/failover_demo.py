@@ -7,7 +7,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.capital.server import CapitalNode
 from backend.regional.standard_region_node import StandardRegionNode
 from backend.regional.urban_region_node import UrbanRegionNode
-
+from backend.common.sync.mdns import DnsEntry
 
 def start_capital_replica(replica_id: int, port: int, peer_addresses):
     node = CapitalNode(
@@ -74,7 +74,8 @@ def main():
     replica_ports = {
         1: 4001,
         2: 4002,
-        3: 4003
+        3: 4003,
+        4: 4004
     }
 
     peer_addresses = [
@@ -106,9 +107,16 @@ def main():
     # for node in replicas.values():
         # node.start_election()
 
+    full_capital_entries = [DnsEntry(
+        name=f'rm-{id}',
+        ip='127.0.0.1',
+        port=port
+    ) for id, port in replica_ports.items()]
+    
+
     print("[demo] starting regions")
     regions: dict[str, object] = {
-        name: start_region(spec["type"], name, spec["port"], capital_candidates)
+        name: start_region(spec["type"], name, spec["port"], full_capital_entries)
         for name, spec in region_specs.items()
     }
 
@@ -128,8 +136,8 @@ def main():
         (78, "replica_up", 2),
     ]
     timeline = [
-        (4, "replica_down", 3),
-        (10, "replica_up", 3),
+        (6, "replica_down", 4),
+        (20, "replica_up", 4),
         # (5, "replica_up", 1)
     ]
 
