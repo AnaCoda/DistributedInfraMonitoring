@@ -562,6 +562,7 @@ class NodeBase:
                 self.response_registrar[rid].response = payload['body']
         else:
             output = self.__call_route(payload, source)
+            # print
             response_body = {
                 'status': 'success'
             } if output is None else output
