@@ -41,12 +41,12 @@ class ConnectionMap:
             #         pass
             #     self.inbound_connections.pop(target, None)
 
-    def has_inbound_connection(self, name: str):
-        return self.has_outbound_connection(name)
+    # def has_inbound_connection(self, name: str):
+    #     return self.has_outbound_connection(name)
     
-    def has_outbound_connection(self, name: str):
-        with self.lock:
-            return name in self.outbound_connections
+    # def has_outbound_connection(self, name: str):
+    #     with self.lock:
+    #         return name in self.outbound_connections
     
     def has_connection(self, name: str):
         with self.lock:
@@ -59,13 +59,11 @@ class ConnectionMap:
             # for connection in list(self.inbound_connections.values()):
             #     connection.connection.close()
                 
-    def get_inbound_names(self):
-        with self.lock:
-            return list(self.get_outbound_names.keys())
-        
-    def get_outbound_names(self):
+    def get_connection_names(self):
         with self.lock:
             return list(self.outbound_connections.keys())
+        
+
         
     def get_connection(self, name: str) -> ConnectionRegistry:
         with self.lock:

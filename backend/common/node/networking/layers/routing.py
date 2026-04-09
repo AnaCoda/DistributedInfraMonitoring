@@ -10,6 +10,7 @@ from ...events.event import NodeEvent, Event
 from ...events.connect import NodeConnectionType, EventOnConnectRegistry, EventOnDisconnectRegistry
 from dataclasses import dataclass
 from threading import Thread, Event
+from concurrent.futures import ThreadPoolExecutor
 from ....sync.signal import HoldSignal
 import time
 
@@ -28,6 +29,10 @@ class RoutingLayer(NodeTemplate):
         super().__init__()
         # Create the routing map that will house the methods.
         self.routing_map: dict[str, Callable[..., Any]] = {}
+        self.event_maps: dict[NodeEvent, list[Event]] = {
+            NodeEvent.ON_CONNECT: [],
+            NodeEvent.ON_DISCONNECT: []
+        }
 
         # Get the interval functors
         self.interval_functors = []
@@ -37,8 +42,15 @@ class RoutingLayer(NodeTemplate):
 
         self.ready_signal = HoldSignal()
 
+        self.executor = ThreadPoolExecutor()
+
         self.generate_routing_templates()
         # self.ready_signal.re
+
+    def _invoke_event(self, event: NodeEvent, *args, **kwargs):
+        for fn in self.event_maps[event]:
+            # print(f'Invoking function with {args}')
+            fn.invoke(self, *args, **kwargs)
         
         
     def _start_routing_layer(self):
@@ -60,11 +72,18 @@ class RoutingLayer(NodeTemplate):
         functor: Callable[..., Any],
         function_args: ...
     ):
-        # print(f'Startting {functor}')
+        if self.stop_event.is_set():
+            return
         if function_args is None:
-            Thread(target=functor, daemon=True).start()
+            self.executor.submit(functor)
         else:
-            Thread(target=functor, args=function_args, daemon=True).start()
+            self.executor.submit(functor, *function_args)
+        # print(f'Startting {functor}')
+        # if function_args is None:
+        #     self.executor.submit
+        #     Thread(target=functor, daemon=True).start()
+        # else:
+        #     Thread(target=functor, args=function_args, daemon=True).start()
 
     def launch_interval_functor(
         self,
@@ -126,6 +145,12 @@ class RoutingLayer(NodeTemplate):
                 ))
         # print(f'Rotuer: {router.routing_map}')
         # return router
+
+    def shutdown(self):
+        self.stop()
+        self.executor.shutdown(False, cancel_futures=True)
+        
+        return super().shutdown()
 
 
 def node_handler(name: str = None, internal_ms: int = None, on_connect: "NodeConnectionType" = None, on_disconnect: "NodeConnectionType" = None):

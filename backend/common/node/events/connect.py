@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Callable
 from .event import Event
 from enum import Enum
+from ..template import NodeTemplate
 
 
 class NodeConnectionType(Enum):
@@ -25,6 +26,11 @@ class EventOnConnectRegistry(Event):
     functor: Callable[["NodeBase", str], None]
     method: NodeConnectionType
 
+    def invoke(self, node: NodeTemplate, *args, **kwargs):
+        # print(f'Invoking functor: {args}')
+        return self.functor(node, *args, **kwargs)
+        # return super().invoke(**kwargs)
+
 @dataclass
 class EventOnDisconnectRegistry(Event):
     """
@@ -36,3 +42,7 @@ class EventOnDisconnectRegistry(Event):
     """
     functor: Callable[["NodeBase", str], None]
     method: NodeConnectionType
+
+    def invoke(self, node: NodeTemplate, *args, **kwargs):
+        return self.functor(node, *args, **kwargs)
+        # return super().invoke(*args, **kwargs)

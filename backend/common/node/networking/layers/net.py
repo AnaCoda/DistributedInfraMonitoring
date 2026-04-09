@@ -26,7 +26,6 @@ def _send_raw(connection: ThreadSafeSocket, body: dict):
         the socket.
     """
     stringified: str = json.dumps(body, default=lambda x : str(x))
-    # length_bytes: bytes = len(stringified).to_bytes(length=4, byteorder='little', signed=False)
     connection.sendall(stringified)
     
 def _recv_raw(connection: ThreadSafeSocket) -> dict:
@@ -51,14 +50,7 @@ def _recv_raw(connection: ThreadSafeSocket) -> dict:
         body = body.decode('utf-8')
     return json.loads(body)
     
-@dataclass
-class ResponseRegistryEntry:
-    """
-    This allows a response pattern (full-duplex communication over single connection)
-    """
-    event: Event
-    response: Optional[dict]
-    
+
 @dataclass
 class EndpointResponse:
     """
@@ -161,6 +153,7 @@ class MessagePackingResult:
             rid=rid
         )
 
+from .helper.response import ResponseRegistryEntry, ResponseRegistrar
 
 class NetLayer(RoutingLayer):
 
@@ -171,18 +164,27 @@ class NetLayer(RoutingLayer):
         self.connection_map = ConnectionMap()
         self.dispatch_hook: Optional[Callable[..., ...]] = None
 
-        self.response_registrar = {}
+        self.response_registrar = ResponseRegistrar()
 
         self.launch_background_thread(self.listener, function_args=(address,))
         self._start_routing_layer()
 
-    @abstractmethod
-    def _net_on_connect_evt(self, name: str):
-        pass
+    def get_network_name(self):
+        return self.network_name
+    
 
-    @abstractmethod
+        # return super().get_network_name(
+
+    # @abstractmethod
+    def _net_on_connect_evt(self, name: str):
+        # print("HI2")
+        self._invoke_event(NodeEvent.ON_CONNECT, name)
+
+    # @abstractmethod
     def _net_on_disconnect_evt(self, name: str):
-        pass
+        # print("HI3")
+        # pass
+        self._invoke_event(NodeEvent.ON_DISCONNECT, name)
     
     # @abstractmethod
     def _net_handle_msg(
@@ -213,7 +215,7 @@ class NetLayer(RoutingLayer):
             socket.close()
             return
         name: str = registry['name']
-        if self.connection_map.has_inbound_connection(name):
+        if self.connection_map.has_connection(name):
             _send_raw(socket, _create_error(f'connection already exists for {name}'))
             socket.close()
             return
@@ -227,7 +229,7 @@ class NetLayer(RoutingLayer):
             )
         )
         
-
+        # print("HANDLE RECEIVE")
         self._net_on_connect_evt(name)
         # self._net_on_disconnect_evt(name)
         # self._on_network_event(NodeEvent.ON_CONNECT, name: str)
@@ -250,7 +252,11 @@ class NetLayer(RoutingLayer):
         try:
             # print(f'Sending {packed.message}')
             _send_raw(connection, packed.message)
+        except (websockets.exceptions.ConnectionClosedOK):
+            raise
+            # print(f'Tried to send a message along a websocket but it was closed.')
         except Exception as e:
+            print(f'{type(e)}')
             print(f'ERROR: {e}, {method}, {body}')
             raise
         return packed
@@ -281,11 +287,12 @@ class NetLayer(RoutingLayer):
         # back extremely fast.
         rid: str = MessagePackingResult.generate_rid() if rid is None else rid
         if not fire_and_forget:
-            ev: Event = Event()
-            self.response_registrar[rid] = ResponseRegistryEntry(
-                event=ev,
-                response=None
-            )
+            ev: Event = self.response_registrar.register_event(rid)
+            # ev: Event = Event()
+            # self.response_registrar[rid] = ResponseRegistryEntry(
+                # event=ev,
+                # response=None
+            # )
         
         packed = self.__send_message_raw(conn.connection, method, body, rid=rid)
         # print(f'Payload A: {payload}\nPayload B: {packed.message}')
@@ -296,17 +303,19 @@ class NetLayer(RoutingLayer):
             success = ev.wait(timeout=timeout)
             # print(f'SuccesS: {success}')
             if not success:
-                if packed.rid in self.response_registrar:
-                    del self.response_registrar[packed.rid]
+                self.response_registrar.pop_registry(packed.rid)
+                # if packed.rid in self.response_registrar:
+                    # del self.response_registrar[packed.rid]
                 raise TimeoutError(f"Timed out waiting for response from {target} on route {method}")
 
-            response: Optional[dict] = self.response_registrar[packed.rid].response
-            # print(f'Respo: {response}')
-            del self.response_registrar[packed.rid]
+            # response: Optional[dict] = self.response_registrar[packed.rid].response
+            # # print(f'Respo: {response}')
+            # del self.response_registrar[packed.rid]
+            response: Optional[dict] = self.response_registrar.pop_registry(packed.rid)
             return response
 
     def send_message(self, target, method, body, timeout = 2):
-        return self.__send_message_targeted(target, method, body, rid=None)
+        return self.__send_message_targeted(target, method, body, rid=None, timeout=timeout)
         # return super().send_message(target, method, body, timeout)
             
     def __handle_routed_message(
@@ -346,7 +355,7 @@ class NetLayer(RoutingLayer):
         
     def _net_disconnect(self, name: str):
         self.connection_map.deregister(name)
-        self._net_disconnect(name)
+        # self._net_disconnect(name)
 
     def _net_connect(self, address: tuple[str, int]):
         # print(f'Started Conn: {address}')
@@ -363,6 +372,7 @@ class NetLayer(RoutingLayer):
         if self.has_connection(target_name):
             # print('has conn?')
             connection.close()
+            return
         #     return
         # print("HII")
         # self.outbound_connections[target_name] = ConnectionRegistry(
@@ -375,23 +385,18 @@ class NetLayer(RoutingLayer):
                 
         def con_handle(connection):
             self.__handle_registered_connection(target_name, connection)
-                
-        self.launch_background_thread(con_handle, function_args=(connection,))
-        # self.__launch_background_thread(con_handle, fargs=(connection,))
 
+        self.launch_background_thread(con_handle, function_args=(connection,))
         self._net_on_connect_evt(target_name)
-        # for name in self.event_maps[NodeEvent.ON_CONNECT]:
-        #     evtha: dict = name
-        #     if evtha.method == NodeConnectionType.OUTBOUND:
-        #         evtha.functor(self, target_name)
 
     def __handle_registered_connection(
         self,
         name: str,
         connection: ThreadSafeSocket
     ):
-        while True:
-            try:
+        
+        try:
+            while not self.stop_event.is_set():
                 message = _recv_raw(connection)
                 # print(f'Recv\'d Message: {message}')
                 if 'route' not in message:
@@ -404,22 +409,19 @@ class NetLayer(RoutingLayer):
                 rid: str = message['rid']
                 if route == '__response':
                     # Set the event.
-                    if rid in self.response_registrar: # small fix for when replica managers send back ack message with same rid but isn't registered
-                        self.response_registrar[rid].event.set()
-                        self.response_registrar[rid].response = message['body']
+                    self.response_registrar.answer_registry(rid, message['body'])
                 else:
-                # print("HELEL")
-                    Thread(target=self.__handle_routed_message, args=(name, route, rid, message['body'], connection)).start()
-                # Thread(target=self.__dispatch_received_message, args=(name, message, connection)).start()
-
-                # self.__dispatch_received_message(name, message, response_connection=connection)
-            except (ConnectionAbortedError, ConnectionResetError, websockets.exceptions.ConnectionClosedOK):
-                # for evtha in self.event_maps[NodeEvent.ON_DISCONNECT]:
-                #     if evtha.method == NodeConnectionType.INBOUND:
-                #         evtha.functor(self, name)
-                # self.__deregister_duplex_connection(name)
-                self._net_on_disconnect_evt(name)
-                break
+                    self.launch_background_thread(self.__handle_routed_message, function_args=(name, route, rid, message['body'], connection))
+        except (
+            ConnectionAbortedError,
+            ConnectionResetError,
+            websockets.exceptions.ConnectionClosedOK
+        ):
+            pass
+        finally:
+            self._net_on_disconnect_evt(name)
+            self.connection_map.deregister(name)
+            
             # except NodeRpcError as nre:
             #     packed = MessagePackingResult.pack_msg('__response', { 'status': 'fail', 'reason': nre.message }, set_rid=message['rid'])
                 
@@ -432,7 +434,18 @@ class NetLayer(RoutingLayer):
         with serve(connection_handler, address[0], address[1]) as server:
             self.server = server
             self.address = (address[0], server.socket.getsockname()[1])
-            # print(f'Server: {server.socket.getsockname()[1]}')
             server.serve_forever()
 
+    def shutdown(self):
+        # Make a best-effort attempt to shutdown
+        # the server connection.
+        try:
+            self.server.shutdown()
+        except Exception:
+            pass
+
+        # Deregister and close all active connections.
+        for name in self.connection_map.get_connection_names():
+            self.connection_map.deregister(name)
+        super().shutdown()
     
