@@ -44,9 +44,9 @@ class Farkas(RawNode):
 
     @node_handler(internal_ms=400)
     def auo(self):
-
+        # print(f'[{self.network_name}]')
         if self.network_name == 'Hello':
-            print(f'Sending...')
+            # print(f'Sending...')
             o = self.send_message('hello2', 'hello', {})
         
         # print("HELLO")
@@ -56,8 +56,19 @@ class Farkas(RawNode):
             
             print(f'O: {o}')
 
+from .networking.layers.plugins.plugin import Plugin
+from .networking.layers.plugins.bully_plugin import BullyPlugin
+
+class TestBlugin(Plugin):
+    
+    @node_handler(internal_ms=400)
+    def handle_blugin(self):
+        print("BLG")
+
 class BasicDnsNode(RawNode):
-    pass
+    def __init__(self, network_name, address = ('127.0.0.1', 0)):
+        super().__init__(network_name, address)
+        # self.register_plugin(TestBlugin())
 
 if __name__ == "__main__":
     print("HI")
@@ -72,7 +83,7 @@ if __name__ == "__main__":
         import time
 
         time.sleep(4)
-        print("SHUTTING DOWN")
+        # print("SHUTTING DOWN")
         raw_a.shutdown()
         time.sleep(2)
         print("FINISHING")

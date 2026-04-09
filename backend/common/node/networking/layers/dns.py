@@ -6,12 +6,20 @@ from time import sleep
 
 @dataclass
 class NameRegistry:
+    """
+    The name registry object, housing the IP and the port.
+    """
     name: str
-    ip: str
+    ip: str  
     port: int
 
 
 class NameServiceLayer(NetLayer):
+    """
+    The name service layer object extends the network layer and provides
+    the DNS service which allows us to connect automatically to targets
+    without having th
+    """
 
     def __init__(self, network_name, address):
         super().__init__(network_name, address)
@@ -40,8 +48,9 @@ class NameServiceLayer(NetLayer):
 
     def _net_on_disconnect_evt(self, name):
         with self.name_registry_lock:
-            del self.name_registry[name]
-            print(f'POST-DELETE [{self.network_name}] <- ({name}): {self.name_registry}')
+            if name in self.name_registry:
+                del self.name_registry[name]
+            # print(f'POST-DELETE [{self.network_name}] <- ({name}): {self.name_registry}')
         super()._net_on_disconnect_evt(name)
         # return super()._net_on_disconnect_evt(name)
 
@@ -61,11 +70,14 @@ class NameServiceLayer(NetLayer):
         with self.name_registry_lock:
             net_reg_items = list(self.name_registry.items())
 
+        # print(f'FLAG A')
         for name, registry in net_reg_items:
             if 'dns' not in name:
                 continue
+            # print('FLAG B')
             self.__safe_connect(name, registry)
-            print(f'Name: {name}')
+            # print('FLAG C')
+            # print(f'Name: {name}')
             result = self.send_message(
                 target=name,
                 method='dns.lookup',
@@ -74,9 +86,11 @@ class NameServiceLayer(NetLayer):
                     '__search': target
                 } 
             )
+            # print('FLAG D')
             for name in result:
                 result = NameRegistry(**name)
                 self.__add_dns(result)
+            # print(f'FLAG E')
 
     def __get_self_registry_details(self):
         return NameRegistry(
@@ -110,7 +124,7 @@ class NameServiceLayer(NetLayer):
         
         if registry.name not in self.name_registry:
             self.name_registry[registry.name] = registry
-            print(f'New Registry: {self.name_registry[registry.name]}')
+            # print(f'New Registry: {self.name_registry[registry.name]}')
             with self.guard_map_lock:
                 self.guard_map[registry.name] = Lock()
             # print(f'[{self.network_name}] {self.name_registry}')
@@ -123,7 +137,7 @@ class NameServiceLayer(NetLayer):
 
     @node_handler(name='dns.lookup')
     def handle_dns_lookup(self, message: dict):
-        print(f'DNS LOOKUP {message}')
+        # print(f'DNS LOOKUP {message}')
         # registry = 
         self_details = message['__this']
 
@@ -148,8 +162,9 @@ class NameServiceLayer(NetLayer):
         if not self.has_connection(target):
            
             for _ in range(3):
-                print(f'DNS OUTREACH')
+                # print(f'DNS OUTREACH')
                 self.__dns_outreach(target)
+                # print(f'DONE!')
                 registry = self.__lookup_registry(target)
                 if registry is None:
                     sleep(self.name_service_backoff_loop)

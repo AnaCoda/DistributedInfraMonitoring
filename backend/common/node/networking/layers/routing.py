@@ -116,10 +116,8 @@ class RoutingLayer(NodeTemplate):
             raise RuntimeError(f'Could not find route {route}')
         pass
 
-    # @staticmethod
-    def generate_routing_templates(self) -> Router:
-        # router = Router()
-        for _, fn in inspect.getmembers(self.__class__, predicate=inspect.isfunction):
+    def __generate_routing_for_object(self, obj: object):
+        for _, fn in inspect.getmembers(obj.__class__, predicate=inspect.isfunction):
             annotations: dict = fn.__annotations__
             if 'node_route' in annotations:
                 # We have a node route.
@@ -143,6 +141,15 @@ class RoutingLayer(NodeTemplate):
                     functor=fn,
                     method=annotations['on_dc']
                 ))
+
+    def register_plugin(self, plugin):
+        self.__generate_routing_for_object(plugin)
+
+    # @staticmethod
+    def generate_routing_templates(self) -> Router:
+        self.__generate_routing_for_object(self)
+        # router = Router()
+        
         # print(f'Rotuer: {router.routing_map}')
         # return router
 
