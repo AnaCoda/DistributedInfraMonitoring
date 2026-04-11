@@ -1,6 +1,6 @@
-from ..common.rawnode import RawNode
-from ..networking.layers.routing import node_handler
-from ..events.connect import NodeConnectionType
+from ..common.node.raw import RawNode
+from ..common.node.networking.layers.routing import node_handler
+from ..common.node.events.connect import NodeConnectionType
 
 from ..common.patching.mpatch import ManagedState, VersionedPatch
 from ..shared.leader_election import BullyElectionMixin
@@ -72,8 +72,12 @@ class CapitalNode(BullyElectionMixin, RawNode):
             self.ready_evt.set()
 
         self.sync_event = threading.Event()
-
+        self.address = address
+        
         super().__init__(network_name=network_name, address=address)
+
+        self._trigger_map: dict[str, threading.Event] = {}
+        self._trigger_lock = threading.Lock()
 
         self.init_bully_election(
             node=BullyPeer(
@@ -88,6 +92,33 @@ class CapitalNode(BullyElectionMixin, RawNode):
 
         self.ready_signal = HoldSignal()
         self.fast_forward = HoldSignal()
+
+    # -------------------------------------------------------------------------
+    # Trigger compatibility helpers
+    # -------------------------------------------------------------------------
+    def set_trigger(self, name: str):
+        with self._trigger_lock:
+            ev = self._trigger_map.get(name)
+            if ev is None:
+                ev = threading.Event()
+                self._trigger_map[name] = ev
+            ev.set()
+
+    def wait_trigger(self, name: str, timeout: float | None = None):
+        with self._trigger_lock:
+            ev = self._trigger_map.get(name)
+            if ev is None:
+                ev = threading.Event()
+                self._trigger_map[name] = ev
+        return ev.wait(timeout=timeout)
+
+    def clear_trigger(self, name: str):
+        with self._trigger_lock:
+            ev = self._trigger_map.get(name)
+            if ev is None:
+                ev = threading.Event()
+                self._trigger_map[name] = ev
+            ev.clear()
 
     # -------------------------------------------------------------------------
     # RawNode compatibility helpers

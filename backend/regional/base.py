@@ -1,11 +1,12 @@
 import time
 import random
+import threading
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..common.rawnode import RawNode
-from ..networking.layers.routing import node_handler
-from ..events.connect import NodeConnectionType
+from ..common.node.raw import RawNode
+from ..common.node.networking.layers.routing import node_handler
+from ..common.node.events.connect import NodeConnectionType
 from ..common.sync.mdns import DnsEntry
 
 
@@ -30,6 +31,7 @@ class RegionalNode(RawNode, ABC):
             raise ValueError("Region name cannot be 'Capital' (reserved).")
 
         self.region_name = region_name
+        self.address = address
         self.capital_candidates = capital_candidates
         self.current_capital_name: Optional[str] = None
         self.interval_ms = interval_ms
@@ -37,7 +39,37 @@ class RegionalNode(RawNode, ABC):
 
         super().__init__(network_name=region_name, address=address)
 
+        self._trigger_map: dict[str, threading.Event] = {}
+        self._trigger_lock = threading.Lock()
+
         self.sites = self.build_sites()
+
+    # -------------------------------------------------------------------------
+    # Trigger compatibility helpers
+    # -------------------------------------------------------------------------
+    def set_trigger(self, name: str):
+        with self._trigger_lock:
+            ev = self._trigger_map.get(name)
+            if ev is None:
+                ev = threading.Event()
+                self._trigger_map[name] = ev
+            ev.set()
+
+    def wait_trigger(self, name: str, timeout: float | None = None):
+        with self._trigger_lock:
+            ev = self._trigger_map.get(name)
+            if ev is None:
+                ev = threading.Event()
+                self._trigger_map[name] = ev
+        return ev.wait(timeout=timeout)
+
+    def clear_trigger(self, name: str):
+        with self._trigger_lock:
+            ev = self._trigger_map.get(name)
+            if ev is None:
+                ev = threading.Event()
+                self._trigger_map[name] = ev
+            ev.clear()
 
     # -------------------------------------------------------------------------
     # RawNode compatibility helpers
@@ -102,7 +134,6 @@ class RegionalNode(RawNode, ABC):
                 leader = resp.get("leader")
                 is_leader = resp.get("is_leader", False)
 
-                # bully plugin may return leader as object/dict or plain name
                 leader_name = leader
                 if isinstance(leader, dict):
                     leader_name = leader.get("name")
@@ -207,10 +238,6 @@ class RegionalNode(RawNode, ABC):
         print(f"[{self.region_name}] restored previous state from capital {self.current_capital_name}")
         return True
 
-    # -------------------------------------------------------------------------
-    # Abstract region behavior
-    # -------------------------------------------------------------------------
-
     @abstractmethod
     def build_sites(self) -> List[Any]:
         raise NotImplementedError
@@ -218,10 +245,6 @@ class RegionalNode(RawNode, ABC):
     @abstractmethod
     def aggregate_state(self) -> Dict[str, Any]:
         raise NotImplementedError
-
-    # -------------------------------------------------------------------------
-    # Simulation / local site state
-    # -------------------------------------------------------------------------
 
     def simulate_tick(self) -> None:
         for s in self.sites:
@@ -273,10 +296,6 @@ class RegionalNode(RawNode, ABC):
             h = (h * 31 + ord(ch)) % span
         return (host, base_port + h)
 
-    # -------------------------------------------------------------------------
-    # RPC handlers / periodic tasks
-    # -------------------------------------------------------------------------
-
     @node_handler(name="region.ping")
     def ping(self, _message: dict):
         return {"pong": True, "region": self.network_name}
@@ -304,10 +323,6 @@ class RegionalNode(RawNode, ABC):
     @node_handler(on_disconnect=NodeConnectionType.OUTBOUND)
     def on_outbound_disconnect(self, name: str):
         print(f"[{self.region_name}] outbound disconnected from {name}")
-
-    # -------------------------------------------------------------------------
-    # Main update path
-    # -------------------------------------------------------------------------
 
     def tick_and_send(self) -> None:
         self.simulate_tick()
