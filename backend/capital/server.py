@@ -1,4 +1,7 @@
-from ..shared.node import NodeBase, node_handler, NodeConnectionType
+from ..common.rawnode import RawNode
+from ..networking.layers.routing import node_handler
+from ..events.connect import NodeConnectionType
+
 from ..common.patching.mpatch import ManagedState, VersionedPatch
 from ..shared.leader_election import BullyElectionMixin
 
@@ -32,9 +35,11 @@ def _source_manager() -> ManagedState:
         }
     })
 
+
 from ..common.leader_elec.bullynode import BullyPeer
 
-class CapitalNode(BullyElectionMixin, NodeBase):
+
+class CapitalNode(BullyElectionMixin, RawNode):
     def __init__(
         self,
         network_name: str,
@@ -43,17 +48,10 @@ class CapitalNode(BullyElectionMixin, NodeBase):
         seed_leader_name: str | None = None,
         bootstrap_leader: bool = False,
     ):
-        # ---- Election/bootstrap fields BEFORE NodeBase starts interval handlers ----
         self.peer_addresses = peer_addresses
         self.peer_names = [name for name, _, _ in peer_addresses if name != network_name]
 
         self.node_id = self._node_id_from_name(network_name)
-
-        # self.is_leader = bootstrap_leader
-        # self.current_leader = network_name if bootstrap_leader else seed_leader_name
-
-        # self.is_capital = bootstrap_leader
-        # self.current_capital = network_name if bootstrap_leader else seed_leader_name
 
         self.last_leader_heartbeat = time.time()
         self.leader_timeout_ms = 3000
@@ -64,7 +62,6 @@ class CapitalNode(BullyElectionMixin, NodeBase):
         self.awaiting_coordinator = False
         self.coordinator_deadline = None
 
-        # ---- Capital replication state ----
         self.lock = threading.Lock()
         self.proxy_lock = threading.Lock()
 
@@ -75,9 +72,9 @@ class CapitalNode(BullyElectionMixin, NodeBase):
             self.ready_evt.set()
 
         self.sync_event = threading.Event()
-        
+
         super().__init__(network_name=network_name, address=address)
-        
+
         self.init_bully_election(
             node=BullyPeer(
                 name=self.network_name,
@@ -93,6 +90,36 @@ class CapitalNode(BullyElectionMixin, NodeBase):
         self.fast_forward = HoldSignal()
 
     # -------------------------------------------------------------------------
+    # RawNode compatibility helpers
+    # -------------------------------------------------------------------------
+    def _connect_to(self, address: tuple[str, int]):
+        if hasattr(self, "connect") and callable(getattr(self, "connect")):
+            return self.connect(address)
+        if hasattr(self, "_net_connect") and callable(getattr(self, "_net_connect")):
+            return self._net_connect(address)
+        raise AttributeError("RawNode does not expose connect or _net_connect")
+
+    def _disconnect_name(self, name: str):
+        if hasattr(self, "disconnect") and callable(getattr(self, "disconnect")):
+            return self.disconnect(name)
+        if hasattr(self, "_net_disconnect") and callable(getattr(self, "_net_disconnect")):
+            return self._net_disconnect(name)
+        if hasattr(self, "connection_map"):
+            try:
+                return self.connection_map.deregister(name)
+            except Exception:
+                pass
+        raise AttributeError("RawNode does not expose disconnect/_net_disconnect/connection_map.deregister")
+
+    def _outbound_names(self) -> list[str]:
+        if hasattr(self, "connection_map"):
+            if hasattr(self.connection_map, "get_outbound_names"):
+                return self.connection_map.get_outbound_names()
+            if hasattr(self.connection_map, "get_connection_names"):
+                return self.connection_map.get_connection_names()
+        return []
+
+    # -------------------------------------------------------------------------
     # Helpers
     # -------------------------------------------------------------------------
     def _node_id_from_name(self, name: str) -> int:
@@ -106,7 +133,7 @@ class CapitalNode(BullyElectionMixin, NodeBase):
             if name == peer_name:
                 return (host, port)
         return None
-    
+
     def _print_state_hash(self):
         serialized = json.dumps(
             obj=self.replica_state.inspect_dict(),
@@ -118,39 +145,34 @@ class CapitalNode(BullyElectionMixin, NodeBase):
             f"[{self.network_name} | {role}] version={self.replica_state.version}, "
             f"data={hashlib.sha256(serialized.encode()).hexdigest()}"
         )
-    
+
     def multicast(self, target_glob: str, route: str, body: dict, include_self: bool = False):
         prefix = target_glob[:-1] if target_glob.endswith("*") else target_glob
-        for name in self.connection_map.get_outbound_names():
-            # print(f'Trying to multicast to {name}')
+        for name in self._outbound_names():
             if not include_self and name == self.network_name:
                 continue
             if not name.startswith(prefix):
                 continue
-            # print(f'Can multicast to {name}')
             try:
                 self.send_message(name, route, body, timeout=1.0)
             except Exception:
                 try:
                     if self.has_connection(name):
-                        self.disconnect(name)
+                        self._disconnect_name(name)
                 except Exception:
                     pass
 
     @node_handler(internal_ms=500)
     def maintain_peer_links(self):
-        # Keep outbound replica links warm so a transient disconnect does not
-        # permanently remove a replica from gossip/replication traffic.
         for peer_name, peer_ip, peer_port in self.peer_addresses:
             if peer_name == self.network_name:
                 continue
             if self.has_connection(peer_name):
                 continue
             try:
-                self.connect((peer_ip, peer_port))
+                self._connect_to((peer_ip, peer_port))
             except Exception:
                 pass
-
 
     # -------------------------------------------------------------------------
     # State replication
@@ -161,22 +183,16 @@ class CapitalNode(BullyElectionMixin, NodeBase):
             "__version": self.replica_state.version,
             "__state": self.replica_state.inspect_dict()
         }
-    
+
     @node_handler(name='version')
     def handle_version(self, _):
-        # print(f'Version ti!!c')
         return {
             "version": self.replica_state.version
         }
-    
+
     def on_start_election(self):
-        # print(f'[{self.network_name}] Acquire.')
-        # self.ready_signal.hold()
         pass
 
-    # def become_up_to_date(self):
-
-    
     def on_become_leader(self):
         print("BECAME LEADER!!")
         print(f'[{self.network_name}] Release.')
@@ -191,7 +207,7 @@ class CapitalNode(BullyElectionMixin, NodeBase):
                     for (a, b, c) in self.peer_addresses:
                         if a == peer:
                             try:
-                                self.connect((b, c))
+                                self._connect_to((b, c))
                             except Exception:
                                 pass
 
@@ -204,7 +220,7 @@ class CapitalNode(BullyElectionMixin, NodeBase):
                 except Exception:
                     try:
                         if self.has_connection(peer):
-                            self.disconnect(peer)
+                            self._disconnect_name(peer)
                     except Exception:
                         pass
                     continue
@@ -222,17 +238,11 @@ class CapitalNode(BullyElectionMixin, NodeBase):
             self.fast_forward.ready()
             self.ready_signal.ready()
 
-    def __fast_forward_to_target(
-        self,
-        target: str
-    ):
+    def __fast_forward_to_target(self, target: str):
         rs = self.send_message(target, "fast.forward", {}, timeout=2.0)
         self.replica_state.fast_forward(rs["__version"], rs["__state"])
-        
 
     def on_elect_leader(self, leader, peer, target):
-        # print(f'targ = {target}')
-        # self.fast_forward.barrier()
         try:
             vers = self.send_message(target, 'version', {}, timeout=1.0)['version']
         except Exception:
@@ -242,29 +252,9 @@ class CapitalNode(BullyElectionMixin, NodeBase):
         if vers > self.replica_state.version:
             print(f'[{self.network_name}] Requires a fast forward to version {vers}.')
             self.__fast_forward_to_target(target)
-            
-            # rs = self.send_message(target, "fast.forward", {}, timeout=2.0)
-            # self.replica_state.fast_forward(rs["__version"], rs["__state"])
+
         print(f'[{self.network_name}] Release.')
         self.ready_signal.ready()
-        # print(f'targ = {target}, version = {vers}')
-        # return super().on_elect_leader(leader, peer, target
-
-        # print(f'Elected leader: {leader}')
-
-    # @node_handler(name='push.state_patch')
-    # def handle_state_update(self, body: dict, sender: str):
-    #     version = VersionedPatch.from_dict(body)
-    #     self.replica_state.apply_update(version)
-
-    #     self._print_state_hash()
-
-    #     if self.replica_state.is_consistent():
-    #         self.sync_event.set()
-    #         self.ready = True
-    #         self.ready_evt.set()
-
-    #     return {"status": "success"}
 
     def __commit_local_replica(self, tx_data: dict):
         result = self.replica_state.end_transaction(tx_data, apply=True)
@@ -282,7 +272,6 @@ class CapitalNode(BullyElectionMixin, NodeBase):
     # Region heartbeat + state update handling
     # -------------------------------------------------------------------------
     def __handle_heartbeat(self, _data, source: str):
-        
         state = self.replica_state.start_transaction()
         if source not in state['heartbeat']:
             state['heartbeat'][source] = {}
@@ -291,7 +280,6 @@ class CapitalNode(BullyElectionMixin, NodeBase):
 
     def __handle_operation(self, data, _src):
         self.ready_signal.barrier()
-        # print(f'Received _handle = {data}')
         state_name = data["name"]
         state_data = data["state"]
 
@@ -312,41 +300,32 @@ class CapitalNode(BullyElectionMixin, NodeBase):
 
     @node_handler(name='api.region.heartbeat')
     def handle_region_heartbeat(self, message: dict, source: str):
-        # print(f'Receiving the regional heartbeat')
         if not self.node.is_leader():
             return {
                 "status": "fail",
                 "reason": f"not leader; current leader is {self.current_leader}"
             }
 
-        # self.current_capital = self.network_name
-        # self.current_leader = self.network_name
-        # self.is_capital = True
-        # self.is_leader = True
-
-        # return self.__proxy_call(
-        #     call=self.__handle_heartbeat,
-        #     proxy_name='api.proxy.region.heartbeat',
-        #     data=message,
-        #     source=source
-        # )
+        return self.__proxy_call(
+            call=self.__handle_heartbeat,
+            proxy_name='api.proxy.region.heartbeat',
+            data=message,
+            source=source
+        )
 
     @node_handler(name='api.proxy.state_update')
     def handle_operation_proxy(self, data):
-        # print(f'Hnadle Op Proxy: {data}')
         state_name, _ = self.__handle_operation(data, None)
         return {"message": f"State {state_name} updated successfully."}
 
     @node_handler(name="api.update_state")
     def update_state(self, data):
         self.ready_signal.barrier()
-        # print(f'Receiving update state...')
         if not self.node.is_leader():
             return {
                 "status": "fail",
                 "reason": f"not leader; current leader is {self.current_leader}"
             }
-        # print(f'Updating state...')
 
         self.current_capital = self.network_name
         self.current_leader = self.network_name
@@ -365,8 +344,6 @@ class CapitalNode(BullyElectionMixin, NodeBase):
     @node_handler(name="api.national_infrastructure")
     def get_national_status(self, _m):
         self.ready_signal.barrier()
-        # while not self.ready:
-            # self.ready_evt.wait()
 
         while not self.replica_state.is_consistent():
             self.sync_event.wait()

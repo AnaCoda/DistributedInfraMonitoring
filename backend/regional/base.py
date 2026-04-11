@@ -3,10 +3,13 @@ import random
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..shared.node import NodeBase, node_handler, NodeConnectionType
+from ..common.rawnode import RawNode
+from ..networking.layers.routing import node_handler
+from ..events.connect import NodeConnectionType
 from ..common.sync.mdns import DnsEntry
 
-class RegionalNode(NodeBase, ABC):
+
+class RegionalNode(RawNode, ABC):
     """
     Regional node that:
     - listens on its own address
@@ -26,7 +29,6 @@ class RegionalNode(NodeBase, ABC):
         if region_name.strip().lower() == "capital":
             raise ValueError("Region name cannot be 'Capital' (reserved).")
 
-        # Pre-init fields BEFORE NodeBase starts interval handlers
         self.region_name = region_name
         self.capital_candidates = capital_candidates
         self.current_capital_name: Optional[str] = None
@@ -38,30 +40,45 @@ class RegionalNode(NodeBase, ABC):
         self.sites = self.build_sites()
 
     # -------------------------------------------------------------------------
+    # RawNode compatibility helpers
+    # -------------------------------------------------------------------------
+    def _connect_to(self, address: tuple[str, int]):
+        if hasattr(self, "connect") and callable(getattr(self, "connect")):
+            return self.connect(address)
+        if hasattr(self, "_net_connect") and callable(getattr(self, "_net_connect")):
+            return self._net_connect(address)
+        raise AttributeError("RawNode does not expose connect or _net_connect")
+
+    def _disconnect_name(self, name: str):
+        if hasattr(self, "disconnect") and callable(getattr(self, "disconnect")):
+            return self.disconnect(name)
+        if hasattr(self, "_net_disconnect") and callable(getattr(self, "_net_disconnect")):
+            return self._net_disconnect(name)
+        if hasattr(self, "connection_map"):
+            try:
+                return self.connection_map.deregister(name)
+            except Exception:
+                pass
+        raise AttributeError("RawNode does not expose disconnect/_net_disconnect/connection_map.deregister")
+
+    def _outbound_names(self) -> list[str]:
+        if hasattr(self, "connection_map"):
+            if hasattr(self.connection_map, "get_outbound_names"):
+                return self.connection_map.get_outbound_names()
+            if hasattr(self.connection_map, "get_connection_names"):
+                return self.connection_map.get_connection_names()
+        return []
+
+    # -------------------------------------------------------------------------
     # Capital connectivity / leader discovery / recovery
     # -------------------------------------------------------------------------
 
     @node_handler(internal_ms=500)
     def connect_to_any_capital_candidate(self):
-        """
-        Keep trying to connect to all capital candidates.
-        Once connected, discover leader and try restoring state once.
-        """
-        # known_rm_links = [
-        #     name
-        #     for name in self.connection_map.get_outbound_names()
-        #     if name.startswith("rm-")
-        # ]
-
-        # print(f'known: {known_rm_links}')
-
-       
-        # if not known_rm_links:
         for addr in self.capital_candidates:
-            # print(f'[{self.network_name}] addr={addr}')
             try:
                 if not self.has_connection(addr.name):
-                    self.connect((addr.ip, addr.port))
+                    self._connect_to((addr.ip, addr.port))
                     print(f"[{self.region_name}] connected to candidate capital at {addr}")
             except Exception:
                 pass
@@ -73,47 +90,30 @@ class RegionalNode(NodeBase, ABC):
                 self._restored_once = True
 
     def _discover_leader(self):
-        """
-        Only trust a node that explicitly says it is the active leader.
-        """
-        for name in self.connection_map.get_outbound_names():
+        for name in self._outbound_names():
             if not name.startswith("rm-"):
                 continue
 
-            # print(f'Can we send to {name}?')
-
-            # if not self.has_connection(name):
-            #     # Make best effort to connect.
-            #     entry = next(filter(lambda x : x.name == name, self.capital_candidates))
-            #     print(f'FOUND ENTRY: {entry}')
             if not self.has_connection(name):
                 continue
 
-            # print(f'trying to send to {name}')
-
             try:
                 resp = self.send_message(name, "api.who_is_leader", {}, timeout=1.0)
-                # print(f'({name}) Response: {resp}')
                 leader = resp.get("leader")
-
-                # if leader is not None and not self.has_connection(leader):
-                #     entry = list(filter(lambda x : x.name == leader, self.capital_candidates))
-                #     if len(entry) != 0:
-                #         entry = entry[0]
-                #         self.connect((entry.ip, entry.port))
-                        # print(f'Found entry: {entry}')
-
-
                 is_leader = resp.get("is_leader", False)
 
-                if is_leader and leader == name:
-                    self.current_capital_name = leader
-                    # print(f"[{self.region_name}] discovered active leader {leader}")
-                    return leader
+                # bully plugin may return leader as object/dict or plain name
+                leader_name = leader
+                if isinstance(leader, dict):
+                    leader_name = leader.get("name")
+
+                if is_leader and leader_name == name:
+                    self.current_capital_name = leader_name
+                    return leader_name
             except Exception:
                 try:
                     if self.has_connection(name):
-                        self.disconnect(name)
+                        self._disconnect_name(name)
                 except Exception:
                     pass
                 continue
@@ -122,10 +122,6 @@ class RegionalNode(NodeBase, ABC):
         return None
 
     def _send_to_capital(self, method: str, body: dict):
-        """
-        Send an RPC to the currently known capital. If it fails, clean stale
-        state, rediscover leader, and retry once.
-        """
         if not self.current_capital_name or not self.has_connection(self.current_capital_name):
             self.current_capital_name = None
             self._discover_leader()
@@ -147,7 +143,7 @@ class RegionalNode(NodeBase, ABC):
 
             try:
                 if self.has_connection(dead_leader):
-                    self.disconnect(dead_leader)
+                    self._disconnect_name(dead_leader)
             except Exception:
                 pass
 
@@ -170,7 +166,7 @@ class RegionalNode(NodeBase, ABC):
 
                 try:
                     if self.has_connection(self.current_capital_name):
-                        self.disconnect(self.current_capital_name)
+                        self._disconnect_name(self.current_capital_name)
                 except Exception:
                     pass
 
@@ -178,11 +174,6 @@ class RegionalNode(NodeBase, ABC):
                 return None
 
     def restore_from_capital(self):
-        """
-        On restart, recover the last known saved state for this region from the
-        current capital. This restores site resource values so the region
-        doesn't come back as a totally fresh random node.
-        """
         if not self.current_capital_name:
             return False
 
@@ -292,16 +283,13 @@ class RegionalNode(NodeBase, ABC):
 
     @node_handler(internal_ms=1000)
     def heartbeater(self):
-        if not any(name.startswith("rm-") for name in self.connection_map.get_outbound_names()):
+        if not any(name.startswith("rm-") for name in self._outbound_names()):
             return
 
         self._send_to_capital("api.region.heartbeat", {"status": "ok"})
 
     @node_handler(name="api.report")
     def handle_report(self, msg: dict):
-        """
-        msg: {"name","region_name","resource_type","resource_value"}
-        """
         site_name = msg.get("name")
         for s in self.sites:
             if getattr(s, "name", None) == site_name:
