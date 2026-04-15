@@ -1,6 +1,4 @@
-from ....template import NodeTemplate
 from .plugin import Plugin
-from .....sync.signal import HoldSignal
 
 from typing import Optional
 import time
@@ -9,14 +7,17 @@ import threading
 from ......common.leader_elec.bullynode import BullyElectionHook, BullyElectionNode, BullyPacket, BullyPeer
 from ..routing import node_handler
 
+
 def _serialize_bully_peer(peer: BullyPeer) -> dict:
     return {
         "id": peer.id,
         "name": peer.name
     }
 
+
 def _deser_bully_peer(peer: dict) -> BullyPeer:
     return BullyPeer(**peer)
+
 
 def _serialize_bully_packet(packet: BullyPacket) -> dict:
     return {
@@ -25,6 +26,7 @@ def _serialize_bully_packet(packet: BullyPacket) -> dict:
         "type": packet.type
     }
 
+
 def _deser_bully_packet(packet: dict) -> BullyPacket:
     return BullyPacket(
         source=_deser_bully_peer(packet['source']),
@@ -32,17 +34,20 @@ def _deser_bully_packet(packet: dict) -> BullyPacket:
         type=packet['type']
     )
 
+
 class BullyPlugin(Plugin):
-    
+
     def __init__(
         self,
+        host,
         prefix: str,
         node: BullyPeer,
         peers: dict[BullyPeer, tuple[str, str, int]],
         heartbeat_interval_ms: int = 1500,
         leader_timeout_ms: int = 1500
     ):
-        super().__init__()
+        super().__init__(host)
+        self.prefix = prefix
         self.init_bully_election(node, peers, heartbeat_interval_ms, leader_timeout_ms)
 
     def init_bully_election(
@@ -67,68 +72,53 @@ class BullyPlugin(Plugin):
         print("INITTED")
         self.set_trigger("node_init")
 
-
-        # threading.Thread(target=self.__try_fast_forward).start()
-        
     def __on_elect_other(self):
-        print(f'[{self.network_name}] Hi! Another person has been elected. {self.node.get_leader_id()}')
+        print(f'[{self.get_network_name()}] Hi! Another person has been elected. {self.node.get_leader_id()}')
         leader: int = self.node.get_leader_id()
-            
 
-
-        peer = next(filter(lambda x : x.id == leader, self.peer_translator.keys()))
+        peer = next(filter(lambda x: x.id == leader, self.peer_translator.keys()))
         target = self.__translate_and_ensure_connect(peer)
 
-        threading.Thread(target=self.on_elect_leader, args=(self.node.get_leader_id(), peer, target)).start()
-        # self.on_elect_leader(self.node.get_leader_id(), peer, target)
+        threading.Thread(
+            target=self.host.on_elect_leader,
+            args=(self.node.get_leader_id(), peer, target),
+            daemon=True,
+        ).start()
 
     def on_start_election(self):
-        pass
+        self.host.on_start_election()
 
     def on_become_leader(self):
-        pass
-
-    def on_elect_leader(self, leader: int, peer: BullyPeer, target: str):
-        pass
-
-
+        self.host.on_become_leader()
 
     def __translate_and_ensure_connect(self, destination: BullyPeer) -> str:
         target, ip, port = self.peer_translator[destination]
 
         if not self.has_connection(target):
-            # print(f'Checking {target} -> {self.has_connection(target)}')
             self.connect((ip, port))
         return target
 
     def __handle_bully_message(self, message: BullyPacket):
-        # print(f'[{self.network_name}] {message}')
-        clocked = time.time()
         try:
             target = self.__translate_and_ensure_connect(message.destination)
-            # print(f'[{self.network_name}] sending to {target} {message}')
-            self.send_message_no_wait(target=target, method="handle.bully.msg", body=_serialize_bully_packet(message))
-        except Exception as e:
-            # print(f'[{self.network_name}] Churned {message} (cost={time.time() - clocked:.2f}, error={e})')
-            # Connection churn is expected during elections/re-registers.
-            # Drop this packet and rely on the next poll/heartbeat.
+            self.send_message_no_wait(
+                target=target,
+                method="handle.bully.msg",
+                body=_serialize_bully_packet(message)
+            )
+        except Exception:
             pass
-        # print(f'Peer ({message.destination}) -> {self.target}')
-        # self.__recv_poll(message)
-
 
     def __handle_bully_messages(self, messages: list[BullyPacket]):
         for message in messages:
-            threading.Thread(target=self.__handle_bully_message, args=(message,)).start()
-            # self.__handle_bully_message(message)
+            threading.Thread(target=self.__handle_bully_message, args=(message,), daemon=True).start()
 
     @node_handler(name="handle.bully.msg")
     def handle_bully_msg(self, body: dict, sender: str):
         self.wait_trigger("node_init")
         decoded = _deser_bully_packet(body)
-        # print(f'RECEIVING BULLY: {decoded}')
         self.__recv_poll(decoded)
-        # self.__handle_bully_message(decoded)
+        return {"status": "success"}
 
     def __recv_poll(self, message: Optional[BullyPacket]):
         self.node.receive(message)
@@ -140,18 +130,7 @@ class BullyPlugin(Plugin):
                 return item
         return None
 
-    @node_handler(name='api.who_is_leader')
-    def handle_who_is_leader(self, body: dict, source: str):
-        return {
-            "leader": self.__get_peer_by_id(self.node.get_leader_id()),
-            "is_leader": self.node.is_leader()
-        }
-    
-    
-
     @node_handler(internal_ms=50)
     def poll_internal_node(self):
         self.wait_trigger("node_init")
-
         self.__recv_poll(None)
-

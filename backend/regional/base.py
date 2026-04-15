@@ -112,16 +112,20 @@ class RegionalNode(RawNode, ABC):
                 if not self.has_connection(addr.name):
                     self._connect_to((addr.ip, addr.port))
                     print(f"[{self.region_name}] connected to candidate capital at {addr}")
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[{self.region_name}] failed to connect to {addr.name}: {type(e).__name__}: {e}")
 
-        self._discover_leader()
+        # Only re-discover if we do not already have a live leader connection.
+        if not self.current_capital_name or not self.has_connection(self.current_capital_name):
+            self._discover_leader()
 
         if self.current_capital_name and not self._restored_once:
             if self.restore_from_capital():
                 self._restored_once = True
 
     def _discover_leader(self):
+        found_leader = None
+
         for name in self._outbound_names():
             if not name.startswith("rm-"):
                 continue
@@ -131,6 +135,8 @@ class RegionalNode(RawNode, ABC):
 
             try:
                 resp = self.send_message(name, "api.who_is_leader", {}, timeout=1.0)
+                #print(f"[{self.region_name}] leader probe to {name} => {resp}")
+
                 leader = resp.get("leader")
                 is_leader = resp.get("is_leader", False)
 
@@ -139,18 +145,21 @@ class RegionalNode(RawNode, ABC):
                     leader_name = leader.get("name")
 
                 if is_leader and leader_name == name:
-                    self.current_capital_name = leader_name
-                    return leader_name
-            except Exception:
-                try:
-                    if self.has_connection(name):
-                        self._disconnect_name(name)
-                except Exception:
-                    pass
+                    found_leader = leader_name
+                    break
+
+            except Exception as e:
+                print(f"[{self.region_name}] leader probe to {name} failed: {type(e).__name__}: {e}")
                 continue
 
-        self.current_capital_name = None
-        return None
+        self.current_capital_name = found_leader
+
+        if found_leader:
+            print(f"[{self.region_name}] discovered leader {found_leader}")
+        else:
+            print(f"[{self.region_name}] no leader discovered from current capital candidates")
+
+        return found_leader
 
     def _send_to_capital(self, method: str, body: dict):
         if not self.current_capital_name or not self.has_connection(self.current_capital_name):
@@ -170,8 +179,9 @@ class RegionalNode(RawNode, ABC):
             )
         except Exception as e:
             dead_leader = self.current_capital_name
-            print(f"[{self.region_name}] send to {dead_leader} failed: {e}")
+            print(f"[{self.region_name}] send to {dead_leader} failed: {type(e).__name__}: {e}")
 
+            # Only disconnect the current leader on an actual send failure.
             try:
                 if self.has_connection(dead_leader):
                     self._disconnect_name(dead_leader)
@@ -193,7 +203,7 @@ class RegionalNode(RawNode, ABC):
                     timeout=1.0,
                 )
             except Exception as e2:
-                print(f"[{self.region_name}] retry to {self.current_capital_name} failed: {e2}")
+                print(f"[{self.region_name}] retry to {self.current_capital_name} failed: {type(e2).__name__}: {e2}")
 
                 try:
                     if self.has_connection(self.current_capital_name):
@@ -216,7 +226,7 @@ class RegionalNode(RawNode, ABC):
                 timeout=1.0,
             )
         except Exception as e:
-            print(f"[{self.region_name}] failed to restore state from capital: {e}")
+            print(f"[{self.region_name}] failed to restore state from capital: {type(e).__name__}: {e}")
             return False
 
         if resp.get("status") != "success":

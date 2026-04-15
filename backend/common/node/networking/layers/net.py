@@ -326,33 +326,56 @@ class NetLayer(RoutingLayer):
         body: dict,
         rc: ThreadSafeSocket
     ):
-        # print(f'HANDLE ROUTED: {source}')
-        output = self._net_handle_msg(source, route, body)
-        # output = self.__call_route(body, source)
-        response_body = {
-            'status': 'success'
-        } if output is None else output
+        try:
+            #print(f"[{self.network_name}] handling route={route} from={source} body={body}")
+            output = self._net_handle_msg(source, route, body)
+            #print(f"[{self.network_name}] route={route} returned output={output}")
+
+            response_body = {
+                'status': 'success'
+            } if output is None else output
+
+        except Exception as e:
+            print(f"[{self.network_name}] route crash on {route}: {type(e).__name__}: {e}")
+            response_body = {
+                'status': 'fail',
+                'reason': f'{type(e).__name__}: {e}'
+            }
 
         try:
+            #print(f"[{self.network_name}] sending __response rid={rid} to={source} body={response_body}")
             if rc is not None:
                 self.__send_message_raw(rc, '__response', response_body, rid=rid)
             else:
-                self.__send_message_targeted(source, '__response', rid=rid, body=response_body, fire_and_forget=True)
+                self.__send_message_targeted(
+                    source,
+                    '__response',
+                    rid=rid,
+                    body=response_body,
+                    fire_and_forget=True
+                )
         except (
             ConnectionAbortedError,
             ConnectionResetError,
             BrokenPipeError,
             websockets.exceptions.ConnectionClosed,
-        ):
-            # Peer disconnected before the response was written.
-            # Expected during failover/reconnect churn.
+        ) as e:
+            print(f"[{self.network_name}] failed sending __response rid={rid} to={source}: {type(e).__name__}: {e}")
             try:
                 if self.has_connection(source):
                     self.connection_map.deregister(source)
             except Exception:
                 pass
             return
-        
+        except Exception as e:
+            print(f"[{self.network_name}] unexpected send failure for __response rid={rid}: {type(e).__name__}: {e}")
+            try:
+                if self.has_connection(source):
+                    self.connection_map.deregister(source)
+            except Exception:
+                pass
+            return
+            
     def _net_disconnect(self, name: str):
         self.connection_map.deregister(name)
         # self._net_disconnect(name)
@@ -409,9 +432,16 @@ class NetLayer(RoutingLayer):
                 rid: str = message['rid']
                 if route == '__response':
                     # Set the event.
+                    #print(f"[{self.network_name}] received __response rid={rid} body={message['body']}")
                     self.response_registrar.answer_registry(rid, message['body'])
+                elif route.startswith("api.proxy."):
+                    # Preserve in-order replica application from a single sender connection.
+                    self.__handle_routed_message(name, route, rid, message['body'], connection)
                 else:
-                    self.launch_background_thread(self.__handle_routed_message, function_args=(name, route, rid, message['body'], connection))
+                    self.launch_background_thread(
+                        self.__handle_routed_message,
+                        function_args=(name, route, rid, message['body'], connection)
+                    )
         except (
             ConnectionAbortedError,
             ConnectionResetError,

@@ -1,19 +1,49 @@
 from ....template import NodeTemplate
 
+
 class Plugin(NodeTemplate):
-    pass
+    def __init__(self, host: NodeTemplate):
+        super().__init__()
+        self.host = host
 
     def get_network_name(self):
-        pass
-        # return super().get_network_name()
+        return self.host.get_network_name()
 
     def has_connection(self, target):
-        pass
+        return self.host.has_connection(target)
 
-    def send_message(self, target, method, body, timeout = 2):
-        pass
+    def send_message(self, target, method, body, timeout=2):
+        return self.host.send_message(target, method, body, timeout)
+
+    def send_message_no_wait(self, target, method, body):
+        return self.host.send_message_no_wait(target, method, body)
+
+    def connect(self, address):
+        if hasattr(self.host, "connect"):
+            return self.host.connect(address)
+        if hasattr(self.host, "_connect_to"):
+            return self.host._connect_to(address)
+        if hasattr(self.host, "_net_connect"):
+            return self.host._net_connect(address)
+        raise AttributeError("Host node does not expose a connect method")
+
+    def disconnect(self, name):
+        if hasattr(self.host, "disconnect"):
+            return self.host.disconnect(name)
+        if hasattr(self.host, "_disconnect_name"):
+            return self.host._disconnect_name(name)
+        if hasattr(self.host, "_net_disconnect"):
+            return self.host._net_disconnect(name)
+        raise AttributeError("Host node does not expose a disconnect method")
+
+    def set_trigger(self, name: str):
+        return self.host.set_trigger(name)
+
+    def wait_trigger(self, name: str, timeout=None):
+        return self.host.wait_trigger(name, timeout=timeout)
+
+    def clear_trigger(self, name: str):
+        return self.host.clear_trigger(name)
 
     def shutdown(self):
         pass
-        # return super().send_message(target, method, body, timeout)
-        # return super().has_connection(targe

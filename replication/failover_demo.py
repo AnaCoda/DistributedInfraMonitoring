@@ -9,6 +9,7 @@ from backend.regional.standard_region_node import StandardRegionNode
 from backend.regional.urban_region_node import UrbanRegionNode
 from backend.common.sync.mdns import DnsEntry
 
+
 def start_capital_replica(replica_id: int, port: int, peer_addresses):
     node = CapitalNode(
         network_name=f"rm-{replica_id}",
@@ -83,36 +84,27 @@ def main():
         for rid, port in replica_ports.items()
     ]
 
-    capital_candidates = [("127.0.0.1", port) for port in replica_ports.values()]
-    
     region_specs = {
         "Carstairs": {"type": "standard", "port": 3051},
         # "Calgary": {"type": "urban", "port": 3052},
     }
 
-    # Start capital replicas
     replicas: dict[int, CapitalNode] = {
         rid: start_capital_replica(rid, port, peer_addresses)
         for rid, port in replica_ports.items()
     }
 
-    # time.sleep(2)
+    full_capital_entries = [
+        DnsEntry(
+            name=f"rm-{rid}",
+            ip="127.0.0.1",
+            port=port
+        )
+        for rid, port in replica_ports.items()
+    ]
 
-    # for node in replicas.values():
-    #     node._start()
-
-    # time.sleep(2)
-
-    # Kick off election once cluster is up
-    # for node in replicas.values():
-        # node.start_election()
-
-    full_capital_entries = [DnsEntry(
-        name=f'rm-{id}',
-        ip='127.0.0.1',
-        port=port
-    ) for id, port in replica_ports.items()]
-    
+    # Let replicas settle before regions begin probing aggressively.
+    time.sleep(2)
 
     print("[demo] starting regions")
     regions: dict[str, object] = {
@@ -121,24 +113,8 @@ def main():
     }
 
     timeline = [
-        # Capital failover
-        (8, "replica_down", 4),
-        (18, "replica_up", 4),
-        (28, "replica_down", 3),
-        (38, "replica_up", 3),
-
-        # Region failure / recovery
-        (48, "region_down", "Calgary"),
-        (55, "region_up", "Calgary"),
-
-        # Another capital replica failure / recovery
-        (68, "replica_down", 2),
-        (78, "replica_up", 2),
-    ]
-    timeline = [
         (6, "replica_down", 3),
         (20, "replica_up", 3),
-        # (5, "replica_up", 1)
     ]
 
     start_time = time.time()
@@ -157,20 +133,19 @@ def main():
 
                     elif action == "replica_up" and target not in replicas:
                         replicas[target] = start_capital_replica(target, replica_ports[target], peer_addresses)
-                        time.sleep(1)
-                        # replicas[target]._start()
+                        time.sleep(2)
 
                     elif action == "region_down":
                         stop_region(target, regions)
 
                     elif action == "region_up" and target not in regions:
-                        time.sleep(3)  # helps with Windows socket reuse on infra child listeners
+                        time.sleep(3)
                         spec = region_specs[target]
                         regions[target] = start_region(
                             spec["type"],
                             target,
                             spec["port"],
-                            capital_candidates,
+                            full_capital_entries,
                         )
 
                     event_index += 1

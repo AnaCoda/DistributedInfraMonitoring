@@ -12,7 +12,7 @@ class NodeConnectionType(Enum):
     """
     INBOUND = 0
     OUTBOUND = 1
-    
+
 
 @dataclass
 class EventOnConnectRegistry(Event):
@@ -23,13 +23,12 @@ class EventOnConnectRegistry(Event):
         OUTBOUND: We have made a connection with an outbound
         client.
     """
-    functor: Callable[["NodeBase", str], None]
+    functor: Callable[..., None]
     method: NodeConnectionType
 
     def invoke(self, node: NodeTemplate, *args, **kwargs):
-        # print(f'Invoking functor: {args}')
-        return self.functor(node, *args, **kwargs)
-        # return super().invoke(**kwargs)
+        return self.functor(*args, **kwargs)
+
 
 @dataclass
 class EventOnDisconnectRegistry(Event):
@@ -40,9 +39,8 @@ class EventOnDisconnectRegistry(Event):
         OUTBOUND: We have made a connection with an outbound
         client.
     """
-    functor: Callable[["NodeBase", str], None]
+    functor: Callable[..., None]
     method: NodeConnectionType
 
     def invoke(self, node: NodeTemplate, *args, **kwargs):
-        return self.functor(node, *args, **kwargs)
-        # return super().invoke(*args, **kwargs)
+        return self.functor(*args, **kwargs)

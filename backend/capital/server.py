@@ -1,9 +1,9 @@
 from ..common.node.raw import RawNode
 from ..common.node.networking.layers.routing import node_handler
-from ..common.node.events.connect import NodeConnectionType
+from ..common.node.networking.layers.plugins.bully_plugin import BullyPlugin
 
-from ..common.patching.mpatch import ManagedState, VersionedPatch
-from ..shared.leader_election import BullyElectionMixin
+from ..common.patching.mpatch import ManagedState
+from ..common.leader_elec.bullynode import BullyPeer
 
 import threading
 import datetime
@@ -36,10 +36,7 @@ def _source_manager() -> ManagedState:
     })
 
 
-from ..common.leader_elec.bullynode import BullyPeer
-
-
-class CapitalNode(BullyElectionMixin, RawNode):
+class CapitalNode(RawNode):
     def __init__(
         self,
         network_name: str,
@@ -73,29 +70,35 @@ class CapitalNode(BullyElectionMixin, RawNode):
 
         self.sync_event = threading.Event()
         self.address = address
-        
+
+        self.current_leader = network_name if bootstrap_leader else seed_leader_name
+        self.current_capital = network_name if bootstrap_leader else seed_leader_name
+        self.is_leader = bootstrap_leader
+        self.is_capital = bootstrap_leader
+
         super().__init__(network_name=network_name, address=address)
 
         self._trigger_map: dict[str, threading.Event] = {}
         self._trigger_lock = threading.Lock()
 
-        self.init_bully_election(
-            node=BullyPeer(
-                name=self.network_name,
-                id=self._node_id_from_name(self.network_name)
-            ),
-            peer_names={
-                BullyPeer(peer_name, self._node_id_from_name(peer_name)): (peer_name, peer_ip, peer_port)
-                for peer_name, peer_ip, peer_port in peer_addresses
-            }
+        self.replica_ready_signal = HoldSignal()
+        self.fast_forward_signal = HoldSignal()
+
+        self.bully_plugin = self.register_plugin(
+            BullyPlugin(
+                host=self,
+                prefix="rm",
+                node=BullyPeer(
+                    name=self.network_name,
+                    id=self._node_id_from_name(self.network_name)
+                ),
+                peers={
+                    BullyPeer(peer_name, self._node_id_from_name(peer_name)): (peer_name, peer_ip, peer_port)
+                    for peer_name, peer_ip, peer_port in peer_addresses
+                }
+            )
         )
 
-        self.ready_signal = HoldSignal()
-        self.fast_forward = HoldSignal()
-
-    # -------------------------------------------------------------------------
-    # Trigger compatibility helpers
-    # -------------------------------------------------------------------------
     def set_trigger(self, name: str):
         with self._trigger_lock:
             ev = self._trigger_map.get(name)
@@ -120,9 +123,6 @@ class CapitalNode(BullyElectionMixin, RawNode):
                 self._trigger_map[name] = ev
             ev.clear()
 
-    # -------------------------------------------------------------------------
-    # RawNode compatibility helpers
-    # -------------------------------------------------------------------------
     def _connect_to(self, address: tuple[str, int]):
         if hasattr(self, "connect") and callable(getattr(self, "connect")):
             return self.connect(address)
@@ -150,9 +150,18 @@ class CapitalNode(BullyElectionMixin, RawNode):
                 return self.connection_map.get_connection_names()
         return []
 
-    # -------------------------------------------------------------------------
-    # Helpers
-    # -------------------------------------------------------------------------
+    def send_message_no_wait(self, target: str, method: str, body: dict):
+        if hasattr(self, "_NetLayer__send_message_targeted"):
+            return self._NetLayer__send_message_targeted(
+                target=target,
+                method=method,
+                body=body,
+                rid=None,
+                fire_and_forget=True,
+                timeout=0
+            )
+        raise AttributeError("RawNode/NetLayer does not expose fire-and-forget send")
+
     def _node_id_from_name(self, name: str) -> int:
         try:
             return int(name.split("-")[-1])
@@ -171,7 +180,7 @@ class CapitalNode(BullyElectionMixin, RawNode):
             default=lambda x: str(x),
             sort_keys=True,
         )
-        role = "leader" if self.node.is_leader() else "follower"
+        role = "leader" if self.is_leader else "follower"
         print(
             f"[{self.network_name} | {role}] version={self.replica_state.version}, "
             f"data={hashlib.sha256(serialized.encode()).hexdigest()}"
@@ -205,9 +214,13 @@ class CapitalNode(BullyElectionMixin, RawNode):
             except Exception:
                 pass
 
-    # -------------------------------------------------------------------------
-    # State replication
-    # -------------------------------------------------------------------------
+    @node_handler(name="api.who_is_leader")
+    def handle_who_is_leader(self, _body: dict, _source=None):
+        return {
+            "leader": self.current_leader,
+            "is_leader": self.is_leader,
+        }
+
     @node_handler(name='fast.forward')
     def handle_fast_forward(self, _message):
         return {
@@ -226,9 +239,13 @@ class CapitalNode(BullyElectionMixin, RawNode):
 
     def on_become_leader(self):
         print("BECAME LEADER!!")
-        print(f'[{self.network_name}] Release.')
-        self.fast_forward.hold()
+        self.fast_forward_signal.hold()
         try:
+            self.current_leader = self.network_name
+            self.current_capital = self.network_name
+            self.is_leader = True
+            self.is_capital = True
+
             versions = {}
             for peer in self.peer_names:
                 if peer == self.network_name:
@@ -262,18 +279,21 @@ class CapitalNode(BullyElectionMixin, RawNode):
             if len(versions) > 0:
                 name, top_version = versions[0]
                 if self.replica_state.version < top_version:
-                    print(f'[{self.network_name}] Leader fast forwarded to more up-to-date replica {name}')
                     self.__fast_forward_to_target(name)
-            print(f'Versions: {versions}')
         finally:
-            self.fast_forward.ready()
-            self.ready_signal.ready()
+            self.fast_forward_signal.ready()
+            self.replica_ready_signal.ready()
 
     def __fast_forward_to_target(self, target: str):
         rs = self.send_message(target, "fast.forward", {}, timeout=2.0)
         self.replica_state.fast_forward(rs["__version"], rs["__state"])
 
     def on_elect_leader(self, leader, peer, target):
+        self.current_leader = target
+        self.current_capital = target
+        self.is_leader = (target == self.network_name)
+        self.is_capital = self.is_leader
+
         try:
             vers = self.send_message(target, 'version', {}, timeout=1.0)['version']
         except Exception:
@@ -281,11 +301,9 @@ class CapitalNode(BullyElectionMixin, RawNode):
             return
 
         if vers > self.replica_state.version:
-            print(f'[{self.network_name}] Requires a fast forward to version {vers}.')
             self.__fast_forward_to_target(target)
 
-        print(f'[{self.network_name}] Release.')
-        self.ready_signal.ready()
+        self.replica_ready_signal.ready()
 
     def __commit_local_replica(self, tx_data: dict):
         result = self.replica_state.end_transaction(tx_data, apply=True)
@@ -296,21 +314,32 @@ class CapitalNode(BullyElectionMixin, RawNode):
         with self.proxy_lock:
             _, result = call(data, source)
             if result is not None:
-                self.multicast('rm-*', proxy_name, data, include_self=False)
+                proxy_payload = dict(data)
+                if source is not None:
+                    proxy_payload["__origin_source"] = source
+                if proxy_name == "api.proxy.region.heartbeat" and "__heartbeat_ts" not in proxy_payload:
+                    hb = self.replica_state.inspect_dict().get("heartbeat", {}).get(source, {})
+                    ts = hb.get("last_contact")
+                    if ts is not None:
+                        proxy_payload["__heartbeat_ts"] = ts
+                self.multicast('rm-*', proxy_name, proxy_payload, include_self=False)
         return {"status": "success"}
 
-    # -------------------------------------------------------------------------
-    # Region heartbeat + state update handling
-    # -------------------------------------------------------------------------
-    def __handle_heartbeat(self, _data, source: str):
-        state = self.replica_state.start_transaction()
-        if source not in state['heartbeat']:
-            state['heartbeat'][source] = {}
-        state['heartbeat'][source]['last_contact'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        return None, self.__commit_local_replica(state)
+    def __handle_heartbeat(self, data, source: str):
+        with self.lock:
+            state = self.replica_state.start_transaction()
+            if source not in state['heartbeat']:
+                state['heartbeat'][source] = {}
+
+            ts = data.get("__heartbeat_ts")
+            if ts is None:
+                ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+            state['heartbeat'][source]['last_contact'] = ts
+            return None, self.__commit_local_replica(state)
 
     def __handle_operation(self, data, _src):
-        self.ready_signal.barrier()
+        self.replica_ready_signal.barrier()
         state_name = data["name"]
         state_data = data["state"]
 
@@ -325,13 +354,13 @@ class CapitalNode(BullyElectionMixin, RawNode):
 
     @node_handler(name='api.proxy.region.heartbeat')
     def handle_region_heartbeat_proxy(self, message: dict, source: str):
-        print(f'[{self.network_name}] Received proxied from {source}')
-        self.__handle_heartbeat(message, source)
+        origin = message.get("__origin_source", source)
+        self.__handle_heartbeat(message, origin)
         return {"status": "success"}
 
     @node_handler(name='api.region.heartbeat')
     def handle_region_heartbeat(self, message: dict, source: str):
-        if not self.node.is_leader():
+        if not self.is_leader:
             return {
                 "status": "fail",
                 "reason": f"not leader; current leader is {self.current_leader}"
@@ -346,13 +375,16 @@ class CapitalNode(BullyElectionMixin, RawNode):
 
     @node_handler(name='api.proxy.state_update')
     def handle_operation_proxy(self, data):
+        data = dict(data)
+        data.pop("__origin_source", None)
+        data.pop("__heartbeat_ts", None)
         state_name, _ = self.__handle_operation(data, None)
         return {"message": f"State {state_name} updated successfully."}
 
     @node_handler(name="api.update_state")
     def update_state(self, data):
-        self.ready_signal.barrier()
-        if not self.node.is_leader():
+        self.replica_ready_signal.barrier()
+        if not self.is_leader:
             return {
                 "status": "fail",
                 "reason": f"not leader; current leader is {self.current_leader}"
@@ -369,12 +401,9 @@ class CapitalNode(BullyElectionMixin, RawNode):
             data=data
         )
 
-    # -------------------------------------------------------------------------
-    # Reads / recovery
-    # -------------------------------------------------------------------------
     @node_handler(name="api.national_infrastructure")
     def get_national_status(self, _m):
-        self.ready_signal.barrier()
+        self.replica_ready_signal.barrier()
 
         while not self.replica_state.is_consistent():
             self.sync_event.wait()
@@ -406,3 +435,7 @@ class CapitalNode(BullyElectionMixin, RawNode):
             "capital": self.current_capital,
             "version": self.replica_state.version,
         }
+
+    @node_handler(internal_ms=1000)
+    def debug_leader_state(self):
+        print(f"[{self.network_name}] leader={self.current_leader}, is_leader={self.is_leader}")
