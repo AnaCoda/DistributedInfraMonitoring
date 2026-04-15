@@ -4,33 +4,64 @@
     <div class="flex gap-3 items-center mb-4 flex-wrap">
       <h1 class="text-xl font-bold mr-auto">Infrastructure Monitor</h1>
 
-      <button @click="refreshNow" :disabled="loading" class="btn px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed">
+      <button
+        @click="refreshNowAll"
+        :disabled="loading"
+        class="btn px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
         ↺ Refresh
       </button>
 
       <span v-if="error" class="text-red-600 text-sm">{{ error }}</span>
       <span v-else class="text-gray-400 text-sm">Updated {{ lastFetchText }}</span>
+      <span v-if="endpointLabel" class="text-gray-400 text-xs">via {{ endpointLabel }}</span>
+      <span v-if="capital" class="text-gray-400 text-xs">capital {{ capital }}</span>
+      <span v-if="leader" class="text-gray-400 text-xs">leader {{ leader }}</span>
 
       <!-- WS status badge -->
-      <span class="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border font-medium"
-        :class="wsStatus === 'connected'   ? 'border-green-500 text-green-700'
-              : wsStatus === 'connecting'  ? 'border-yellow-400 text-yellow-600'
-              :                             'border-gray-300 text-gray-400'">
-        <span class="w-1.5 h-1.5 rounded-full"
-          :class="wsStatus === 'connected'  ? 'bg-green-500'
-                : wsStatus === 'connecting' ? 'bg-yellow-400 animate-pulse'
-                :                            'bg-gray-300'" />
+      <span
+        class="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border font-medium"
+        :class="wsStatus === 'connected'
+          ? 'border-green-500 text-green-700'
+          : wsStatus === 'connecting'
+            ? 'border-yellow-400 text-yellow-600'
+            : 'border-gray-300 text-gray-400'"
+      >
+        <span
+          class="w-1.5 h-1.5 rounded-full"
+          :class="wsStatus === 'connected'
+            ? 'bg-green-500'
+            : wsStatus === 'connecting'
+              ? 'bg-yellow-400 animate-pulse'
+              : 'bg-gray-300'"
+        />
         {{ wsStatus }}
       </span>
+    </div>
+
+    <div class="pb-6 flex flex-row gap-3 flex-wrap">
+      <div
+        class="p-1 pl-2 border-gray-500 border rounded-full flex justify-center items-center gap-2 flex-row"
+        v-for="value in connected"
+        :key="value"
+      >
+        <div class="w-4 h-4 border bg-green-400 rounded-full"></div>
+        <div>{{ value }}</div>
+      </div>
     </div>
 
     <!-- Loading -->
     <div v-if="loading && regions.length === 0" class="text-sm text-gray-400">Loading…</div>
 
     <!-- Empty state -->
-    <div v-else-if="regions.length === 0" class="p-4 border border-dashed border-gray-300 rounded-lg text-sm text-gray-600">
+    <div
+      v-else-if="regions.length === 0"
+      class="p-4 border border-dashed border-gray-300 rounded-lg text-sm text-gray-600"
+    >
       No regions reporting yet. Start nodes like:
-      <pre class="mt-2 bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto">{{ exampleCommands }}</pre>
+      <pre
+        class="mt-2 bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto"
+      >{{ exampleCommands }}</pre>
     </div>
 
     <div v-else>
@@ -42,25 +73,37 @@
         </div>
         <div class="summary-card">
           <div class="summary-label">Power Stable</div>
-          <div class="summary-value" :class="nationalPower === regions.length ? 'text-green-700' : 'text-yellow-600'">
+          <div
+            class="summary-value"
+            :class="nationalPower === regions.length ? 'text-green-700' : 'text-yellow-600'"
+          >
             {{ nationalPower }}/{{ regions.length }}
           </div>
         </div>
         <div class="summary-card">
           <div class="summary-label">Avg Medical</div>
-          <div class="summary-value" :class="nationalMedical >= 70 ? 'text-green-700' : nationalMedical >= 30 ? 'text-yellow-600' : 'text-red-600'">
+          <div
+            class="summary-value"
+            :class="nationalMedical >= 70 ? 'text-green-700' : nationalMedical >= 30 ? 'text-yellow-600' : 'text-red-600'"
+          >
             {{ nationalMedical }}%
           </div>
         </div>
         <div class="summary-card">
           <div class="summary-label">Avg Water</div>
-          <div class="summary-value" :class="nationalWater >= 70 ? 'text-green-700' : nationalWater >= 30 ? 'text-yellow-600' : 'text-red-600'">
+          <div
+            class="summary-value"
+            :class="nationalWater >= 70 ? 'text-green-700' : nationalWater >= 30 ? 'text-yellow-600' : 'text-red-600'"
+          >
             {{ nationalWater }}%
           </div>
         </div>
         <div class="summary-card">
           <div class="summary-label">Avg Fuel</div>
-          <div class="summary-value" :class="nationalFuel >= 70 ? 'text-green-700' : nationalFuel >= 30 ? 'text-yellow-600' : 'text-red-600'">
+          <div
+            class="summary-value"
+            :class="nationalFuel >= 70 ? 'text-green-700' : nationalFuel >= 30 ? 'text-yellow-600' : 'text-red-600'"
+          >
             {{ nationalFuel }}%
           </div>
         </div>
@@ -73,32 +116,54 @@
       </div>
 
       <!-- Region cards -->
-      <div class="grid gap-4 items-start" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));">
-        <div v-for="r in regions" :key="r.name"
+      <div
+        class="grid gap-4 items-start"
+        style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));"
+      >
+        <div
+          v-for="r in regions"
+          :key="r.name"
           class="border rounded-xl p-4 shadow-sm bg-white transition-colors"
-          :class="r.isStale ? 'border-red-300 opacity-70'
-                : r.regionType === 'capital' ? 'border-slate-400 bg-slate-50 shadow-md'
-                : 'border-gray-200'">
-
+          :class="r.isCapital
+            ? 'border-slate-400 bg-slate-50 shadow-md'
+            : r.isStale
+              ? 'border-red-300 opacity-70'
+              : 'border-gray-200'"
+        >
           <!-- Card header -->
           <div class="flex items-start justify-between gap-3 mb-3">
             <div>
               <h2 class="text-base font-semibold leading-tight">{{ r.name }}</h2>
-              <div class="flex items-center gap-2 mt-1">
-                <span class="text-[11px] px-1.5 py-0.5 rounded border font-medium uppercase tracking-wide"
-                  :class="r.regionType === 'urban'    ? 'border-purple-300 text-purple-700 bg-purple-50'
-                        : r.regionType === 'standard' ? 'border-blue-300 text-blue-700 bg-blue-50'
-                        : r.regionType === 'capital'  ? 'border-slate-700 text-white bg-slate-700'
-                        :                              'border-gray-300 text-gray-500'">
-                  {{ r.regionType || "unknown" }}
+              <div class="flex items-center gap-2 mt-1 flex-wrap">
+                <span
+                  class="text-[11px] px-1.5 py-0.5 rounded border font-medium uppercase tracking-wide"
+                  :class="r.regionType === 'urban'
+                    ? 'border-purple-300 text-purple-700 bg-purple-50'
+                    : r.regionType === 'standard'
+                      ? 'border-blue-300 text-blue-700 bg-blue-50'
+                      : r.isCapital
+                        ? 'border-slate-700 text-white bg-slate-700'
+                        : 'border-gray-300 text-gray-500'"
+                >
+                  {{ r.isCapital ? "capital" : (r.regionType || "unknown") }}
                 </span>
+
+                <span
+                  v-if="r.name === leader"
+                  class="text-[11px] px-1.5 py-0.5 rounded border border-green-300 text-green-700 bg-green-50 font-medium uppercase tracking-wide"
+                >
+                  leader
+                </span>
+
                 <span v-if="r.sites" class="text-[11px] text-gray-400">{{ r.sites.length }} sites</span>
               </div>
             </div>
 
             <div class="shrink-0 text-right text-xs">
-              <span v-if="r.isStale"
-                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-red-400 text-red-600 bg-red-50 font-semibold uppercase">
+              <span
+                v-if="r.isStale"
+                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-red-400 text-red-600 bg-red-50 font-semibold uppercase"
+              >
                 ⚠ Stale
               </span>
               <span v-else class="text-gray-400">{{ r.lastSeenText }}</span>
@@ -133,7 +198,10 @@
 
           <!-- Sites toggle -->
           <div v-if="r.sites && r.sites.length" class="mt-3">
-            <button @click="toggleSites(r.name)" class="btn w-full flex justify-between items-center px-3 py-1.5 text-xs">
+            <button
+              @click="toggleSites(r.name)"
+              class="btn w-full flex justify-between items-center px-3 py-1.5 text-xs"
+            >
               <span>Site details</span>
               <span class="flex items-center gap-1.5">
                 <span class="bg-gray-100 rounded px-1.5 py-0.5">{{ r.sites.length }}</span>
@@ -151,7 +219,11 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="s in r.sites" :key="s.name + s.resource_type" class="border-t border-gray-100 hover:bg-gray-50">
+                  <tr
+                    v-for="s in r.sites"
+                    :key="s.name + s.resource_type"
+                    class="border-t border-gray-100 hover:bg-gray-50"
+                  >
                     <td class="td-cell font-mono text-gray-600">{{ s.name }}</td>
                     <td class="td-cell text-gray-500">{{ s.resource_type }}</td>
                     <td class="td-cell text-right">
@@ -176,7 +248,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import StatusBadge from "./components/StatusBadge.vue";
 import ProgressBar from "./components/ProgressBar.vue";
-import SiteValue   from "./components/SiteValue.vue";
+import SiteValue from "./components/SiteValue.vue";
 
 // ---- State ----
 
@@ -185,15 +257,35 @@ const heartbeats = ref({});
 const loading = ref(true);
 const error = ref("");
 const lastFetch = ref(null);
+const connectedEndpoint = ref("");
+const leader = ref("");
+const capital = ref("");
+const connected = ref([]);
+const sockets = new Map();
 
 let reconnectTimer = null;
-let ws = null;
 
 const expanded = reactive({});
 const wsStatus = ref("disconnected");
 
+const wsCandidates = (() => {
+  const raw = (import.meta.env.VITE_WS_ENDPOINTS || "").trim();
+  const defaults = [
+    "ws://localhost:4001",
+    "ws://localhost:4002",
+    "ws://localhost:4003",
+    "ws://localhost:4004",
+  ];
+
+  const parsed = raw
+    ? raw.split(",").map(v => v.trim()).filter(Boolean)
+    : defaults;
+
+  return [...new Set(parsed.filter(url => /^ws:\/\/localhost:4\d{3}$/i.test(url)))];
+})();
+
 const exampleCommands = [
-  "python -m backend.setup",
+  "python -m replication.failover_demo",
 ].join("\n");
 
 function toggleSites(name) {
@@ -225,7 +317,9 @@ function normalizeRegion(name, raw, hb) {
       age < 1 ? "just now" :
         `${age.toFixed(1)}s ago`;
 
-  return { name, state, regionType, sites, ts, isStale, lastSeenText };
+  const isCapital = capital.value === name;
+
+  return { name, state, regionType, sites, ts, isStale, lastSeenText, isCapital };
 }
 
 const regions = computed(() => {
@@ -234,8 +328,8 @@ const regions = computed(() => {
   return Object.entries(obj)
     .map(([name, raw]) => normalizeRegion(name, raw, hb))
     .sort((a, b) => {
-      if (a.regionType === "capital") return -1;
-      if (b.regionType === "capital") return 1;
+      if (a.isCapital) return -1;
+      if (b.isCapital) return 1;
       return a.name.localeCompare(b.name);
     });
 });
@@ -272,11 +366,19 @@ const lastFetchText = computed(() => {
   return new Date(lastFetch.value).toLocaleTimeString();
 });
 
+const endpointLabel = computed(() => {
+  if (!connectedEndpoint.value) return "";
+  return connectedEndpoint.value.replace(/^ws:\/\//, "");
+});
+
 // ---- State update handler ----
 
 function applyStateUpdate(body) {
-  data.value = body.state ?? {};
-  heartbeats.value = body.heartbeats ?? {};
+  const root = body.__state ?? body ?? {};
+  data.value = root.state ?? body.state ?? {};
+  heartbeats.value = root.heartbeat ?? body.heartbeats ?? {};
+  leader.value = body.leader ?? "";
+  capital.value = body.capital ?? body.leader ?? "";
   lastFetch.value = Date.now();
   loading.value = false;
   error.value = "";
@@ -284,56 +386,99 @@ function applyStateUpdate(body) {
 
 // ---- WebSocket ----
 
-async function connectWs() {
-  wsStatus.value = "connecting";
+async function tryConnect(endpoint) {
+  if (sockets.has(endpoint)) return;
+
+  let ws = null;
   try {
-    ws = new WebSocket("ws://localhost:3042");
+    ws = new WebSocket(endpoint);
 
-    await new Promise((resolve, reject) => {
-      ws.addEventListener("open", resolve, { once: true });
-      ws.addEventListener("error", reject, { once: true });
-    });
+    await Promise.race([
+      new Promise((resolve, reject) => {
+        ws.addEventListener("error", reject, { once: true });
+        ws.addEventListener("open", resolve, { once: true });
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Connection timed out")), 1000))
+    ]);
 
-    // Handshake
     ws.send(JSON.stringify({ name: `Frontend-${crypto.randomUUID()}` }));
     const handshake = await new Promise(resolve => {
       ws.addEventListener("message", e => resolve(JSON.parse(e.data)), { once: true });
     });
 
     if (handshake.status !== "success") {
-      error.value = `WS handshake failed: ${handshake.reason ?? "unknown"}`;
-      wsStatus.value = "disconnected";
-      reconnectTimer = setTimeout(connectWs, 2000);
+      ws.close();
       return;
     }
 
+    sockets.set(endpoint, ws);
     wsStatus.value = "connected";
+    connectedEndpoint.value = endpoint;
     error.value = "";
 
-    ws.addEventListener("close", () => {
-      wsStatus.value = "disconnected";
-      ws = null;
-      reconnectTimer = setTimeout(connectWs, 2000);
-    });
+    connected.value = connected.value.filter(x => x !== endpoint);
+    connected.value.push(endpoint);
 
-    // React to server-pushed state and explicit request responses
-    ws.addEventListener("message", (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.route === "push.state_update") {
-        applyStateUpdate(msg.body ?? {});
-      } else if (msg.route === "__response" && msg.body?.state) {
-        applyStateUpdate(msg.body);
+    refreshNow(ws);
+
+    ws.addEventListener("close", () => {
+      sockets.delete(endpoint);
+      connected.value = connected.value.filter(x => x !== endpoint);
+
+      if (connected.value.length === 0) {
+        wsStatus.value = "disconnected";
+        connectedEndpoint.value = "";
       }
     });
 
-  } catch (e) {
-    error.value = "WebSocket error — is the capital server running?";
-    wsStatus.value = "disconnected";
-    reconnectTimer = setTimeout(connectWs, 2000);
+    ws.addEventListener("message", (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.route === "push.state_update" || msg.route === "push.replica_state_update") {
+        applyStateUpdate(msg.body ?? {});
+      } else if (msg.route === "__response") {
+        applyStateUpdate(msg.body ?? {});
+      }
+    });
+  } catch (_e) {
+    if (ws) {
+      try {
+        ws.close();
+      } catch {
+        // ignore
+      }
+    }
   }
 }
 
-function refreshNow() {
+async function connectWs() {
+  if (connected.value.length === 0) {
+    wsStatus.value = "connecting";
+  }
+
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
+  const attempts = [];
+  for (const endpoint of wsCandidates) {
+    if (!connected.value.includes(endpoint) && !sockets.has(endpoint)) {
+      attempts.push(tryConnect(endpoint));
+    }
+  }
+
+  await Promise.allSettled(attempts);
+
+  if (connected.value.length === 0 && sockets.size === 0) {
+    error.value = "WebSocket error: no replica reachable";
+    wsStatus.value = "disconnected";
+    connectedEndpoint.value = "";
+  }
+
+  reconnectTimer = setTimeout(connectWs, 2000);
+}
+
+function refreshNow(ws) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({
     route: "api.national_infrastructure",
@@ -342,9 +487,22 @@ function refreshNow() {
   }));
 }
 
+function refreshNowAll() {
+  for (const ws of sockets.values()) {
+    refreshNow(ws);
+  }
+}
+
 onMounted(() => connectWs());
 onUnmounted(() => {
   if (reconnectTimer) clearTimeout(reconnectTimer);
-  if (ws) ws.close();
+  for (const ws of sockets.values()) {
+    try {
+      ws.close();
+    } catch {
+      // ignore
+    }
+  }
+  sockets.clear();
 });
 </script>

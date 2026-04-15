@@ -35,9 +35,9 @@ class InfrastructureNode(NodeBase):
             print(f"[{self.network_name}] broadcast_update skipped: {e}")
             return
 
-        print(f"[{self.network_name}] broadcasting {payload}")
+        # print(f"[{self.network_name}] broadcasting {payload}")
 
         # Removed region filter since the names arent standard in setup.py
         # TODO: region filter after name standardization
-        for peer_name in self.outbound_connections.keys():
+        for peer_name in self.connection_map.get_outbound_names():
             self.send_message(peer_name, "api.report", payload)
