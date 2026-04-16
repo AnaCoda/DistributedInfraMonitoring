@@ -1,7 +1,6 @@
 import threading
 import random
 import sys
-import websockets
 import json
 import os
 import uuid
@@ -9,12 +8,14 @@ import uuid
 # sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ..shared.node import NodeBase, node_handler, NodeConnectionType, _send_raw
+from ..shared.node import NodeRpcError
 from typing import Optional
 
 
 # will be creating multiples of these for active replication
 class ReplicationManager(NodeBase):
     def __init__(self, manager_id, address, capital_address: tuple[str, int]):
+        self._capital_connect_lock = threading.Lock()
 
         super().__init__(
             network_name=f"rm-{manager_id}",
@@ -32,10 +33,26 @@ class ReplicationManager(NodeBase):
 
     def _start(self):
         """connect to capital"""
-
-        self.connect(self.capital_address)
+        self.ensure_capital_connection()
 
         print(f"[{self.network_name}] connected to capital")
+
+    @node_handler(internal_ms=1000)
+    def ensure_connected(self):
+        self.ensure_capital_connection()
+
+    def ensure_capital_connection(self):
+        if self.is_outage_active():
+            return
+
+        with self._capital_connect_lock:
+            if self.has_connection("Capital"):
+                return
+
+            try:
+                self.connect(self.capital_address)
+            except Exception:
+                pass
 
     @node_handler(name='push.state_update')
     def handle_state_update(self, body: dict, sender: str): 
@@ -60,6 +77,17 @@ class ReplicationManager(NodeBase):
             "state": self.state,
             "heartbeats": self.heartbeats,
         }
+
+    @node_handler(name='admin.simulated_fail_packet')
+    def forward_admin_fail_packet(self, body: dict, sender: str):
+        if not sender.startswith("Frontend-"):
+            raise NodeRpcError("Only frontend clients may issue admin fail packets via replication manager.")
+
+        return self.send_message("Capital", "admin.simulated_fail_packet", body)
+
+    @node_handler(name='admin.node.outage_control')
+    def handle_admin_node_outage_control(self, body: dict):
+        return NodeBase.handle_node_outage_control(self, body)
 
 
     def _broadcast_state(self):

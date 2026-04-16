@@ -26,11 +26,18 @@
     </div>
 
     <div class="pb-6 flex flex-row gap-3">
-      <div class="p-1 pl-2 border-gray-500 border rounded-full flex justify-center items-center gap-2 flex-row" v-for="value in connected">
+      <div class="p-1 pl-2 border-gray-500 border rounded-full flex justify-center items-center gap-2 flex-row" v-for="value in connected" :key="value">
         <div class="w-4 h-4 border bg-green-400 rounded-full"></div>
         <div>{{ value }}</div>
       </div>
     </div>
+
+    <AdminControlPanel
+      :node-targets="adminNodeTargets"
+      :command-status="commandStatus"
+      :disabled="connected.length === 0"
+      @submit="sendAdminCommand"
+    />
 
     <!-- Loading -->
     <div v-if="loading && regions.length === 0" class="text-sm text-gray-400">Loading…</div>
@@ -190,6 +197,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import StatusBadge from "./components/StatusBadge.vue";
 import ProgressBar from "./components/ProgressBar.vue";
 import SiteValue from "./components/SiteValue.vue";
+import AdminControlPanel from "./components/AdminControlPanel.vue";
 
 // ---- State ----
 
@@ -198,10 +206,15 @@ const heartbeats = ref({});
 const loading = ref(true);
 const error = ref("");
 const lastFetch = ref(null);
+const now = ref(Date.now());
 const connectedEndpoint = ref("");
+const commandStatus = ref({ state: "idle", message: "" });
 
 let reconnectTimer = null;
+let staleClockTimer = null;
 // let ws = null;
+const socketPool = new Map();
+const pendingRequests = new Map();
 
 const expanded = reactive({});
 const wsStatus = ref("disconnected");
@@ -245,8 +258,8 @@ function normalizeRegion(name, raw, hb) {
   const lastContact = hbEntry?.last_contact ? new Date(hbEntry.last_contact).getTime() / 1000 : null;
   const ts = lastContact;
 
-  const now = Date.now() / 1000;
-  const age = ts ? (now - ts) : null;
+  const currentTime = now.value / 1000;
+  const age = ts ? (currentTime - ts) : null;
   const isStale = age !== null ? age > 5 : false;
 
   const lastSeenText =
@@ -306,6 +319,31 @@ const endpointLabel = computed(() => {
   return connectedEndpoint.value.replace(/^ws:\/\//, "");
 });
 
+const replicationTargets = computed(() => ["rm-1", "rm-2", "rm-3"]);
+
+const adminNodeTargets = computed(() => {
+  const targets = ["Capital", ...replicationTargets.value];
+
+  for (const region of regions.value) {
+    const regionName = region.name;
+    if (!targets.includes(regionName)) {
+      targets.push(regionName);
+    }
+
+    if (Array.isArray(region.sites)) {
+      for (const site of region.sites) {
+        if (!site?.name) continue;
+        const scopedSiteName = `${regionName}/${site.name}`;
+        if (!targets.includes(scopedSiteName)) {
+          targets.push(scopedSiteName);
+        }
+      }
+    }
+  }
+
+  return targets;
+});
+
 // ---- State update handler ----
 
 function applyStateUpdate(body) {
@@ -326,7 +364,7 @@ async function tryConnect(endpoint) {
     ws = new WebSocket(endpoint);
     
     
-    let o = await Promise.race([
+    await Promise.race([
       new Promise((resolve, reject) => {
         ws.addEventListener("error", reject, { once: true });
         ws.addEventListener("open", resolve, { once: true });
@@ -334,14 +372,15 @@ async function tryConnect(endpoint) {
       }),
       new Promise((_, reject) => setTimeout(() => reject("Connection timed out"), 1000))
     ])
-    // console.log(o)
-    
-
     // Handshake
     ws.send(JSON.stringify({ name: `Frontend-${crypto.randomUUID()}` }));
-    const handshake = await new Promise(resolve => {
-      ws.addEventListener("message", e => resolve(JSON.parse(e.data)), { once: true });
-    });
+    const handshake = await Promise.race([
+      new Promise((resolve, reject) => {
+        ws.addEventListener("message", e => resolve(JSON.parse(e.data)), { once: true });
+        ws.addEventListener("close", () => reject(new Error("Connection closed before handshake")), { once: true });
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Handshake timed out")), 1000))
+    ]);
     console.log(`Connected to one replica ${endpoint}`)
 
     if (handshake.status !== "success") {
@@ -354,15 +393,20 @@ async function tryConnect(endpoint) {
     wsStatus.value = "connected";
     connectedEndpoint.value = endpoint;
     error.value = "";
+    socketPool.set(endpoint, ws);
     refreshNow(ws);
 
-    connected = connected.filter(x => x != endpoint)
-    connected.push(endpoint)
+    connected.value = connected.value.filter(x => x != endpoint)
+    connected.value.push(endpoint)
 
     ws.addEventListener("close", () => {
       console.log(`Endpoint ${endpoint} is disconnecting.`)
-      connected = connected.filter(x => x != endpoint)
-      if(connected.length == 0) {
+      socketPool.delete(endpoint);
+      connected.value = connected.value.filter(x => x != endpoint)
+      if (connectedEndpoint.value === endpoint) {
+        connectedEndpoint.value = connected.value[0] || "";
+      }
+      if(connected.value.length == 0) {
         wsStatus.value = "disconnected";
         connectedEndpoint.value = "";
       }
@@ -374,6 +418,11 @@ async function tryConnect(endpoint) {
     // React to server-pushed state and explicit request responses
     ws.addEventListener("message", (event) => {
       const msg = JSON.parse(event.data);
+      if (msg.route === "__response" && msg.rid && pendingRequests.has(msg.rid)) {
+        pendingRequests.get(msg.rid).resolve(msg.body ?? {});
+        pendingRequests.delete(msg.rid);
+        return;
+      }
       // console.log(msg.body)
       if (msg.route === "push.state_update" || msg.route === "push.replica_state_update") {
         applyStateUpdate(msg.body ?? {});
@@ -397,10 +446,51 @@ async function tryConnect(endpoint) {
   }
 }
 
-let connected = []
+const connected = ref([])
+
+function getFirstOpenSocket() {
+  if (connectedEndpoint.value && socketPool.has(connectedEndpoint.value)) {
+    const primary = socketPool.get(connectedEndpoint.value);
+    if (primary && primary.readyState === WebSocket.OPEN) {
+      return primary;
+    }
+  }
+
+  for (const endpoint of connected.value) {
+    const sock = socketPool.get(endpoint);
+    if (sock && sock.readyState === WebSocket.OPEN) {
+      return sock;
+    }
+  }
+  return null;
+}
+
+function sendRpc(ws, route, body, timeoutMs = 2500) {
+  return new Promise((resolve, reject) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      reject(new Error("WebSocket is not connected"));
+      return;
+    }
+
+    const rid = crypto.randomUUID();
+    const timer = setTimeout(() => {
+      pendingRequests.delete(rid);
+      reject(new Error("Request timed out"));
+    }, timeoutMs);
+
+    pendingRequests.set(rid, {
+      resolve: (bodyResponse) => {
+        clearTimeout(timer);
+        resolve(bodyResponse);
+      }
+    });
+
+    ws.send(JSON.stringify({ route, rid, body }));
+  });
+}
 
 async function connectWs() {
-  if(connected.length == 0) {
+  if(connected.value.length == 0) {
     wsStatus.value = "connecting";
   }
   
@@ -409,34 +499,84 @@ async function connectWs() {
     reconnectTimer = null;
   }
 
-  for (const endpoint of wsCandidates) {
-    if (!connected.includes(endpoint)) {
-      tryConnect(endpoint)
-    }
-    // tryConnect(endpoint)
-  }
-
-  if(connected.length == 0) {
-    error.value = "WebSocket error: no replica reachable";
-    wsStatus.value = "disconnected";
-    connectedEndpoint.value = "";
+  if (connected.value.length === 0) {
+    await Promise.all(
+      wsCandidates
+        .filter(endpoint => !connected.value.includes(endpoint))
+        .map(endpoint => tryConnect(endpoint))
+    );
   }
   
   reconnectTimer = setTimeout(connectWs, 2000);
 }
 
 function refreshNow(ws) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({
-    route: "api.national_infrastructure",
-    rid: crypto.randomUUID(),
-    body: {}
-  }));
+  const activeSocket = ws || getFirstOpenSocket();
+  if (!activeSocket) return;
+
+  sendRpc(activeSocket, "api.national_infrastructure", {})
+    .then((body) => {
+      if (body?.state) {
+        applyStateUpdate(body);
+      }
+    })
+    .catch(() => {
+      // normal reconnect loop will retry
+    });
 }
 
-onMounted(() => connectWs());
+function sendAdminCommand(payload) {
+  const activeSocket = getFirstOpenSocket();
+  if (!activeSocket) {
+    commandStatus.value = {
+      state: "error",
+      message: "No active replica connection.",
+    };
+    return;
+  }
+
+  commandStatus.value = { state: "sending", message: "" };
+  sendRpc(activeSocket, "admin.simulated_fail_packet", payload)
+    .then((body) => {
+      if (body?.status === "fail") {
+        commandStatus.value = {
+          state: "error",
+          message: body.reason || "Command rejected by backend.",
+        };
+        return;
+      }
+
+      commandStatus.value = {
+        state: "success",
+        message: `Outage applied to ${payload.target_id} for ${payload.duration_sec}s`,
+      };
+      refreshNow();
+    })
+    .catch((e) => {
+      commandStatus.value = {
+        state: "error",
+        message: e?.message || "Failed to send command.",
+      };
+    });
+}
+
+onMounted(() => {
+  connectWs();
+  staleClockTimer = setInterval(() => {
+    now.value = Date.now();
+  }, 1000);
+});
 onUnmounted(() => {
   if (reconnectTimer) clearTimeout(reconnectTimer);
+  if (staleClockTimer) clearInterval(staleClockTimer);
+  for (const ws of socketPool.values()) {
+    try {
+      ws.close();
+    } catch (_closeErr) {
+      // Ignore close errors during shutdown.
+    }
+  }
+  socketPool.clear();
   // if (ws) ws.close();
 });
 </script>

@@ -328,6 +328,9 @@ class NodeBase:
         }
         
         self.response_registrar = {}
+        self._outage_activate_at: float = 0.0
+        self._outage_until: float = 0.0
+        self._outage_connections_closed: bool = False
         
 
         for _, fn in inspect.getmembers(self.__class__, predicate=inspect.isfunction):
@@ -380,28 +383,45 @@ class NodeBase:
         
     def __handle_registered_connection(self, name: str, connection: ThreadSafeSocket):
         while True:
+            message = None
             try:
+                if self.is_outage_active():
+                    self.__deregister_duplex_connection(name)
+                    break
                 message = _recv_raw(connection)
                 self.__dispatch_received_message(name, message)
-            except (ConnectionAbortedError, ConnectionResetError, websockets.exceptions.ConnectionClosedOK):
+            except (ConnectionAbortedError, ConnectionResetError, websockets.exceptions.ConnectionClosedOK, websockets.exceptions.ConnectionClosedError):
                 for evtha in self.event_maps[NodeEvent.ON_DISCONNECT]:
                     if evtha.method == NodeConnectionType.INBOUND:
                         evtha.functor(self, name)
                 self.__deregister_duplex_connection(name)
                 break
             except NodeRpcError as nre:
-                packed = MessagePackingResult.pack_msg('__response', { 'status': 'fail', 'reason': nre.message }, set_rid=message['rid'])
-                
-                _send_raw(connection, packed.message)
+                rid = message['rid'] if isinstance(message, dict) and 'rid' in message else None
+                packed = MessagePackingResult.pack_msg('__response', { 'status': 'fail', 'reason': nre.message }, set_rid=rid)
+
+                try:
+                    _send_raw(connection, packed.message)
+                except (ConnectionAbortedError, ConnectionResetError, websockets.exceptions.ConnectionClosedOK, websockets.exceptions.ConnectionClosedError):
+                    for evtha in self.event_maps[NodeEvent.ON_DISCONNECT]:
+                        if evtha.method == NodeConnectionType.INBOUND:
+                            evtha.functor(self, name)
+                    self.__deregister_duplex_connection(name)
+                    break
     
     def __handle_conn_recv(self, connection: ThreadSafeSocket):
         registry = _recv_raw(connection)
-        print(f"recevied registry: {registry}")
         if 'name' not in registry:
             _send_raw(connection, { 'status': 'fail', 'reason': 'no registry name present' })
             connection.close()
             return
         name: str = registry['name']
+        
+        if self.should_reject_inbound_connection(name):
+            _send_raw(connection, { 'status': 'fail', 'reason': 'server unavailable' })
+            connection.close()
+            return
+        
         if name in self.inbound_connections:
             _send_raw(connection, { 'status': 'fail', 'reason': 'name currently in use.' })
             connection.close()
@@ -518,9 +538,72 @@ class NodeBase:
         """
         def runnable():
             while not self.stop_event.is_set():
-                functor(self)
+                try:
+                    if not self.is_outage_active():
+                        functor(self)
+                except Exception as exc:
+                    print(f"[{self.network_name}] interval '{functor.__name__}' failed: {exc}")
                 time.sleep(interval / 1000.0)
         self.__launch_background_thread(runnable)
+
+    def _close_all_connections(self):
+        for connection in list(self.outbound_connections.values()):
+            connection.connection.close()
+        for connection in list(self.inbound_connections.values()):
+            connection.connection.close()
+        self.outbound_connections.clear()
+        self.inbound_connections.clear()
+
+        # Unblock any pending RPC calls waiting for responses while this node is down.
+        for event in list(self.response_registrar.values()):
+            event.event.set()
+
+    def begin_outage(self, duration_sec: float, activation_delay_sec: float = 0.15):
+        if duration_sec <= 0:
+            raise NodeRpcError("duration_sec must be greater than 0.")
+
+        now = time.monotonic()
+        activate_at = now + max(0.0, activation_delay_sec)
+        self._outage_activate_at = activate_at
+        self._outage_until = activate_at + duration_sec
+        self._outage_connections_closed = False
+
+    def outage_remaining_sec(self) -> float:
+        if self._outage_until <= 0:
+            return 0.0
+        return max(0.0, self._outage_until - time.monotonic())
+
+    def is_outage_active(self) -> bool:
+        if self._outage_until <= 0:
+            return False
+
+        now = time.monotonic()
+        if now >= self._outage_until:
+            self._outage_activate_at = 0.0
+            self._outage_until = 0.0
+            self._outage_connections_closed = False
+            return False
+
+        if now >= self._outage_activate_at:
+            if not self._outage_connections_closed:
+                self._close_all_connections()
+                self._outage_connections_closed = True
+            return True
+
+        return False
+
+    def handle_node_outage_control(self, body: dict):
+        try:
+            duration_sec = float(body.get("duration_sec", 0))
+        except (TypeError, ValueError):
+            raise NodeRpcError("duration_sec must be a number greater than 0.")
+
+        self.begin_outage(duration_sec)
+        return {
+            "status": "success",
+            "target": self.network_name,
+            "duration_sec": duration_sec,
+        }
         
     def shutdown(self):
         self.stop_event.set()
@@ -570,6 +653,10 @@ class NodeBase:
     #     connection: ConnectionRegistry,
     #     body: dict
     # ) -> None:
+    
+    def should_reject_inbound_connection(self, name: str) -> bool:
+        """Override to reject inbound connections based on node state."""
+        return self.is_outage_active()
         
     def has_connection(self, target: str) -> bool:
         for conn in self.outbound_connections.keys():
@@ -597,6 +684,9 @@ class NodeBase:
         return self.__send_message_targeted(target, method, body, rid=None, fire_and_forget=False)
     
     def __send_message_targeted(self, target: str, method: str, body: dict, rid: Optional[str] = None, fire_and_forget: bool = False):
+        if self.is_outage_active():
+            raise NodeRpcError(f"Node '{self.network_name}' is currently unavailable.")
+
         # rid: str = str(uuid.uuid4()) if rid is None else rid
         # payload: dict = {
         #     'route': method,

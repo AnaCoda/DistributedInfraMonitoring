@@ -22,13 +22,26 @@ def main():
     alberta = StandardRegionNode(region_name="Carstairs", address=('127.0.0.1', 3051), capital_address=('127.0.0.1', 3042), interval_ms=2000)
     calgary = UrbanRegionNode(region_name="Calgary", address=('127.0.0.1', 3052), capital_address=('127.0.0.1', 3042), interval_ms=2000)
 
-    rm = ReplicationManager(
-        manager_id=1,
-        capital_address=('127.0.0.1', 3042),
-        address=('127.0.0.1', 4001)
-    )
+    replicas = [
+        ReplicationManager(
+            manager_id=1,
+            capital_address=('127.0.0.1', 3042),
+            address=('127.0.0.1', 4001)
+        ),
+        ReplicationManager(
+            manager_id=2,
+            capital_address=('127.0.0.1', 3042),
+            address=('127.0.0.1', 4005)
+        ),
+        ReplicationManager(
+            manager_id=3,
+            capital_address=('127.0.0.1', 3042),
+            address=('127.0.0.1', 4003)
+        ),
+    ]
 
-    rm._start()
+    for replica in replicas:
+        replica._start()
     
     try:
         while True:
@@ -41,7 +54,8 @@ def main():
         capital.shutdown()
         alberta.shutdown()
         calgary.shutdown()
-        rm.shutdown()
+        for replica in replicas:
+            replica.shutdown()
         # capital2.shutdown()
 
 if __name__ == "__main__":
