@@ -226,10 +226,5 @@ class RegionalNode(NodeBase, ABC):
                     },
                 }
             )
-            # Keep heartbeat aligned with successful state traffic.
-            try:
-                self.send_message('Capital', 'api.region.heartbeat', { 'status': 'ok' })
-            except Exception:
-                pass
         except Exception:
             pass

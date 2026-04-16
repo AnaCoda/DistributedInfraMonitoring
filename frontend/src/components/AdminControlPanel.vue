@@ -2,18 +2,24 @@
   <section class="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4">
     <div class="flex items-start justify-between gap-3 mb-3 flex-wrap">
       <div>
-        <h2 class="text-sm font-semibold text-amber-900">Demo Admin Controls</h2>
-        <p class="text-xs text-amber-800 mt-0.5">
-          Trigger full node outages with auto-restore timers.
-        </p>
+        <h2 class="text-sm font-semibold text-amber-900">Demo Controls</h2>
       </div>
-      <span class="text-[11px] px-2 py-0.5 rounded-full border"
-        :class="disabled ? 'border-gray-300 text-gray-500 bg-gray-100' : 'border-amber-300 text-amber-800 bg-amber-100'">
-        {{ disabled ? 'No active replica connection' : 'Ready' }}
-      </span>
+      <div class="flex items-center gap-2">
+        <span class="text-[11px] px-2 py-0.5 rounded-full border"
+          :class="disabled ? 'border-gray-300 text-gray-500 bg-gray-100' : 'border-amber-300 text-amber-800 bg-amber-100'">
+          {{ disabled ? 'No active replica connection' : 'Ready' }}
+        </span>
+        <button
+          type="button"
+          class="btn px-2.5 py-1 text-xs"
+          @click="isCollapsed = !isCollapsed"
+        >
+          {{ isCollapsed ? 'Expand' : 'Collapse' }}
+        </button>
+      </div>
     </div>
 
-    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div v-if="!isCollapsed" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <label class="text-xs text-gray-600">
         Target
         <select v-model="targetId" class="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm">
@@ -33,7 +39,7 @@
       </label>
     </div>
 
-    <div class="mt-3 flex items-center gap-3 flex-wrap">
+    <div v-if="!isCollapsed" class="mt-3 flex items-center gap-3 flex-wrap">
       <button
         class="btn px-3 py-1.5"
         :disabled="disabled || !targetId || commandStatus.state === 'sending'"
@@ -67,6 +73,7 @@ const props = defineProps({
 
 const emit = defineEmits(["submit"]);
 
+const isCollapsed = ref(true);
 const targetId = ref("");
 const durationSec = ref(15);
 

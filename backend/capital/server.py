@@ -91,7 +91,7 @@ class CapitalNode(NodeBase):
 
         # return errors just in case there's an issue
         if not state_name or not state_data:
-            raise RuntimeError("Missing name or state.")
+            raise NodeRpcError("Missing name or state.")
         
         # This does the update if everything is working
         with self.lock:
