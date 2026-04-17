@@ -1,7 +1,7 @@
 # # Capital server
 # # - Flask HTTP API on port 5000  (frontend talks here)
 # # - TCP listener on port 6000    (regional nodes talk here)
-from ..shared.node import NodeBase, node_handler, _send_raw
+from ..shared.node import NodeBase, node_handler, _send_raw, NodeRpcError
 import threading
 import datetime
 import uuid
@@ -41,7 +41,13 @@ class CapitalNode(NodeBase):
         }
         
         self.heart_beat = {
-            
+            "Capital": {
+                "last_contact": datetime.datetime.now(datetime.timezone.utc).isoformat()
+            }
+        }
+        self.control_overrides = {
+            "replication": {},
+            "regional": {},
         }
     
     @node_handler(name='api.hello')
@@ -52,10 +58,18 @@ class CapitalNode(NodeBase):
         
     @node_handler(name='api.region.heartbeat')
     def handle_region_heartbeat(self, message: dict, source: str):
-        print(f'Received heartbeat from {source}')
+        # print(f'Received heartbeat from {source}')
         if source not in self.heart_beat:
             self.heart_beat[source] = {}
         self.heart_beat[source]['last_contact'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        self._broadcast_state()
+
+    @node_handler(internal_ms=1000)
+    def self_heartbeat(self):
+        if not hasattr(self, "heart_beat") or not hasattr(self, "national_infrastructure"):
+            return
+        self.heart_beat.setdefault("Capital", {})
+        self.heart_beat["Capital"]["last_contact"] = datetime.datetime.now(datetime.timezone.utc).isoformat()   
         self._broadcast_state()
 
     @node_handler(name="api.state_infrastructure")
@@ -91,8 +105,77 @@ class CapitalNode(NodeBase):
         self._broadcast_state()
         return {"message":f"State {state_name} updated successfully."}
 
+    @node_handler(name="admin.simulated_fail_packet")
+    def handle_admin_fail_packet(self, body: dict, source: str):
+        target_id = str(body.get("target_id") or "").strip()
+        try:
+            duration_sec = float(body.get("duration_sec", 0))
+        except (TypeError, ValueError):
+            raise NodeRpcError("duration_sec must be a number greater than 0.")
+
+        if not target_id:
+            raise NodeRpcError("Missing target_id.")
+        if duration_sec <= 0:
+            raise NodeRpcError("duration_sec must be greater than 0.")
+
+        if target_id.lower() == self.network_name.lower():
+            self.begin_outage(duration_sec)
+            return {
+                "status": "success",
+                "source": source,
+                "target_id": self.network_name,
+                "duration_sec": duration_sec,
+            }
+
+        if "/" in target_id:
+            region_name_raw, infra_name_raw = target_id.split("/", 1)
+            region_name = region_name_raw.strip()
+            infra_name = infra_name_raw.strip()
+            if not region_name or not infra_name:
+                raise NodeRpcError("Infrastructure targets must use '<RegionName>/<SiteName>' format.")
+
+            resolved_region = next((name for name in self.outbound_connections.keys() if name.lower() == region_name.lower()), None)
+            if resolved_region is None:
+                raise NodeRpcError(f"Regional target '{region_name}' is not connected.")
+
+            response = self.send_message(
+                target=resolved_region,
+                method="admin.region.route_node_outage",
+                body={
+                    "target_id": infra_name,
+                    "duration_sec": duration_sec,
+                }
+            )
+            return {
+                "status": "success",
+                "source": source,
+                "target_id": f"{resolved_region}/{infra_name}",
+                "duration_sec": duration_sec,
+                "downstream": response,
+            }
+
+        resolved_target = next((name for name in self.outbound_connections.keys() if name.lower() == target_id.lower()), None)
+        if resolved_target is None:
+            raise NodeRpcError(f"Target '{target_id}' is not connected.")
+
+        response = self.send_message(
+            target=resolved_target,
+            method="admin.node.outage_control",
+            body={
+                "duration_sec": duration_sec,
+            }
+        )
+
+        return {
+            "status": "success",
+            "source": source,
+            "target_id": resolved_target,
+            "duration_sec": duration_sec,
+            "downstream": response,
+        }
+
     def _broadcast_state(self):
-        """Push current state to all connected frontend clients."""
+        """Push current state to all connected clients (frontends and replication managers)."""
         payload = {
             "route": "push.state_update",
             "rid": str(uuid.uuid4()),
@@ -103,7 +186,7 @@ class CapitalNode(NodeBase):
         }
         dead = []
         for name, entry in list(self.inbound_connections.items()):
-            if name.startswith("Frontend-"):
+            if name.startswith("Frontend-") or name.startswith("rm-"):
                 try:
                     _send_raw(entry.connection, payload)
                 except Exception:

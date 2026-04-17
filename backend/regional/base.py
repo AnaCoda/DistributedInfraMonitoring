@@ -1,9 +1,10 @@
+import threading
 import time
 import random
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..shared.node import NodeBase, node_handler, NodeConnectionType
+from ..shared.node import NodeBase, node_handler, NodeConnectionType, NodeRpcError
 
 
 class RegionalNode(NodeBase, ABC):
@@ -21,6 +22,8 @@ class RegionalNode(NodeBase, ABC):
         capital_address: Tuple[str, int],
         interval_ms: int = 2000,
     ):
+        self._capital_connect_lock = threading.Lock()
+
         super().__init__(network_name=region_name, address=address)
 
         if region_name.strip().lower() == "capital":
@@ -46,12 +49,24 @@ class RegionalNode(NodeBase, ABC):
     def simulate_tick(self) -> None:
         for s in self.sites:
             t = getattr(s, "resource_type", "")
+
+            # If an individual infrastructure node is in outage mode, keep its value pinned.
+            if hasattr(s, "is_outage_active") and callable(getattr(s, "is_outage_active")) and s.is_outage_active():
+                if t in ["Powerplant", "Railroad"]:
+                    s.resource_value = "down"
+                elif t in ["Hospital", "Fuel Depot", "Water Treatment Plant"]:
+                    s.resource_value = 0
+                continue
+
             if t == "Powerplant":
                 s.resource_value = random.choices(["stable","unstable","down"], [0.75,0.20,0.05])[0]
             elif t == "Railroad":
                 s.resource_value = random.choices(["operational","degraded","down"], [0.75,0.20,0.05])[0]
             elif t in ["Hospital", "Fuel Depot", "Water Treatment Plant"]:
-                cur = int(s.resource_value)
+                try:
+                    cur = int(s.resource_value)
+                except (TypeError, ValueError):
+                    cur = 100
                 delta = random.randint(-3, 2)  # slower decay so demo doesn't instantly hit 0
                 s.resource_value = max(0, min(100, cur + delta))
 
@@ -93,22 +108,68 @@ class RegionalNode(NodeBase, ABC):
     
     @node_handler(internal_ms=1000)
     def heartbeater(self):
+        if self.is_outage_active():
+            return
+
+        self.ensure_capital_connection()
         if self.has_connection('Capital'):
-            self.send_message('Capital', 'api.region.heartbeat', { 'status': 'ok' })
+            try:
+                self.send_message('Capital', 'api.region.heartbeat', { 'status': 'ok' })
+            except Exception:
+                pass
 
     @node_handler(name="api.report")
     def handle_report(self, msg: dict):
         """
         msg: {"name","region_name","resource_type","resource_value"}
         """
-        print(f"[{self.region_name}] got report: {msg}")
+        # print(f"[{self.region_name}] got report: {msg}")
         # simplest: update the matching site object in self.sites
         site_name = msg.get("name")
+        value = msg.get("resource_value")
+        if value is None:
+            return {"status": "ignored", "reason": "missing resource_value"}
+
         for s in self.sites:
             if getattr(s, "name", None) == site_name:
-                s.resource_value = msg.get("resource_value")
+                s.resource_value = value
                 break
         return {"status": "ok"}
+
+    @node_handler(name="admin.node.outage_control")
+    def handle_admin_node_outage_control(self, msg: dict):
+        return NodeBase.handle_node_outage_control(self, msg)
+
+    @node_handler(name="admin.region.route_node_outage")
+    def route_node_outage(self, msg: dict):
+        target_id = str(msg.get("target_id") or "").strip()
+        try:
+            duration_sec = float(msg.get("duration_sec", 0))
+        except (TypeError, ValueError):
+            raise NodeRpcError("duration_sec must be a number greater than 0.")
+
+        if duration_sec <= 0:
+            raise NodeRpcError("duration_sec must be greater than 0.")
+
+        if not target_id or target_id.lower() == self.network_name.lower():
+            self.begin_outage(duration_sec)
+            return {
+                "status": "success",
+                "target": self.network_name,
+                "duration_sec": duration_sec,
+            }
+
+        resolved = next((name for name in self.outbound_connections.keys() if name.lower() == target_id.lower()), None)
+        if resolved is None:
+            raise NodeRpcError(f"Infrastructure target '{target_id}' is not connected to {self.network_name}.") 
+
+        return self.send_message(
+            target=resolved,
+            method="admin.node.outage_control",
+            body={
+                "duration_sec": duration_sec,
+            }
+        )
 
     @node_handler(on_connect=NodeConnectionType.OUTBOUND)
     def on_outbound_connect(self, name: str):
@@ -118,22 +179,51 @@ class RegionalNode(NodeBase, ABC):
     def on_outbound_disconnect(self, name: str):
         print(f"[{self.region_name}] outbound disconnected from {name}")
 
+    def ensure_capital_connection(self):
+        if self.is_outage_active():
+            return
+
+        with self._capital_connect_lock:
+            if self.has_connection('Capital'):
+                return
+
+            try:
+                self.connect(self.capital_address)
+            except Exception:
+                # Retry on next heartbeat/tick cycle.
+                pass
+
 
     def tick_and_send(self) -> None:
+        if self.is_outage_active():
+            return
+
         self.simulate_tick()
         state = self.aggregate_state()
 
-        self.send_message(
-            target="Capital",
-            method="api.update_state",
-            body={
-                "name": self.region_name,
-                "state": {
-                    "state": state,
-                    "meta": {
-                        "region_type": self.__class__.__name__,
-                        "sites": self.sites_snapshot(),
+        self.ensure_capital_connection()
+        if not self.has_connection("Capital"):
+            return
+
+        try:
+            self.send_message(
+                target="Capital",
+                method="api.update_state",
+                body={
+                    "name": self.region_name,
+                    "state": {
+                        "state": state,
+                        "meta": {
+                            "region_type": self.__class__.__name__,
+                            "sites": self.sites_snapshot(),
+                        },
                     },
-                },
-            }
-        )
+                }
+            )
+            # Keep heartbeat aligned with successful state traffic.
+            try:
+                self.send_message('Capital', 'api.region.heartbeat', { 'status': 'ok' })
+            except Exception:
+                pass
+        except Exception:
+            pass

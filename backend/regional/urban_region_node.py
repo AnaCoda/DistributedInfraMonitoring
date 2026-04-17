@@ -31,18 +31,24 @@ class UrbanRegionNode(StandardRegionNode):
             FuelDepot("fd-1", rn, self.infra_addr("fd-1"), region_addr),
         ]
 
-    def simulate_tick(self):
-        # Start with base simulation
+    def simulate_tick(self) -> None:
         super().simulate_tick()
 
         # Urban: medical recovers slightly more often
         for s in self.sites:
+            if hasattr(s, "is_outage_active") and callable(getattr(s, "is_outage_active")) and s.is_outage_active():
+                continue
             if s.resource_type == "Hospital":
-                cur = int(s.resource_value)
+                try:
+                    cur = int(s.resource_value)
+                except (TypeError, ValueError):
+                    cur = 100
                 s.resource_value = max(0, min(100, cur + random.randint(-4, 8)))
 
         # Urban: transport can be more brittle (congestion)
         for s in self.sites:
+            if hasattr(s, "is_outage_active") and callable(getattr(s, "is_outage_active")) and s.is_outage_active():
+                continue
             if s.resource_type == "Railroad":
                 s.resource_value = random.choices(
                     ["operational", "degraded", "down"],
