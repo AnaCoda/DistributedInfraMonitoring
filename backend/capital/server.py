@@ -1,6 +1,7 @@
 from ..common.node.raw import RawNode
 from ..common.node.networking.layers.routing import node_handler
 from ..common.node.networking.layers.plugins.bully_plugin import BullyPlugin
+from ..common.node.networking.layers.plugins.capital_heartbeat_plugin import CapitalHeartbeatPlugin
 
 from ..common.patching.mpatch import ManagedState
 from ..common.leader_elec.bullynode import BullyPeer
@@ -36,7 +37,6 @@ def _source_manager() -> ManagedState:
     })
 
 
-
 class CapitalNode(RawNode):
     def __init__(
         self,
@@ -48,8 +48,6 @@ class CapitalNode(RawNode):
     ):
         self.peer_addresses = peer_addresses
         self.peer_names = [name for name, _, _ in peer_addresses if name != network_name]
-
-        # self.node_id = self._node_id_from_name(network_name)
 
         self.last_leader_heartbeat = time.time()
         self.leader_timeout_ms = 3000
@@ -79,7 +77,6 @@ class CapitalNode(RawNode):
 
         super().__init__(network_name=network_name, address=address)
 
-
         self.replica_ready_signal = HoldSignal()
         self.fast_forward_signal = HoldSignal()
 
@@ -102,7 +99,9 @@ class CapitalNode(RawNode):
             )
         )
 
-
+        self.capital_heartbeat_plugin = self.register_plugin(
+            CapitalHeartbeatPlugin(host=self)
+        )
 
     def _connect_to(self, address: tuple[str, int]):
         if hasattr(self, "connect") and callable(getattr(self, "connect")):
@@ -131,9 +130,7 @@ class CapitalNode(RawNode):
                 return self.connection_map.get_connection_names()
         return []
 
-
     def _priority_from_peer_count(self) -> int:
-        # Stable configured priority, not live runtime connection count.
         return len(self.peer_addresses)
 
     def _unique_id_from_name(self, name: str) -> str:
@@ -302,7 +299,7 @@ class CapitalNode(RawNode):
                 self.multicast('rm-*', proxy_name, proxy_payload, include_self=False)
         return {"status": "success"}
 
-    def __handle_heartbeat(self, data, source: str):
+    def apply_region_heartbeat(self, data, source: str):
         with self.lock:
             state = self.replica_state.start_transaction()
             if source not in state['heartbeat']:
@@ -314,6 +311,14 @@ class CapitalNode(RawNode):
 
             state['heartbeat'][source]['last_contact'] = ts
             return None, self.__commit_local_replica(state)
+
+    def proxy_region_heartbeat(self, data: dict, source: str):
+        return self.__proxy_call(
+            call=self.apply_region_heartbeat,
+            proxy_name='api.proxy.region.heartbeat',
+            data=data,
+            source=source
+        )
 
     def __handle_operation(self, data, _src):
         self.replica_ready_signal.barrier()
@@ -328,27 +333,6 @@ class CapitalNode(RawNode):
             tx['state'][state_name] = state_data
             rs = self.__commit_local_replica(tx)
             return state_name, rs
-
-    @node_handler(name='api.proxy.region.heartbeat')
-    def handle_region_heartbeat_proxy(self, message: dict, source: str):
-        origin = message.get("__origin_source", source)
-        self.__handle_heartbeat(message, origin)
-        return {"status": "success"}
-
-    @node_handler(name='api.region.heartbeat')
-    def handle_region_heartbeat(self, message: dict, source: str):
-        if not self.is_leader:
-            return {
-                "status": "fail",
-                "reason": f"not leader; current leader is {self.current_leader}"
-            }
-
-        return self.__proxy_call(
-            call=self.__handle_heartbeat,
-            proxy_name='api.proxy.region.heartbeat',
-            data=message,
-            source=source
-        )
 
     @node_handler(name='api.proxy.state_update')
     def handle_operation_proxy(self, data):

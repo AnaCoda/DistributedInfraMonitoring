@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ..common.node.raw import RawNode
 from ..common.node.networking.layers.routing import node_handler
+from ..common.node.networking.layers.plugins.regional_heartbeat_plugin import RegionalHeartbeatPlugin
 from ..common.node.events.connect import NodeConnectionType
 from ..common.sync.mdns import DnsEntry
 
@@ -44,9 +45,10 @@ class RegionalNode(RawNode, ABC):
 
         self.sites = self.build_sites()
 
-    # -------------------------------------------------------------------------
-    # Trigger compatibility helpers
-    # -------------------------------------------------------------------------
+        self.regional_heartbeat_plugin = self.register_plugin(
+            RegionalHeartbeatPlugin(host=self, interval_ms=1000)
+        )
+
     def set_trigger(self, name: str):
         with self._trigger_lock:
             ev = self._trigger_map.get(name)
@@ -71,9 +73,6 @@ class RegionalNode(RawNode, ABC):
                 self._trigger_map[name] = ev
             ev.clear()
 
-    # -------------------------------------------------------------------------
-    # RawNode compatibility helpers
-    # -------------------------------------------------------------------------
     def _connect_to(self, address: tuple[str, int]):
         if hasattr(self, "connect") and callable(getattr(self, "connect")):
             return self.connect(address)
@@ -101,10 +100,6 @@ class RegionalNode(RawNode, ABC):
                 return self.connection_map.get_connection_names()
         return []
 
-    # -------------------------------------------------------------------------
-    # Capital connectivity / leader discovery / recovery
-    # -------------------------------------------------------------------------
-
     @node_handler(internal_ms=500)
     def connect_to_any_capital_candidate(self):
         for addr in self.capital_candidates:
@@ -115,7 +110,6 @@ class RegionalNode(RawNode, ABC):
             except Exception as e:
                 print(f"[{self.region_name}] failed to connect to {addr.name}: {type(e).__name__}: {e}")
 
-        # Only re-discover if we do not already have a live leader connection.
         if not self.current_capital_name or not self.has_connection(self.current_capital_name):
             self._discover_leader()
 
@@ -135,7 +129,6 @@ class RegionalNode(RawNode, ABC):
 
             try:
                 resp = self.send_message(name, "api.who_is_leader", {}, timeout=1.0)
-                #print(f"[{self.region_name}] leader probe to {name} => {resp}")
 
                 leader = resp.get("leader")
                 is_leader = resp.get("is_leader", False)
@@ -181,7 +174,6 @@ class RegionalNode(RawNode, ABC):
             dead_leader = self.current_capital_name
             print(f"[{self.region_name}] send to {dead_leader} failed: {type(e).__name__}: {e}")
 
-            # Only disconnect the current leader on an actual send failure.
             try:
                 if self.has_connection(dead_leader):
                     self._disconnect_name(dead_leader)
@@ -309,13 +301,6 @@ class RegionalNode(RawNode, ABC):
     @node_handler(name="region.ping")
     def ping(self, _message: dict):
         return {"pong": True, "region": self.network_name}
-
-    @node_handler(internal_ms=1000)
-    def heartbeater(self):
-        if not any(name.startswith("rm-") for name in self._outbound_names()):
-            return
-
-        self._send_to_capital("api.region.heartbeat", {"status": "ok"})
 
     @node_handler(name="api.report")
     def handle_report(self, msg: dict):
