@@ -36,6 +36,7 @@ def _source_manager() -> ManagedState:
     })
 
 
+
 class CapitalNode(RawNode):
     def __init__(
         self,
@@ -48,7 +49,7 @@ class CapitalNode(RawNode):
         self.peer_addresses = peer_addresses
         self.peer_names = [name for name, _, _ in peer_addresses if name != network_name]
 
-        self.node_id = self._node_id_from_name(network_name)
+        # self.node_id = self._node_id_from_name(network_name)
 
         self.last_leader_heartbeat = time.time()
         self.leader_timeout_ms = 3000
@@ -78,8 +79,6 @@ class CapitalNode(RawNode):
 
         super().__init__(network_name=network_name, address=address)
 
-        # self._trigger_map: dict[str, threading.Event] = {}
-        # self._trigger_lock = threading.Lock()
 
         self.replica_ready_signal = HoldSignal()
         self.fast_forward_signal = HoldSignal()
@@ -89,38 +88,21 @@ class CapitalNode(RawNode):
                 host=self,
                 node=BullyPeer(
                     name=self.network_name,
-                    id=self._node_id_from_name(self.network_name)
+                    unique_id=self._unique_id_from_name(self.network_name),
+                    priority=self._priority_from_peer_count(),
                 ),
                 peers={
-                    BullyPeer(peer_name, self._node_id_from_name(peer_name)): (peer_name, peer_ip, peer_port)
+                    BullyPeer(
+                        peer_name,
+                        self._unique_id_from_name(peer_name),
+                        self._priority_from_peer_count(),
+                    ): (peer_name, peer_ip, peer_port)
                     for peer_name, peer_ip, peer_port in peer_addresses
                 }
             )
         )
 
-    # def set_trigger(self, name: str):
-    #     with self._trigger_lock:
-    #         ev = self._trigger_map.get(name)
-    #         if ev is None:
-    #             ev = threading.Event()
-    #             self._trigger_map[name] = ev
-    #         ev.set()
 
-    # def wait_trigger(self, name: str, timeout: float | None = None):
-    #     with self._trigger_lock:
-    #         ev = self._trigger_map.get(name)
-    #         if ev is None:
-    #             ev = threading.Event()
-    #             self._trigger_map[name] = ev
-    #     return ev.wait(timeout=timeout)
-
-    # def clear_trigger(self, name: str):
-    #     with self._trigger_lock:
-    #         ev = self._trigger_map.get(name)
-    #         if ev is None:
-    #             ev = threading.Event()
-    #             self._trigger_map[name] = ev
-    #         ev.clear()
 
     def _connect_to(self, address: tuple[str, int]):
         if hasattr(self, "connect") and callable(getattr(self, "connect")):
@@ -149,6 +131,13 @@ class CapitalNode(RawNode):
                 return self.connection_map.get_connection_names()
         return []
 
+
+    def _priority_from_peer_count(self) -> int:
+        # Stable configured priority, not live runtime connection count.
+        return len(self.peer_addresses)
+
+    def _unique_id_from_name(self, name: str) -> str:
+        return f"{name}-uid"
 
     def _node_id_from_name(self, name: str) -> int:
         try:

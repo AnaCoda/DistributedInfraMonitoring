@@ -1,4 +1,4 @@
-from typing import Iterable, Optional, Union, Callable, Any
+from typing import Iterable, Optional, Callable
 from threading import Lock
 from dataclasses import dataclass
 from time import time
@@ -14,7 +14,13 @@ class _BullyState(Enum):
 @dataclass(frozen=True)
 class BullyPeer:
     name: str
-    id: int
+    unique_id: str
+    priority: int
+
+    @property
+    def election_id(self) -> tuple[int, str]:
+        return (self.priority, self.unique_id)
+
 
 @dataclass
 class BullyPacket:
@@ -22,20 +28,24 @@ class BullyPacket:
     destination: BullyPeer
     source: Optional[BullyPeer] = None
 
+
 class _HBMsgState(Enum):
     IDLE = 0
     WAIT = 1
     DEAD = 2
+
 
 @dataclass
 class _HBState:
     state: _HBMsgState
     last_hb: float
 
+
 class BullyElectionHook(Enum):
     ON_ELECT_OTHER = 1
     ON_BECOME_LEADER = 2
     ON_ELECTION_START = 3
+
 
 class BullyElectionNode:
 
@@ -50,9 +60,9 @@ class BullyElectionNode:
     ):
         # The ID of this node.
         self.node_info = node
-        self.node_id = node.id
+        self.node_id = node.election_id
         self.verbose = verbose
-        # List of peers.
+
         self.peer_list: list[BullyPeer] = list(peer_list)
 
         self.get_time = get_time
@@ -61,13 +71,11 @@ class BullyElectionNode:
         self.outbox: list[BullyPacket] = []
 
         # The current leader.
-        self.current_leader: Optional[int] = None
-
+        self.current_leader: Optional[tuple[int, str]] = None
         self.state = _BullyState.IDLE
 
         self.hb_timeout = hb_timeout
         self.timeout = timeout
-
 
         self.last_state_change: Optional[float] = None
 
@@ -95,26 +103,19 @@ class BullyElectionNode:
         hook: BullyElectionHook,
         functor: Callable[..., None]
     ):
-        """
-        Registers a hook that will be called on a specific event
-        taking place.
-
-        Args:
-            hook (BullyElectionHook): The hook event we would like
-            to subscribe to.
-            functor (Callable[..., None]): The functor that will be
-            called on the event.
-        """
         self.hooks[hook].append(functor)
-        
+
     def __fire_hook(self, hook: BullyElectionHook):
         for fn in self.hooks[hook]:
             import threading
             threading.Thread(target=fn).start()
 
     def __reset_heartbeats(self):
-        self.heartbeat: dict[int, Optional[_HBState]] = { p: _HBState(_HBMsgState.IDLE, self.get_time()) for p in self.peer_list if p.id != self.node_id }
-
+        self.heartbeat: dict[BullyPeer, _HBState] = {
+            p: _HBState(_HBMsgState.IDLE, self.get_time())
+            for p in self.peer_list
+            if p.election_id != self.node_id
+        }
 
     def poll(self):
         with self.bully_lock:
@@ -123,34 +124,50 @@ class BullyElectionNode:
                 o.source = self.node_info
             self.outbox = []
             return outbox
-    
-    def __end_election(self, j: int):
+
+    def __peer_by_election_id(self, election_id: tuple[int, str]) -> Optional[BullyPeer]:
+        if self.node_info.election_id == election_id:
+            return self.node_info
+
+        for p in self.peer_list:
+            if p.election_id == election_id:
+                return p
+        return None
+
+    def __leader_name(self) -> Optional[str]:
+        if self.current_leader is None:
+            return None
+        peer = self.__peer_by_election_id(self.current_leader)
+        return None if peer is None else peer.name
+
+    def __end_election(self, leader_id: tuple[int, str]):
         old_leader = self.current_leader
 
-        self.__set_leader(j)
+        self.__set_leader(leader_id)
         self.election_in_progress = False
 
-
-        if j == self.node_id:
-            
+        if leader_id == self.node_id:
             self.__fire_hook(BullyElectionHook.ON_BECOME_LEADER)
-            # for hook in self.hooks[BullyElectionHook.ON_BECOME_LEADER]:
-            #     hook()
-        if old_leader != self.current_leader:
-            if j == self.node_id:
-                pass
-            else:
-                self.__fire_hook(BullyElectionHook.ON_ELECT_OTHER)
-                # for hook in self.hooks[BullyElectionHook.ON_ELECT_OTHER]:
-                    # hook()
+
+        if old_leader != self.current_leader and leader_id != self.node_id:
+            self.__fire_hook(BullyElectionHook.ON_ELECT_OTHER)
 
         self.__set_state(_BullyState.IDLE)
-        self.__print(f'[{self.node_info.name}] Elected node with ID={j} as leader!')
+
+        leader_peer = self.__peer_by_election_id(leader_id)
+        if leader_peer is not None:
+            self.__print(
+                f'[{self.node_info.name}] Elected node '
+                f'{leader_peer.name} (priority={leader_peer.priority}, unique_id={leader_peer.unique_id}) as leader!'
+            )
+        else:
+            self.__print(f'[{self.node_info.name}] Elected leader with key={leader_id}')
+
         self.__reset_heartbeats()
 
     def __higher_peers(self) -> list[BullyPeer]:
-        return [ p for p in self.peer_list if p.id > self.node_id ]
-    
+        return [p for p in self.peer_list if p.election_id > self.node_id]
+
     def __set_state(self, state: _BullyState):
         self.__print(f'[{self.node_info.name}] Switched to state: {state}')
         self.state = state
@@ -160,8 +177,8 @@ class BullyElectionNode:
         with self.election_lock:
             if self.election_in_progress:
                 return
+
             self.__print(f'[{self.node_info.name}] Starting an election.')
-            # Start running the election.
             self.election_in_progress = True
 
             for hook in self.hooks[BullyElectionHook.ON_ELECTION_START]:
@@ -169,168 +186,148 @@ class BullyElectionNode:
 
             higher_peers = self.__higher_peers()
             self.__print(f'[{self.node_info.name}] Peer list: {self.peer_list}')
+
             if len(higher_peers) == 0:
-                # We are the highest node.
-                # RESULT: We announce ourself as leader to all
-                # other nodes.
                 self.outbox += [
                     BullyPacket('LEADER', peer)
-                    for peer in self.peer_list if peer.id != self.node_id
+                    for peer in self.peer_list
+                    if peer.election_id != self.node_id
                 ]
-                
-                # We have won the election.
                 self.__end_election(self.node_id)
             else:
-                # We are not the highest node.
-                # RESULT: Announce the election to all other nodes.
                 self.election_start_time = self.get_time()
                 self.__set_state(_BullyState.WAIT_ELECTION)
                 self.outbox += [
                     BullyPacket('ELECTION', peer)
                     for peer in higher_peers
                 ]
-            
+
     def __print(self, msg: str):
         if self.verbose:
             import colorama
             print(f'{colorama.Fore.RED}[BULLY]{colorama.Fore.RESET} ', end='')
             print(msg)
-            
-    def __set_leader(self, id: int):
-        """
-        Sets the leader ID.
-        
-        Args:
-            id (int): The leader ID.
-        """
-        self.current_leader = id
+
+    def __set_leader(self, leader_id: tuple[int, str]):
+        self.current_leader = leader_id
 
     def __time_since_last_state_change(self):
         return self.get_time() - self.last_state_change
-    
+
     def __handle_heartbeat_packet(self, packet: BullyPacket):
         assert packet.type == 'ACK'
         if self.current_leader is None or self.election_in_progress:
             return
-        # print(f'handling heartbeats for {self.node_info}')
+
         self.heartbeat[packet.source].state = _HBMsgState.IDLE
         self.heartbeat[packet.source].last_hb = self.get_time()
 
-    def get_leader_id(self) -> Optional[int]:
-        """
-        Gets the leader ID if there is an elected leader.
-
-        Returns:
-            Optional[int]: The leader ID if present.
-        """
+    def get_leader_id(self) -> Optional[tuple[int, str]]:
         return self.current_leader
 
+    def get_leader(self) -> Optional[BullyPeer]:
+        if self.current_leader is None:
+            return None
+        return self.__peer_by_election_id(self.current_leader)
+
     def __manage_heartbeats(self):
-        # If we do not have a leader or there is an election in progress,
-        # the system is unstable and so we do not have to manage heartbeats.
         if self.current_leader is None or self.election_in_progress:
             return
-        
-        time = self.get_time()
+
+        now = self.get_time()
         for node_info, state in self.heartbeat.items():
-            should_send = state.state == _HBMsgState.IDLE and time - state.last_hb > self.hb_timeout / 3.0
-            # print(f'Node {self.node_id} | id={node_info.id}, duration = {(time - state.last_hb)}')
+            should_send = (
+                state.state == _HBMsgState.IDLE
+                and now - state.last_hb > self.hb_timeout / 3.0
+            )
+
             if should_send:
-                # self.__print(f'[Node {self.node_info}] Earmarked packet for outbound hartbeat.')
                 self.outbox.append(BullyPacket('HEARTBEAT', node_info))
-                state.last_hb = time
+                state.last_hb = now
                 state.state = _HBMsgState.WAIT
-            elif state.state == _HBMsgState.WAIT and (time - state.last_hb) > self.hb_timeout:
-                if self.current_leader == node_info.id:
+            elif state.state == _HBMsgState.WAIT and (now - state.last_hb) > self.hb_timeout:
+                if self.current_leader == node_info.election_id:
                     self.current_leader = None
                     self.election_in_progress = False
                     self.__set_state(_BullyState.IDLE)
                     self.__start_election()
                 else:
                     state.state = _HBMsgState.DEAD
-                    self.__print(f'[{self.node_info.name}] Detected non-leader node crash: {node_info.name} ({(time - state.last_hb):.2f})')
-          
+                    self.__print(
+                        f'[{self.node_info.name}] Detected non-leader node crash: '
+                        f'{node_info.name} ({(now - state.last_hb):.2f})'
+                    )
 
     def receive(self, packet: Optional[BullyPacket]):
         with self.bully_lock:
             return self.__receive(packet)
+
     def __receive(self, packet: Optional[BullyPacket]):
-        
-        
-        if not (packet is not None and packet.type == 'BULLY') and self.state == _BullyState.WAIT_ELECTION and self.__time_since_last_state_change() > self.timeout:
-            # In this case, we have not received a bully message from the other nodes.
+        if (
+            not (packet is not None and packet.type == 'BULLY')
+            and self.state == _BullyState.WAIT_ELECTION
+            and self.__time_since_last_state_change() > self.timeout
+        ):
             self.__end_election(self.node_id)
-            # We send the leader message to all nodes i != j
             self.outbox += [
                 BullyPacket('LEADER', peer)
-                for peer in self.peer_list if peer.id != self.node_id
+                for peer in self.peer_list
+                if peer.election_id != self.node_id
             ]
 
-        if not (packet is not None and packet.type == 'LEADER') and self.state == _BullyState.WAITING_FOR_LEADER and self.__time_since_last_state_change() > self.timeout:
-            # We were bullied, waiting for a leader packet.
-            # We did not receive one.
+        if (
+            not (packet is not None and packet.type == 'LEADER')
+            and self.state == _BullyState.WAITING_FOR_LEADER
+            and self.__time_since_last_state_change() > self.timeout
+        ):
             self.__start_election()
-
-        
-        
-
 
         if packet is not None:
             if packet.type == 'LEADER':
-                # Ignore duplicate coordinator announcements once we are stable.
                 if (
-                    self.current_leader == packet.source.id
+                    self.current_leader == packet.source.election_id
                     and not self.election_in_progress
                     and self.state == _BullyState.IDLE
                 ):
                     return
-                # Set the leader to j.
-                self.__print(f'[{self.node_info.name}] Elected leader: {packet.source.name} (id={packet.source.id})')
-                j = packet.source.id
-                self.__end_election(j)
-                # self.__set_leader(j)
-                # self.election_in_progress = False
-                # self.__set_state(_BullyState.IDLE)
+
+                self.__print(
+                    f'[{self.node_info.name}] Elected leader: '
+                    f'{packet.source.name} '
+                    f'(priority={packet.source.priority}, unique_id={packet.source.unique_id})'
+                )
+                self.__end_election(packet.source.election_id)
+
             elif packet.type == 'ELECTION':
-                # print(f'[{self.node_info.name}] ')
-                j: int = packet.source.id
-                if j < self.node_id:
-                    # If j < i
-                    # Then we send a bully packet.
+                if packet.source.election_id < self.node_id:
                     self.outbox.append(BullyPacket('BULLY', packet.source))
+
                     if self.current_leader == self.node_id and not self.election_in_progress:
-                        # We are already coordinator; re-announce directly.
                         self.outbox.append(BullyPacket('LEADER', packet.source))
                     elif not self.election_in_progress:
                         self.__start_election()
+
             elif packet.type == 'BULLY':
-                # Wait for leader.
                 if self.state == _BullyState.WAIT_ELECTION:
                     self.__set_state(_BullyState.WAITING_FOR_LEADER)
-                    self.__print(f'[{self.node_info.name}] Current leader: {self.current_leader}')
+                    self.__print(f'[{self.node_info.name}] Current leader: {self.__leader_name()}')
+
             elif packet.type == 'HEARTBEAT':
-                # print(f'[current={self.node_info.id}] Acknowleding heartbeat from {packet.source.id}')
                 self.outbox.append(BullyPacket('ACK', packet.source))
+
             elif packet.type == 'ACK':
-                
                 self.__handle_heartbeat_packet(packet)
+
             else:
-                raise RuntimeError(f'Received a packet type: {packet.type}. Must be either LEADER or ELECTION.')
+                raise RuntimeError(
+                    f'Received a packet type: {packet.type}. '
+                    f'Must be either LEADER or ELECTION.'
+                )
         else:
-            # If we received NO packet, and we do not have a leader AND there is no election!
             if self.current_leader is None and not self.election_in_progress:
                 self.__start_election()
 
-        # Manage heartbeats.
         self.__manage_heartbeats()
 
-           
-
     def is_leader(self) -> bool:
-        """
-        Is this BullyElectionNode the leader?
-
-        Returns:
-            bool: if we are the leader
-        """
         return self.current_leader == self.node_id

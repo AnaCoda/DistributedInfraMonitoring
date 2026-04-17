@@ -39,14 +39,5 @@ class Plugin(NodeTemplate):
     def send_message_no_wait(self, target, method, body):
         return self.host.send_message_no_wait(target, method, body)
 
-    # def set_trigger(self, name: str):
-    #     return self.host.set_trigger(name)
-
-    # def wait_trigger(self, name: str, timeout=None):
-    #     return self.host.wait_trigger(name, timeout=timeout)
-
-    # def clear_trigger(self, name: str):
-    #     return self.host.clear_trigger(name)
-
     def shutdown(self):
         pass

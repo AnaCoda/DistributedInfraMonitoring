@@ -1,17 +1,21 @@
 from .plugin import Plugin
 
 from typing import Optional
-import time
-import threading
 
-from ......common.leader_elec.bullynode import BullyElectionHook, BullyElectionNode, BullyPacket, BullyPeer
+from ......common.leader_elec.bullynode import (
+    BullyElectionHook,
+    BullyElectionNode,
+    BullyPacket,
+    BullyPeer,
+)
 from ..routing import node_handler
 
 
 def _serialize_bully_peer(peer: BullyPeer) -> dict:
     return {
-        "id": peer.id,
-        "name": peer.name
+        "name": peer.name,
+        "unique_id": peer.unique_id,
+        "priority": peer.priority,
     }
 
 
@@ -68,18 +72,18 @@ class BullyPlugin(Plugin):
         self.node.register_hook(BullyElectionHook.ON_BECOME_LEADER, self.on_become_leader)
         self.node.register_hook(BullyElectionHook.ON_ELECTION_START, self.on_start_election)
         print("INITTED")
-        # self.set_trigger("node_init")
 
     def __on_elect_other(self):
         print(f'[{self.get_network_name()}] Hi! Another person has been elected. {self.node.get_leader_id()}')
-        leader: int = self.node.get_leader_id()
+        leader = self.node.get_leader()
+        if leader is None:
+            return
 
-        peer = next(filter(lambda x: x.id == leader, self.peer_translator.keys()))
-        target = self.__translate_and_ensure_connect(peer)
+        target = self.__translate_and_ensure_connect(leader)
 
         self.host.launch_background_thread(
             self.host.on_elect_leader,
-            function_args=(self.node.get_leader_id(), peer, target)
+            function_args=(self.node.get_leader_id(), leader, target)
         )
 
     def on_start_election(self):
@@ -115,7 +119,6 @@ class BullyPlugin(Plugin):
 
     @node_handler(name="handle.bully.msg")
     def handle_bully_msg(self, body: dict, sender: str):
-        # self.wait_trigger("node_init")
         decoded = _deser_bully_packet(body)
         self.__recv_poll(decoded)
         return {"status": "success"}
@@ -124,13 +127,12 @@ class BullyPlugin(Plugin):
         self.node.receive(message)
         self.__handle_bully_messages(self.node.poll())
 
-    def __get_peer_by_id(self, id: int) -> Optional[BullyPeer]:
+    def __get_peer_by_unique_id(self, unique_id: str) -> Optional[BullyPeer]:
         for item in self.peer_translator.keys():
-            if item.id == id:
+            if item.unique_id == unique_id:
                 return item
         return None
 
     @node_handler(internal_ms=50)
     def poll_internal_node(self):
-        # self.wait_trigger("node_init")
         self.__recv_poll(None)
