@@ -78,8 +78,8 @@ class CapitalNode(RawNode):
 
         super().__init__(network_name=network_name, address=address)
 
-        self._trigger_map: dict[str, threading.Event] = {}
-        self._trigger_lock = threading.Lock()
+        # self._trigger_map: dict[str, threading.Event] = {}
+        # self._trigger_lock = threading.Lock()
 
         self.replica_ready_signal = HoldSignal()
         self.fast_forward_signal = HoldSignal()
@@ -98,29 +98,29 @@ class CapitalNode(RawNode):
             )
         )
 
-    def set_trigger(self, name: str):
-        with self._trigger_lock:
-            ev = self._trigger_map.get(name)
-            if ev is None:
-                ev = threading.Event()
-                self._trigger_map[name] = ev
-            ev.set()
+    # def set_trigger(self, name: str):
+    #     with self._trigger_lock:
+    #         ev = self._trigger_map.get(name)
+    #         if ev is None:
+    #             ev = threading.Event()
+    #             self._trigger_map[name] = ev
+    #         ev.set()
 
-    def wait_trigger(self, name: str, timeout: float | None = None):
-        with self._trigger_lock:
-            ev = self._trigger_map.get(name)
-            if ev is None:
-                ev = threading.Event()
-                self._trigger_map[name] = ev
-        return ev.wait(timeout=timeout)
+    # def wait_trigger(self, name: str, timeout: float | None = None):
+    #     with self._trigger_lock:
+    #         ev = self._trigger_map.get(name)
+    #         if ev is None:
+    #             ev = threading.Event()
+    #             self._trigger_map[name] = ev
+    #     return ev.wait(timeout=timeout)
 
-    def clear_trigger(self, name: str):
-        with self._trigger_lock:
-            ev = self._trigger_map.get(name)
-            if ev is None:
-                ev = threading.Event()
-                self._trigger_map[name] = ev
-            ev.clear()
+    # def clear_trigger(self, name: str):
+    #     with self._trigger_lock:
+    #         ev = self._trigger_map.get(name)
+    #         if ev is None:
+    #             ev = threading.Event()
+    #             self._trigger_map[name] = ev
+    #         ev.clear()
 
     def _connect_to(self, address: tuple[str, int]):
         if hasattr(self, "connect") and callable(getattr(self, "connect")):

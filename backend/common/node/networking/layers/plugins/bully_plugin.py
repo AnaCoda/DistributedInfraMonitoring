@@ -68,7 +68,7 @@ class BullyPlugin(Plugin):
         self.node.register_hook(BullyElectionHook.ON_BECOME_LEADER, self.on_become_leader)
         self.node.register_hook(BullyElectionHook.ON_ELECTION_START, self.on_start_election)
         print("INITTED")
-        self.set_trigger("node_init")
+        # self.set_trigger("node_init")
 
     def __on_elect_other(self):
         print(f'[{self.get_network_name()}] Hi! Another person has been elected. {self.node.get_leader_id()}')
@@ -115,7 +115,7 @@ class BullyPlugin(Plugin):
 
     @node_handler(name="handle.bully.msg")
     def handle_bully_msg(self, body: dict, sender: str):
-        self.wait_trigger("node_init")
+        # self.wait_trigger("node_init")
         decoded = _deser_bully_packet(body)
         self.__recv_poll(decoded)
         return {"status": "success"}
@@ -132,5 +132,5 @@ class BullyPlugin(Plugin):
 
     @node_handler(internal_ms=50)
     def poll_internal_node(self):
-        self.wait_trigger("node_init")
+        # self.wait_trigger("node_init")
         self.__recv_poll(None)
