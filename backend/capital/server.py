@@ -87,7 +87,6 @@ class CapitalNode(RawNode):
         self.bully_plugin = self.register_plugin(
             BullyPlugin(
                 host=self,
-                prefix="rm",
                 node=BullyPeer(
                     name=self.network_name,
                     id=self._node_id_from_name(self.network_name)
@@ -150,17 +149,6 @@ class CapitalNode(RawNode):
                 return self.connection_map.get_connection_names()
         return []
 
-    def send_message_no_wait(self, target: str, method: str, body: dict):
-        if hasattr(self, "_NetLayer__send_message_targeted"):
-            return self._NetLayer__send_message_targeted(
-                target=target,
-                method=method,
-                body=body,
-                rid=None,
-                fire_and_forget=True,
-                timeout=0
-            )
-        raise AttributeError("RawNode/NetLayer does not expose fire-and-forget send")
 
     def _node_id_from_name(self, name: str) -> int:
         try:

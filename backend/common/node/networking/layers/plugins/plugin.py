@@ -36,6 +36,9 @@ class Plugin(NodeTemplate):
             return self.host._net_disconnect(name)
         raise AttributeError("Host node does not expose a disconnect method")
 
+    def send_message_no_wait(self, target, method, body):
+        return self.host.send_message_no_wait(target, method, body)
+
     def set_trigger(self, name: str):
         return self.host.set_trigger(name)
 

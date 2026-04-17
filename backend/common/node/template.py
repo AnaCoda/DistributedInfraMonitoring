@@ -17,6 +17,15 @@ class NodeTemplate(ABC):
         pass
 
     @abstractmethod
+    def send_message_no_wait(
+        self,
+        target: str,
+        method: str,
+        body: dict
+    ):
+        pass
+
+    @abstractmethod
     def send_message(
         self,
         target: str,

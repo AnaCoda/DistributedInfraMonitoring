@@ -40,14 +40,12 @@ class BullyPlugin(Plugin):
     def __init__(
         self,
         host,
-        prefix: str,
         node: BullyPeer,
         peers: dict[BullyPeer, tuple[str, str, int]],
         heartbeat_interval_ms: int = 1500,
         leader_timeout_ms: int = 1500
     ):
         super().__init__(host)
-        self.prefix = prefix
         self.init_bully_election(node, peers, heartbeat_interval_ms, leader_timeout_ms)
 
     def init_bully_election(
@@ -79,11 +77,10 @@ class BullyPlugin(Plugin):
         peer = next(filter(lambda x: x.id == leader, self.peer_translator.keys()))
         target = self.__translate_and_ensure_connect(peer)
 
-        threading.Thread(
-            target=self.host.on_elect_leader,
-            args=(self.node.get_leader_id(), peer, target),
-            daemon=True,
-        ).start()
+        self.host.launch_background_thread(
+            self.host.on_elect_leader,
+            function_args=(self.node.get_leader_id(), peer, target)
+        )
 
     def on_start_election(self):
         self.host.on_start_election()
@@ -111,7 +108,10 @@ class BullyPlugin(Plugin):
 
     def __handle_bully_messages(self, messages: list[BullyPacket]):
         for message in messages:
-            threading.Thread(target=self.__handle_bully_message, args=(message,), daemon=True).start()
+            self.host.launch_background_thread(
+                self.__handle_bully_message,
+                function_args=(message,)
+            )
 
     @node_handler(name="handle.bully.msg")
     def handle_bully_msg(self, body: dict, sender: str):

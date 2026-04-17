@@ -314,6 +314,16 @@ class NetLayer(RoutingLayer):
             response: Optional[dict] = self.response_registrar.pop_registry(packed.rid)
             return response
 
+    def send_message_no_wait(self, target: str, method: str, body: dict):
+        return self.__send_message_targeted(
+            target=target,
+            method=method,
+            body=body,
+            rid=None,
+            fire_and_forget=True,
+            timeout=0
+        )
+
     def send_message(self, target, method, body, timeout = 2):
         return self.__send_message_targeted(target, method, body, rid=None, timeout=timeout)
         # return super().send_message(target, method, body, timeout)
