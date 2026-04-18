@@ -1,5 +1,5 @@
 # from ..shared.node import NodeBase, node_handler
-from ..common.node.raw import RawNode, node_handler
+from ...common.node.raw import RawNode, node_handler
 
 
 class InfrastructureNode(RawNode):

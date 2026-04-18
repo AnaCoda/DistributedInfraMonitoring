@@ -1,10 +1,4 @@
 import unittest
-from copy import deepcopy
-from .dictutil import merge_dictionaries
-from .patching.patch import Patch
-from .patching.mpatch import VersionedPatch, ManagedState
-
-from time import time, sleep
 
 from .leader_elec.bullynode import BullyPacket, BullyElectionNode, BullyElectionHook, BullyPeer
 
