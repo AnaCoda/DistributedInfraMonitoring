@@ -1,10 +1,12 @@
 import unittest
 from copy import deepcopy
+from dataclasses import asdict
 # from ..common.dictutil import merge_dictionaries
 from ..common.node.common.patching.patch import Patch
 from ..common.node.common.patching.mpatch import VersionedPatch, ManagedState
 from ..common.node.common.storage.memory import MemoryStorageBackend
 from ..common.node.common.rep_log.log import ReplicationLog, Operation
+from ..common.node.common.plugins.replication.rep_state_machine import ReplicationStateMachine, ReplicationOp, ReplicationMsg
 
 class DictUtils(unittest.TestCase):
 
@@ -25,6 +27,81 @@ class DictUtils(unittest.TestCase):
 
     #     patch.apply_inplace(original)
     #     self.assertEqual(original, updated)
+
+    def test_replication_state_machine_init(self):
+        sm = ReplicationStateMachine(MemoryStorageBackend())
+        # print(sm.poll())
+        polled = sm.poll()
+        self.assertEqual(len(polled), 1)
+        self.assertEqual(polled[0].op, ReplicationOp.SYNC_REQUEST)
+        self.assertEqual(polled[0].body['sequence'], 0)
+
+    def test_replication_state_machine_syncup(self):
+        sm = ReplicationStateMachine(MemoryStorageBackend())
+        
+        # Poll is not necessary but will help.
+        sm.poll()
+
+
+        sm.receive(ReplicationMsg.from_op(
+            op=ReplicationOp.SYNC_RESPONSE,
+            body={ 'logs': [ asdict(Operation(1, { 'hello': 4 })) ] }
+        ))
+      
+
+        self.assertEqual(sm.replication_log.get_sequence_pos(), 1)
+        # Now we should be in executing.
+
+        result = sm.receive(ReplicationMsg.from_op(
+            op=ReplicationOp.OPERATION,
+            body=Operation(2, { 'hello': 4 })
+        ))
+        self.assertTrue(result, "The message should be handled.")
+
+
+        # We should not be able to handle another operation concurrently.
+        result = sm.receive(ReplicationMsg.from_op(
+            op=ReplicationOp.OPERATION,
+            body=Operation(2, { 'hello': 4 })
+        ))
+        self.assertFalse(result, "We should only be free to accept new operations once we commit.")
+
+        self.assertFalse(
+            expr=sm.receive(ReplicationMsg.from_op(
+                op=ReplicationOp.COMMIT,
+                body={ 'sequence': 1 }
+            )),
+            msg="We should NOT have been able to succesfully commit message with sequence number 1."
+        )
+
+        self.assertTrue(
+            expr=sm.receive(ReplicationMsg.from_op(
+                op=ReplicationOp.COMMIT,
+                body={ 'sequence': 2 }
+            )),
+            msg="We should have been able to succesfully commit message with sequence number 2."
+        )
+
+
+    def test_replication_state_machine_behind(self):
+        sm = ReplicationStateMachine(MemoryStorageBackend())
+        
+        # Poll is not necessary but will help.
+        sm.poll()
+
+
+        sm.receive(ReplicationMsg.from_op(
+            op=ReplicationOp.SYNC_RESPONSE,
+            body={ 'logs': [ asdict(Operation(1, { 'hello': 4 })) ] }
+        ))
+      
+
+        self.assertEqual(sm.replication_log.get_sequence_pos(), 1)
+        # Now we should be in executing.
+
+       
+
+    
 
     def test_replication_log(self):
         backend = MemoryStorageBackend()
