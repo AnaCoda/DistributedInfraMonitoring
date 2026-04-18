@@ -92,7 +92,7 @@ class ReplicationStateMachine(BaseStateMachine):
         if packet.op == ReplicationOp.REQUEST_MISSING:
             missing = packet.body['logs']
             logs = self.replication_log.retrieve_at_idxs(missing)
-            self._enqueue(ReplicationMsg.from_op_targeted(packet.target, ReplicationOp.RESEND, { 'logs': logs }))
+            self._enqueue(ReplicationMsg.from_op_targeted(packet.source, ReplicationOp.RESEND, { 'logs': logs }))
             return True
         elif packet.op == ReplicationOp.SYNC_REQUEST:
             sequence = packet.body['sequence']
@@ -152,6 +152,7 @@ class ReplicationStateMachine(BaseStateMachine):
                 # handle any messages right now.
                 return False
         elif self.get_state() == ReplicationStateMachineState.IN_OPERATION:
+            # print(f'IN OP')
             if packet.op == ReplicationOp.COMMIT:
                 operation_num = int(packet.body['sequence'])
                 if self.current_op.sequence_number == operation_num:

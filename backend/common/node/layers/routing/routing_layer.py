@@ -115,6 +115,17 @@ class RoutingLayer(FunctionalLayer):
 
         #print(f"[{self.network_name}] _call_route result for {route}: {result}")
         return result
+    
+    
+    def _register_route(
+        self,
+        route: str,
+        functor: Callable[..., Any]
+    ):
+        # def bound(*args, **kwargs):
+        #     return functor(*args, **kwargs)
+        
+        self.routing_map[route] = functor
 
     def __generate_routing_for_object(self, obj: object):
         for _, class_fn in inspect.getmembers(obj.__class__, predicate=inspect.isfunction):

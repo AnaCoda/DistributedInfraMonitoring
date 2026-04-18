@@ -6,6 +6,10 @@ class Plugin(NodeTemplate):
         super().__init__()
         self.host = host
 
+    def _register_route(self, route, functor):
+        self.host._register_route(route, functor)
+        # return super()._register_route(route, functor)
+
     def wait_ready(self):
         return self.host.wait_ready()
         # return super().wait_ready()

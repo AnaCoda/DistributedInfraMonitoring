@@ -15,9 +15,11 @@ from threading import Lock, Event, Condition
 
 from dataclasses import asdict, dataclass
 
+from typing import Callable, Any
+
 from ....layers.routing.routing_layer import node_handler
 
-
+from functools import wraps
 class ReplicationPlugin(Plugin):
 
     def __init__(
@@ -25,7 +27,8 @@ class ReplicationPlugin(Plugin):
             host: NodeTemplate,
             name: str,
             backend: StorageBackend,
-            replicas: list[str]
+            replicas: list[str],
+            routes: list[tuple[str, Callable[..., Any]]]
         ):
         super().__init__(host)
 
@@ -33,7 +36,34 @@ class ReplicationPlugin(Plugin):
         self.__core = ReplicationStateMachine(name, backend)
         self.__leader_evt = Event()
         self.__replicas = replicas
-        self.__state_condition = Condition()
+
+        self.__op_map: dict[str, Callable[..., Any]] = {}
+
+        self.__register_routes(routes)
+        
+        # self.__state_condition = Condition()
+
+        # self.test_load = []
+
+        self.count = 0
+
+    def __register_routes(
+        self,
+        op_routes: list[tuple[str, Callable[..., Any]]]
+    ):
+        
+        for key, fn in op_routes:
+            @wraps(fn)
+            def bound(*args, **kwargs):
+                self.__handle_operation({
+                    'key': key,
+                    'args': list(args),
+                    'kwargs': kwargs
+                })
+            self.__op_map[key] = fn
+            self._register_route(key, bound)
+        # def bound(*args, **kwargs):
+
 
     def set_leader(self, name: Optional[str]):
         with self.__core_lock:
@@ -55,12 +85,15 @@ class ReplicationPlugin(Plugin):
         if len(polled) == 0:
             return
         for poll in polled:
+            # print(f'>> [{self.get_network_name()}] Sending {poll}')
             self.send_message_no_wait(
                 target=poll.target,
                 body=asdict(poll),
                 method='plugin.replication'
             )
 
+
+    
 
     def __apply_operation(
         self,
@@ -73,15 +106,36 @@ class ReplicationPlugin(Plugin):
         Args:
             operation (Operation): _description_
         """
-        print(f'[{self.get_network_name()}] Applying {operation}')
+        # print(f'[{self.get_network_name()}] Applying {operation}')
         
-        # Now we commit the operation.
-        self.__core.receive(ReplicationMsg.from_op(ReplicationOp.COMMIT, { 'sequence': operation.sequence_number }))    
-        return { 'ping': 1 }
+        # Now we execute the real operation by referencing
+        # into the operation map.
+        args = operation.operation['args']
+        kwargs = operation.operation['kwargs']
+        key = operation.operation['key']
 
-    @node_handler(name='operate')
-    def handle_operate(self, body: dict):
+        self.__op_map[key](*args, **kwargs)
+
+        # Now we commit the operation.
+        # print(f'[AO] commiting w/ {operation.sequence_number}')
+        o = self.__core.receive(ReplicationMsg.from_op(ReplicationOp.COMMIT, { 'sequence': operation.sequence_number }))    
+        # print(f'[AO] [{self.get_network_name()}] {o}')
+        return { 'ping': 1 }
+    
+    def load_state(self):
+        with self.__core_lock:
+            return self.__core.backend.read('meta', 'snapshot')
+    
+    def commit(self, state: dict):
+        # with self.__core_lock:
+        self.__core.backend.write('meta', 'snapshot', state)
+
+    def __handle_operation(
+        self,
+        body: dict
+    ):
         
+
         # External operations must wait for the leader.
         self.__wait_leader()
 
@@ -96,32 +150,102 @@ class ReplicationPlugin(Plugin):
         if is_leader:
             # In this case we can begin by executing the operation.
             operation = ReplicationMsg.from_op(ReplicationOp.OPERATION, Operation(self.__core.replication_log.get_sequence_pos() + 1, body))
-            
+            # print(f'Producing a message: {operation}')
+            # print(f'Sequernce; {self.__core.replication_log.get_sequence_pos()}')
+
             # We begin by executing the operation.
             with self.__core_lock:
                 # We then apply the operation.
+                self.__core.receive(operation)
                 output = self.__apply_operation(Operation(**operation.body))
+                self.__poll_unlocked()
 
             for replica in filter(lambda x : x != self.get_network_name(), self.__replicas):
                 # Forward the message to all of the nodes that are not ourselves.
-                self.send_message(replica, 'plugin.replication', asdict(operation))
+                try:
+                    self.send_message_no_wait(replica, 'plugin.replication', asdict(operation))
+                except Exception as e:
+                    pass
+                    # print(f'excepted {type(e)}')
             return output
         else:
             # In this case we actually need to forward the message to the leader, which will handle it
             # and then we just take the response.
             return self.send_message(self.__core.get_leader(), 'operate', body)
+    
+    
+    @node_handler(name='operate')
+    def handle_operate_msg(self, body: dict, source: str):
+        if source not in self.__replicas:
+            return {
+                # This is a protected route, so we will decline requests
+                # that are not authorized to interact at this route.
+                'status': 'fail',
+                'message': 'unauthorized request, only for internal use of replicas.'
+            }
+        return self.__handle_operation(body)
+        
+    
 
     @node_handler(name='plugin.replication')
-    def handle_replication_msg(self, body: dict, _: str):
+    def handle_replication_msg(self, body: dict, source: str):
+        if source not in self.__replicas:
+            return {
+                # This is a protected route, so we will decline requests
+                # that are not authorized to interact at this route.
+                'status': 'fail',
+                'message': 'unauthorized request, only for internal use of replicas.'
+            }
+            # print("UNAUTHORIZED")
+
+        
         body: ReplicationMsg = ReplicationMsg(**body)
         body.op = ReplicationOp[body.op.split('.')[1]]
+
+
+        import random
+        # if self.get_network_name() == 'hello2' and body.op == ReplicationOp.OPERATION:
+        #     self.count += 1
+        #     if self.count >= 3 and self.count <= 6:
+        #         print('CRASHING')
+        #         # pass
+        #         raise RuntimeError('I failed')
+        # print(f'[{self.get_network_name()}] BRUH: {self.__core.replication_log.get_sequence_pos()}')
+
+
         # print(f'body: {body}')
-        print(f'[{self.get_network_name()}] Received {body}')
+        # print(f'[{self.get_network_name()}] Received {body}')
         with self.__core_lock:
             if body.op == ReplicationOp.OPERATION:
-                # self.__core.receive(body)
-                self.__apply_operation(Operation(**body.body))
+                o = self.__core.receive(body)
+                # self.__poll_unlocked()
+                # print(f'[BOO] [{self.get_network_name()}] {o}')
+                if o:
+                    self.__apply_operation(Operation(**body.body))
+                self.__poll_unlocked()
+            elif body.op == ReplicationOp.SYNC_RESPONSE or body.op == ReplicationOp.RESEND:
+                logs: list[Operation] = [ Operation(**ser_op) for ser_op in body.body['logs'] ]
+                
+
+                # It is crucial that we sort the operations.
+                logs.sort(key=lambda k : k.get_seq_num())
+
+                for op in logs:
+                    self.__core.receive(ReplicationMsg.from_op(ReplicationOp.OPERATION, op))
+                    self.__apply_operation(op)
+                    self.__poll_unlocked()
+                
+                # For durability's sake, the persistence must come here:
+                self.__core.receive(body)
+
+                # print(f'LOGS: {logs}')
+                # for ser_op in logs:
+                #     ser_op = Operation(**ser_op)
+
+                #     self.__core.receive(ReplicationMsg.from_op(ReplicationOp.OPERATION))
+                #     print(f'SEROP: {ser_op}')
             else:
+                # print(f'[{self.get_network_name()}] Handling alt: {body}')
                 self.__core.receive(body)
             self.__poll_unlocked()
             # print(f'[{self.get_network_name()}] State: {self.__core.get_state()}')

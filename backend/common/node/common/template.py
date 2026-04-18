@@ -1,8 +1,13 @@
 
-from typing import Optional
+from typing import Optional, Callable
 from abc import ABC, abstractmethod
 
 class NodeTemplate(ABC):
+
+
+    @abstractmethod
+    def _register_route(self, route: str, functor: Callable[..., any]):
+        pass
 
     @abstractmethod
     def wait_ready(self):
