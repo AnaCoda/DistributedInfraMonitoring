@@ -9,3 +9,4 @@ class Railroad(InfrastructureNode):
         self.resource_value = "operational"  # operational, degraded, down
 
         self._net_connect(region_address)
+        self.ready_to_handle()

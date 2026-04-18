@@ -10,3 +10,4 @@ class Powerplant(InfrastructureNode):
 
         # connect to its region so broadcast_update has a target
         self._net_connect(region_address)
+        self.ready_to_handle()

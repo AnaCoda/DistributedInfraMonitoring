@@ -36,6 +36,7 @@ class RegionalNode(RawNode):
         network_name: Optional[str] = None,
         replica_peer_addresses: Optional[List[Tuple[str, str, int]]] = None,
     ):
+        print(f'STARTING REGION')
         if region_name.strip().lower() == "capital":
             raise ValueError("Region name cannot be 'Capital' (reserved).")
 
@@ -72,7 +73,7 @@ class RegionalNode(RawNode):
         self.region_election_ready = not bool(self.replica_peer_addresses)
 
         super().__init__(network_name=self.network_name_override, address=address)
-
+        self.ready_to_handle()
         self.sites = self.build_sites()
 
         self.regional_heartbeat_plugin = self.register_plugin(
@@ -98,6 +99,8 @@ class RegionalNode(RawNode):
                     },
                 )
             )
+        # print("REGION?????????")
+        
 
     # -------------------------------------------------------------------------
     # Election participation gate

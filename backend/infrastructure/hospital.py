@@ -9,3 +9,4 @@ class Hospital(InfrastructureNode):
         self.resource_value = 100  # % beds available
 
         self._net_connect(region_address)
+        self.ready_to_handle()

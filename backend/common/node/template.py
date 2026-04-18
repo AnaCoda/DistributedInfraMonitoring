@@ -5,6 +5,10 @@ from abc import ABC, abstractmethod
 class NodeTemplate(ABC):
 
     @abstractmethod
+    def wait_ready(self):
+        pass
+
+    @abstractmethod
     def has_connection(self, target: Optional[str]) -> bool:
         pass
 

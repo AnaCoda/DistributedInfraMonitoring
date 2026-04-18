@@ -65,12 +65,18 @@ class RoutingLayer(FunctionalLayer):
         functor: Callable[..., Any],
         function_args: ...
     ):
+        def wrapped(*args, **kwargs):
+            # Wait until we are ready to start handling events.
+            self.wait_ready()
+
+            return functor(*args, **kwargs)
+
         if self.is_shutting_down():
             return
         if function_args is None:
-            self.executor.submit(functor)
+            self.executor.submit(wrapped)
         else:
-            self.executor.submit(functor, *function_args)
+            self.executor.submit(wrapped, *function_args)
 
     def launch_interval_functor(
         self,

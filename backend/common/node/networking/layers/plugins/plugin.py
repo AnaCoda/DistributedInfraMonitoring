@@ -6,6 +6,10 @@ class Plugin(NodeTemplate):
         super().__init__()
         self.host = host
 
+    def wait_ready(self):
+        return self.host.wait_ready()
+        # return super().wait_ready()
+
     def get_network_name(self):
         return self.host.get_network_name()
 

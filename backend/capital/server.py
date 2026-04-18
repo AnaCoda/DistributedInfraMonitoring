@@ -102,6 +102,7 @@ class CapitalNode(RawNode):
         self.capital_heartbeat_plugin = self.register_plugin(
             CapitalHeartbeatPlugin(host=self)
         )
+        self.ready_to_handle()
 
     def _connect_to(self, address: tuple[str, int]):
         if hasattr(self, "connect") and callable(getattr(self, "connect")):
