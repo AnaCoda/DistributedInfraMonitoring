@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from threading import Lock
-from .tss import ThreadSafeSocket
+from .threadsafesocket import ThreadSafeSocket
 
 
 @dataclass

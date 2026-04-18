@@ -7,7 +7,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.implementation.capital.server import CapitalNode
 from backend.implementation.regional.standard_region_node import StandardRegionNode
 from backend.implementation.regional.urban_region_node import UrbanRegionNode
-from backend.common.sync.mdns import DnsEntry
+from backend.common.node.common.sync.mdns import DnsEntry
 
 
 def start_capital_replica(replica_id: int, port: int, peer_addresses):

@@ -3,16 +3,16 @@ from dataclasses import dataclass
 from typing import Optional, Callable
 
 import json
-from ..connection import ConnectionMap, ConnectionRegistry
-from ...events.event import NodeEvent
-from ..tss import ThreadSafeSocket
+from .connection_map import ConnectionMap, ConnectionRegistry
+from ...common.events.event import NodeEvent
+from .threadsafesocket import ThreadSafeSocket
 
 from websockets.sync.server import serve
 from websockets.sync.client import ClientConnection, connect as ws_connect
 from websockets.sync.server import ServerConnection
 
 import websockets
-from ...template import NodeTemplate
+from ...common.template import NodeTemplate
 
 def _send_raw(connection: ThreadSafeSocket, body: dict):
     """
@@ -101,7 +101,7 @@ def _unpack_response(body: dict) -> EndpointResponse:
 
 from abc import abstractmethod
 
-from .routing import RoutingLayer
+from ..routing.routing_layer import RoutingLayer
 
 import uuid
 
@@ -153,7 +153,7 @@ class MessagePackingResult:
             rid=rid
         )
 
-from .helper.response import ResponseRegistryEntry, ResponseRegistrar
+from .response_registry import ResponseRegistryEntry, ResponseRegistrar
 
 class NetLayer(RoutingLayer):
 

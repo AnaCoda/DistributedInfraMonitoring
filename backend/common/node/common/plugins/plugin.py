@@ -1,4 +1,4 @@
-from ....template import NodeTemplate
+from ..template import NodeTemplate
 
 
 class Plugin(NodeTemplate):

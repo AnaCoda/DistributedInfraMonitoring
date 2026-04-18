@@ -1,6 +1,6 @@
 import unittest
 
-from .leader_elec.bullynode import BullyPacket, BullyElectionNode, BullyElectionHook, BullyPeer
+from ..common.node.common.plugins.leader_elec.bully_state_machine import BullyPacket, BullyElectionNode, BullyElectionHook, BullyPeer
 
 class LeaderTests(unittest.TestCase):
 

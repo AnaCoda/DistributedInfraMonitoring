@@ -1,8 +1,8 @@
 import unittest
 from copy import deepcopy
-from .dictutil import merge_dictionaries
-from .patching.patch import Patch
-from .patching.mpatch import VersionedPatch, ManagedState
+from ..common.dictutil import merge_dictionaries
+from ..common.node.common.patching.patch import Patch
+from ..common.node.common.patching.mpatch import VersionedPatch, ManagedState
 
 class DictUtils(unittest.TestCase):
 

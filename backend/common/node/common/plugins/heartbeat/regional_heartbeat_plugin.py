@@ -1,5 +1,5 @@
-from .plugin import Plugin
-from ..routing import node_handler
+from ..plugin import Plugin
+from ....layers.routing.routing_layer import node_handler
 
 
 class RegionalHeartbeatPlugin(Plugin):

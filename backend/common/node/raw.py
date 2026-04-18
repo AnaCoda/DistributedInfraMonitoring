@@ -1,13 +1,13 @@
-from .template import NodeTemplate
-from .networking.connection import ConnectionMap, ConnectionRegistry
+from .common.template import NodeTemplate
+from .layers.networking.connection_map import ConnectionMap, ConnectionRegistry
 # from .routing.router import Router, node_handler
 from websockets.sync.server import serve
 from websockets.sync.client import ClientConnection, connect as ws_connect
 from websockets.sync.server import ServerConnection
 
-from .networking.layers.net import NetLayer
-from .networking.layers.routing import RoutingLayer, node_handler
-from .networking.layers.dns import NameServiceLayer
+from .layers.networking.networking_layer import NetLayer
+from .layers.routing.routing_layer import RoutingLayer, node_handler
+from .layers.dns.dns_layer import NameServiceLayer
 
 class RawNode(NameServiceLayer):
 
@@ -28,7 +28,7 @@ class RawNode(NameServiceLayer):
         # return super()._net_handle_msg(source, route
 
     
-from .events.connect import NodeConnectionType
+from .common.events.connect import NodeConnectionType
 
 
 class Farkas(RawNode):
@@ -58,8 +58,8 @@ class Farkas(RawNode):
             
             print(f'O: {o}')
 
-from .networking.layers.plugins.plugin import Plugin
-from .networking.layers.plugins.bully_plugin import BullyPlugin
+from .common.plugins.plugin import Plugin
+from .common.plugins.leader_elec.bully_plugin import BullyPlugin
 
 class TestBlugin(Plugin):
     

@@ -1,7 +1,7 @@
 from threading import Lock
-from .net import NetLayer
+from ..networking.networking_layer import NetLayer
 from dataclasses import dataclass, asdict
-from .routing import RoutingLayer, node_handler
+from ..routing.routing_layer import RoutingLayer, node_handler
 from time import sleep
 
 @dataclass

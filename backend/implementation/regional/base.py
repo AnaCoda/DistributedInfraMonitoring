@@ -7,13 +7,13 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple
 
 from ...common.node.raw import RawNode
-from ...common.node.networking.layers.routing import node_handler
-from ...common.node.networking.layers.plugins.regional_heartbeat_plugin import RegionalHeartbeatPlugin
-from ...common.node.networking.layers.plugins.regional_leader_plugin import RegionalLeaderPlugin
-from ...common.node.events.connect import NodeConnectionType
-from ...common.sync.mdns import DnsEntry
-from ...common.leader_elec.bullynode import BullyPeer
-from ...common.patching.mpatch import ManagedState
+from ...common.node.layers.routing.routing_layer import node_handler
+from ...common.node.common.plugins.heartbeat.regional_heartbeat_plugin import RegionalHeartbeatPlugin
+from ...common.node.common.plugins.heartbeat.regional_leader_plugin import RegionalLeaderPlugin
+from ...common.node.common.events.connect import NodeConnectionType
+from ...common.node.common.sync.mdns import DnsEntry
+from ...common.node.common.plugins.leader_elec.bully_state_machine import BullyPeer
+from ...common.node.common.patching.mpatch import ManagedState
 
 
 def _source_manager() -> ManagedState:
