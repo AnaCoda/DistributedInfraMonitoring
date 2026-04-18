@@ -429,7 +429,7 @@ class NetLayer(RoutingLayer):
     ):
         
         try:
-            while not self.stop_event.is_set():
+            while not self.is_shutting_down():
                 message = _recv_raw(connection)
                 # print(f'Recv\'d Message: {message}')
                 if 'route' not in message:

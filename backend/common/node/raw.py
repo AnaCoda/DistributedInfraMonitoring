@@ -36,6 +36,7 @@ class Farkas(RawNode):
     @node_handler(name="hello")
     def hello(self, message: dict, sender: str):
         print(f'message: {message}')
+        print(f'Self: {self}')
         return {"pong": 1}
     
     # @node_handler(on_connect=NodeConnectionType.OUTBOUND)
@@ -44,6 +45,7 @@ class Farkas(RawNode):
 
     @node_handler(internal_ms=400)
     def auo(self):
+        print(f'Auo: {self}')
         # print(f'[{self.network_name}]')
         if self.network_name == 'Hello':
             # print(f'Sending...')

@@ -10,6 +10,7 @@ from threading import Event
 from concurrent.futures import ThreadPoolExecutor
 from ....sync.signal import HoldSignal
 import time
+from .funclayer import FunctionalLayer
 
 
 @dataclass
@@ -23,7 +24,7 @@ def param_count(fn):
     return len(sig.parameters)
 
 
-class RoutingLayer(NodeTemplate):
+class RoutingLayer(FunctionalLayer):
 
     def __init__(self):
         super().__init__()
@@ -36,7 +37,7 @@ class RoutingLayer(NodeTemplate):
         self.interval_functors: list[IntervalFunctorDefinition] = []
         self.plugins: list[object] = []
 
-        self.stop_event = Event()
+        # self.stop_event = Event()
         self.ready_signal = HoldSignal()
         self.executor = ThreadPoolExecutor()
 
@@ -49,8 +50,8 @@ class RoutingLayer(NodeTemplate):
     def _start_routing_layer(self):
         self.ready_signal.ready()
 
-    def stop(self):
-        self.stop_event.set()
+    # def stop(self):
+    #     self.stop_event.set()
 
     def __add_interval_functor(
         self,
@@ -64,7 +65,7 @@ class RoutingLayer(NodeTemplate):
         functor: Callable[..., Any],
         function_args: ...
     ):
-        if self.stop_event.is_set():
+        if self.is_shutting_down():
             return
         if function_args is None:
             self.executor.submit(functor)
@@ -78,7 +79,7 @@ class RoutingLayer(NodeTemplate):
     ):
         def runnable():
             self.ready_signal.barrier()
-            while not self.stop_event.is_set():
+            while not self.is_shutting_down():
                 functor()
                 time.sleep(interval / 1000.0)
         self.launch_background_thread(runnable, function_args=None)
@@ -149,7 +150,7 @@ class RoutingLayer(NodeTemplate):
         self.__generate_routing_for_object(self)
 
     def shutdown(self):
-        self.stop()
+        # self.stop()
         self.executor.shutdown(False, cancel_futures=True)
         return super().shutdown()
 
