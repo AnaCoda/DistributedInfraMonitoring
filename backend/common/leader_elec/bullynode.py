@@ -224,6 +224,9 @@ class BullyElectionNode:
 
     def get_leader_id(self) -> Optional[tuple[int, str]]:
         return self.current_leader
+    
+    # def get_leader
+    
 
     def get_leader(self) -> Optional[BullyPeer]:
         if self.current_leader is None:

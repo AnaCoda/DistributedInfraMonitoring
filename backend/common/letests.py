@@ -17,9 +17,10 @@ class LeaderTests(unittest.TestCase):
         for i in range(100):
             tick_pool(outboxes, pool)
             clock.advance(1)
-        self.assertEqual(pool[0].current_leader, 2)
-        self.assertEqual(pool[1].current_leader, 2)
-        self.assertEqual(pool[2].current_leader, 2)
+        # print(f'pool: {pool[0].get_leader()}')
+        self.assertEqual(pool[0].get_leader().unique_id, 2)
+        self.assertEqual(pool[1].get_leader().unique_id, 2)
+        self.assertEqual(pool[2].get_leader().unique_id, 2)
 
     def test_bully_hooks(self):
         clock = PseudoClock()
@@ -27,17 +28,17 @@ class LeaderTests(unittest.TestCase):
 
         on_bc_leader = []
 
-        pool[2].register_hook(BullyElectionHook.ON_BECOME_LEADER, lambda: on_bc_leader.append(pool[2].get_leader_id()))
+        pool[2].register_hook(BullyElectionHook.ON_BECOME_LEADER, lambda: on_bc_leader.append(pool[2].get_leader().unique_id))
 
         outboxes = {}
         for i in range(100):
             tick_pool(outboxes, pool)
             clock.advance(1)
-        self.assertEqual(pool[0].current_leader, 2)
-        self.assertEqual(pool[1].current_leader, 2)
-        self.assertEqual(pool[2].current_leader, 2)
+        self.assertEqual(pool[0].get_leader().unique_id, 2)
+        self.assertEqual(pool[1].get_leader().unique_id, 2)
+        self.assertEqual(pool[2].get_leader().unique_id, 2)
 
-        self.assertListEqual(on_bc_leader, [2, 2])
+        self.assertListEqual(on_bc_leader, [2])
 
     def test_crash_nonleader(self):
         clock = PseudoClock()
@@ -49,8 +50,8 @@ class LeaderTests(unittest.TestCase):
 
             if i == 15:
                 pool.pop(1)
-        self.assertEqual(pool[0].current_leader, 2)
-        self.assertEqual(pool[1].current_leader, 2)
+        self.assertEqual(pool[0].get_leader().unique_id, 2)
+        self.assertEqual(pool[1].get_leader().unique_id, 2)
 
     def test_crash_leader(self):
         clock = PseudoClock()
@@ -62,8 +63,8 @@ class LeaderTests(unittest.TestCase):
 
             if i == 15:
                 pool.pop(2)
-        self.assertEqual(pool[0].current_leader, 1)
-        self.assertEqual(pool[1].current_leader, 1)
+        self.assertEqual(pool[0].get_leader().unique_id, 1)
+        self.assertEqual(pool[1].get_leader().unique_id, 1)
 
     def test_crash_leader_n4_crash2(self):
         clock = PseudoClock()
@@ -76,8 +77,8 @@ class LeaderTests(unittest.TestCase):
             if i == 15:
                 pool.pop(3)
                 pool.pop(2)
-        self.assertEqual(pool[0].current_leader, 1)
-        self.assertEqual(pool[1].current_leader, 1)
+        self.assertEqual(pool[0].get_leader().unique_id, 1)
+        self.assertEqual(pool[1].get_leader().unique_id, 1)
 
     # def test_clock(self):
     #     clock = PseudoClock()
@@ -91,14 +92,14 @@ class LeaderTests(unittest.TestCase):
     #         clock.advance(1)
 
     #         if i == 15:
-    #             print("REMOVED")
+    #             # print("REMOVED")
     #             popped = pool.pop(1)
     #         if i == 25:
-    #             print("ADDED BACK")
+    #             # print("ADDED BACK")
     #             pool.insert(1, pool2[1])
     #             # pool.pop(2)
-        # self.assertEqual(pool[0].current_leader, 1)
-        # self.assertEqual(pool[1].current_leader, 1)
+    #     self.assertEqual(pool[0].get_leader().unique_id, 1)
+    #     self.assertEqual(pool[1].get_leader().unique_id, 1)
 
 
 
@@ -116,7 +117,7 @@ class PseudoClock:
         return float(self.time)
 
 def create_node_pool(n: int, clock: PseudoClock, timeout: float = 50.0, verbose: bool = False) -> list[BullyElectionNode]:
-    peers = [ BullyPeer(f'n-{i}', i) for i in range(n) ]
+    peers = [ BullyPeer(f'n-{i}', i, i) for i in range(n) ]
     nodes = [ BullyElectionNode(peer, peers, get_time=clock.get_time, timeout=timeout, verbose=verbose) for peer in peers ]
     return nodes
 
