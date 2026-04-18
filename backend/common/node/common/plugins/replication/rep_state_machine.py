@@ -57,7 +57,7 @@ class ReplicationStateMachine(BaseStateMachine):
         self.current_op: Optional[Operation] = None
         self.leader: Optional[str] = None
 
-    def __is_leader(self) -> bool:
+    def is_leader(self) -> bool:
         return self.leader is not None and self.leader == self.get_name()
 
     def set_leader(self, value: Optional[str]):
@@ -68,13 +68,13 @@ class ReplicationStateMachine(BaseStateMachine):
     
     def modify_outbound(self, msg: ReplicationMsg):
         super().modify_outbound(msg)
-        if msg.op == ReplicationOp.SYNC_REQUEST or ReplicationOp.REQUEST_MISSING:
+        if msg.op == ReplicationOp.SYNC_REQUEST or msg.op == ReplicationOp.REQUEST_MISSING:
             msg.target = self.get_leader()
         
 
     def _on_poll(self):
         if self.get_state() == ReplicationStateMachineState.INIT and self.get_leader() is not None:
-            if self.__is_leader():
+            if self.is_leader():
                 # If we are the leader we can start right up.
                 self._set_state(ReplicationStateMachineState.EXECUTING)
             else:
@@ -87,6 +87,20 @@ class ReplicationStateMachine(BaseStateMachine):
         
     def __required_ops(self) -> list[int]:
         return list(range(self.replication_log.get_sequence_pos() + 1, self.current_op.get_seq_num() + 1))
+
+    def __handle_leader_async(self, packet: StateMachineMessage) -> bool:
+        if packet.op == ReplicationOp.REQUEST_MISSING:
+            missing = packet.body['logs']
+            logs = self.replication_log.retrieve_at_idxs(missing)
+            self._enqueue(ReplicationMsg.from_op_targeted(packet.target, ReplicationOp.RESEND, { 'logs': logs }))
+            return True
+        elif packet.op == ReplicationOp.SYNC_REQUEST:
+            sequence = packet.body['sequence']
+            logs = self.replication_log.retrieve_logs(sequence + 1, None)
+            self._enqueue(ReplicationMsg.from_op_targeted(packet.source, ReplicationOp.SYNC_RESPONSE, { 'logs': logs } ))
+            return True
+        else:
+            return False
 
     def receive(self, packet: StateMachineMessage) -> bool:
         #TODO: Send the actual Sync request.
@@ -112,20 +126,8 @@ class ReplicationStateMachine(BaseStateMachine):
                     self.current_op = operation
                     flag = False
                 return flag
-            elif self.__is_leader():
-                if packet.op == ReplicationOp.REQUEST_MISSING:
-                    missing = packet.body['logs']
-                    logs = self.replication_log.retrieve_at_idxs(missing)
-                    self._enqueue(ReplicationMsg.from_op_targeted(packet.target, ReplicationOp.RESEND, { 'logs': logs }))
-                    return True
-                elif packet.op == ReplicationOp.SYNC_REQUEST:
-                    sequence = packet.body['sequence']
-                    logs = self.replication_log.retrieve_logs(sequence + 1, None)
-                    self._enqueue(ReplicationMsg.from_op_targeted(packet.source, ReplicationOp.SYNC_RESPONSE, { 'logs': logs } ))
-                    return True
-                    # return True
-                else:
-                    return False
+            elif self.is_leader():
+                return self.__handle_leader_async(packet)
             else:
                 # We did not handle any operation.
                 return False
@@ -161,6 +163,8 @@ class ReplicationStateMachine(BaseStateMachine):
                     # The sequence number does not check out so we
                     # reject this message.
                     return False
+            elif self.is_leader():
+                return self.__handle_leader_async(packet)
             else:
                 # We only support COMMIT messages in this state.
                 return False

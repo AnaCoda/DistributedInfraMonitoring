@@ -155,10 +155,7 @@ class NameServiceLayer(NetLayer):
         return self.name_registry[name]
         # return None
 
-
-
-    def send_message(self, target, method, body, timeout=2):
-        # with self.__get_guard_map_lock(target):
+    def __guarantee_connection(self, target: str):
         if not self.has_connection(target):
            
             for _ in range(3):
@@ -175,8 +172,15 @@ class NameServiceLayer(NetLayer):
                 sleep(0.1)
             if not self.has_connection(target):
                 raise RuntimeError("COULD NOT LOCATE")
+    def send_message(self, target, method, body, timeout=2):
+        # with self.__get_guard_map_lock(target):
+        self.__guarantee_connection(target)
             
         return super().send_message(target, method, body, timeout)
+
+    def send_message_no_wait(self, target, method, body):
+        self.__guarantee_connection(target)
+        return super().send_message_no_wait(target, method, body)
 
     # @node_handler(name="dns.lookup")
     # def handle_dns_register(self, name):

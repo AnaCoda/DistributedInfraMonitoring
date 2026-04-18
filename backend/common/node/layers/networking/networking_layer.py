@@ -127,6 +127,7 @@ class MessagePackingResult:
     def pack_msg(
         route: str,
         body: dict,
+        fireforget: bool,
         set_rid: Optional[str] = None
     ) -> "MessagePackingResult":
         """
@@ -148,6 +149,7 @@ class MessagePackingResult:
             message={
                 'route': route,
                 'rid': rid,
+                'fireforget': fireforget,
                 'body': body
             },
             rid=rid
@@ -246,9 +248,11 @@ class NetLayer(RoutingLayer):
         connection: ThreadSafeSocket,
         method: str,
         body: dict,
+        fireforget: bool,
         rid: Optional[str] = None
     ) -> MessagePackingResult:
-        packed = MessagePackingResult.pack_msg(method, body, set_rid=rid)
+        # print(f'[{self.network_name}] (method={method}) {body}')
+        packed = MessagePackingResult.pack_msg(method, body, fireforget, set_rid=rid)
         try:
             # print(f'Sending {packed.message}')
             _send_raw(connection, packed.message)
@@ -270,6 +274,7 @@ class NetLayer(RoutingLayer):
         fire_and_forget: bool = False,
         timeout: Optional[float] = 2.0
     ):        # rid: str = str(uuid.uuid4()) if rid is None else rid
+        # print(f'[{self.network_name}] (stage=TARGETED, method={method}, body={body})')
         # payload: dict = {
         #     'route': method,
         #     'rid': rid,
@@ -294,7 +299,8 @@ class NetLayer(RoutingLayer):
                 # response=None
             # )
         
-        packed = self.__send_message_raw(conn.connection, method, body, rid=rid)
+        # print(f'[{self.network_name}] (stage=AFTER, method={method})')
+        packed = self.__send_message_raw(conn.connection, method, body, fire_and_forget, rid=rid)
         # print(f'Payload A: {payload}\nPayload B: {packed.message}')
         
         # print(f'[{self.network_name}, dest={conn.name}] Sending {packed.message}')
@@ -333,6 +339,7 @@ class NetLayer(RoutingLayer):
         source: str,
         route: str,
         rid: str,
+        fireforget: bool,
         body: dict,
         rc: ThreadSafeSocket
     ):
@@ -353,17 +360,18 @@ class NetLayer(RoutingLayer):
             }
 
         try:
+            if not fireforget:
             #print(f"[{self.network_name}] sending __response rid={rid} to={source} body={response_body}")
-            if rc is not None:
-                self.__send_message_raw(rc, '__response', response_body, rid=rid)
-            else:
-                self.__send_message_targeted(
-                    source,
-                    '__response',
-                    rid=rid,
-                    body=response_body,
-                    fire_and_forget=True
-                )
+                if rc is not None:
+                    self.__send_message_raw(rc, '__response', response_body, None, rid=rid)
+                else:
+                    self.__send_message_targeted(
+                        source,
+                        '__response',
+                        rid=rid,
+                        body=response_body,
+                        fire_and_forget=True
+                    )
         except (
             ConnectionAbortedError,
             ConnectionResetError,
@@ -440,17 +448,18 @@ class NetLayer(RoutingLayer):
                     raise RuntimeError('No "body" key in the received payload.')
                 route: str = message['route']
                 rid: str = message['rid']
+                fireforget: bool = message['fireforget']
                 if route == '__response':
                     # Set the event.
                     #print(f"[{self.network_name}] received __response rid={rid} body={message['body']}")
                     self.response_registrar.answer_registry(rid, message['body'])
-                elif route.startswith("api.proxy."):
+                # elif route.startswith("api.proxy."):
                     # Preserve in-order replica application from a single sender connection.
-                    self.__handle_routed_message(name, route, rid, message['body'], connection)
+                    # self.__handle_routed_message(name, route, rid, message['body'], connection)
                 else:
                     self.launch_background_thread(
                         self.__handle_routed_message,
-                        function_args=(name, route, rid, message['body'], connection)
+                        function_args=(name, route, rid, fireforget, message['body'], connection)
                     )
         except (
             ConnectionAbortedError,

@@ -29,35 +29,28 @@ class RawNode(NameServiceLayer):
 
     
 from .common.events.connect import NodeConnectionType
-
+from .common.plugins.replication.replication_plugin import ReplicationPlugin, NetEntry
+from .common.storage.memory import MemoryStorageBackend
 
 class Farkas(RawNode):
 
-    @node_handler(name="hello")
-    def hello(self, message: dict, sender: str):
-        print(f'message: {message}')
-        print(f'Self: {self}')
-        return {"pong": 1}
-    
-    # @node_handler(on_connect=NodeConnectionType.OUTBOUND)
-    # def test(self, name: str):
-    #     print('Hello')
+    def __init__(self, network_name, address = ('127.0.0.1', 0)):
+        super().__init__(network_name, address)
+        if network_name != 'bob':
+            
+
+            self.__rep_plugin = self.register_plugin(ReplicationPlugin(self, network_name, MemoryStorageBackend(), ['Hello', 'hello2']))
+            self.__rep_plugin.set_leader('Hello')
+        
+        self.ready_to_handle()
 
     @node_handler(internal_ms=400)
-    def auo(self):
-        print(f'Auo: {self}')
-        # print(f'[{self.network_name}]')
-        if self.network_name == 'Hello':
-            # print(f'Sending...')
-            o = self.send_message('hello2', 'hello', {})
-        
-        # print("HELLO")
-        # print(f'Self: {self}')
-        if self.has_connection("hello2"):
-            # print("Yay!")
-            
+    def hello(self):
+        if self.get_network_name() == 'bob':
+            # self.send_message('Hello', 'operate', { 'action': 'hello' })
+            o = self.send_message('hello2', 'operate', { 'action': 'hello2' })
             print(f'O: {o}')
-
+    
 from .common.plugins.plugin import Plugin
 from .common.plugins.leader_elec.bully_plugin import BullyPlugin
 
@@ -70,15 +63,19 @@ class TestBlugin(Plugin):
 class BasicDnsNode(RawNode):
     def __init__(self, network_name, address = ('127.0.0.1', 0)):
         super().__init__(network_name, address)
+        self.ready_to_handle()
+
+        
         # self.register_plugin(TestBlugin())
 
 if __name__ == "__main__":
     print("HI")
     try:
         dns = BasicDnsNode('dns', address=('127.0.0.1', 39))
-
+        print("DNS UP")
         raw_a = Farkas("Hello")
         raw_b = Farkas("hello2")
+        raw_c = Farkas('bob')
 
         # raw_a._net_connect(('127.0.0.1', 8001))
 
@@ -94,3 +91,4 @@ if __name__ == "__main__":
     dns.shutdown()
     raw_a.shutdown()
     raw_b.shutdown()
+    raw_c.shutdown()

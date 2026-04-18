@@ -29,6 +29,8 @@ class StateMachine(ABC):
     def receive(self, packet: Optional[StateMachineMessage]) -> None:
         pass
 
+from threading import Condition
+
 class BaseStateMachine(StateMachine):
 
     def __init__(self, name: str, init_state: Enum):
@@ -36,6 +38,13 @@ class BaseStateMachine(StateMachine):
         self.__name = name
         self.__state = init_state
         self.__outbox = []
+        self.__condition = Condition()
+
+    def wait_for_state(self, state: Enum):
+        if self.get_state() == state:
+            return
+        with self.__condition:
+            self.__condition.wait_for(lambda : self.get_state() == state)
 
     def get_name(self) -> str:
         return self.__name
@@ -64,6 +73,11 @@ class BaseStateMachine(StateMachine):
         return self.__state
 
     def _set_state(self, state):
+        if self.__state == state:
+            return
+        # print(f'[SM] [{self.get_name()}] {self.__state} -> {state}')
         self.__state = state
+        with self.__condition:
+            self.__condition.notify_all()
         # return super()._set_state(state
         # return super().get_state()
