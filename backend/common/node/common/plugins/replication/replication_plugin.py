@@ -18,11 +18,6 @@ from dataclasses import asdict, dataclass
 from ....layers.routing.routing_layer import node_handler
 
 
-@dataclass
-class NetEntry:
-    name: str
-    address: tuple[str, int]
-
 class ReplicationPlugin(Plugin):
 
     def __init__(
@@ -51,11 +46,8 @@ class ReplicationPlugin(Plugin):
     def __wait_leader(self):
         while not self.__leader_evt.is_set():
             self.__leader_evt.wait()
-
-    # def __notify_potential_update(self):
-    #     with self.__state_condition:
-    #         self.__state_condition.notify_all()
-
+        
+    
     def __poll_unlocked(
         self
     ):
@@ -63,34 +55,12 @@ class ReplicationPlugin(Plugin):
         if len(polled) == 0:
             return
         for poll in polled:
-            print(f'[{self.get_network_name()}] Polled: {poll}')
             self.send_message_no_wait(
                 target=poll.target,
                 body=asdict(poll),
                 method='plugin.replication'
             )
-        # self.__notify_potential_update()
-            # print(f'[{self.get_network_name()}] Done...')
 
-    # @node_handler(name='internal.operate')
-    # def handle_internal_operate(self, body: dict, _: str):
-
-    def __get_state_with_lock(self):
-        with self.__core_lock:
-            self.__core.get_state()
-
-    # def __operate_private(
-    #     self,
-    #     body: ReplicationMsg
-    # ):
-    #     print(f'[{self.get_network_name()}] Operating {body}')
-    #     with self.__core_lock:
-    #         self.__core.receive(body)
-
-    # @node_handler(name='private.operate')
-    # def handle_operate_private(self, body: dict):
-    #     print(f'[{self.get_network_name()}] PRIVATE: {body}')
-    #     pass
 
     def __apply_operation(
         self,
@@ -105,10 +75,9 @@ class ReplicationPlugin(Plugin):
         """
         print(f'[{self.get_network_name()}] Applying {operation}')
         
-        self.__core.receive(ReplicationMsg.from_op(ReplicationOp.COMMIT, { 'sequence': operation.sequence_number }))
-        
+        # Now we commit the operation.
+        self.__core.receive(ReplicationMsg.from_op(ReplicationOp.COMMIT, { 'sequence': operation.sequence_number }))    
         return { 'ping': 1 }
-        pass
 
     @node_handler(name='operate')
     def handle_operate(self, body: dict):
@@ -130,8 +99,6 @@ class ReplicationPlugin(Plugin):
             
             # We begin by executing the operation.
             with self.__core_lock:
-                # We first receive the message.
-                self.__core.receive(operation)
                 # We then apply the operation.
                 output = self.__apply_operation(Operation(**operation.body))
 
@@ -152,11 +119,12 @@ class ReplicationPlugin(Plugin):
         print(f'[{self.get_network_name()}] Received {body}')
         with self.__core_lock:
             if body.op == ReplicationOp.OPERATION:
+                # self.__core.receive(body)
                 self.__apply_operation(Operation(**body.body))
             else:
                 self.__core.receive(body)
             self.__poll_unlocked()
-            print(f'[{self.get_network_name()}] State: {self.__core.get_state()}')
+            # print(f'[{self.get_network_name()}] State: {self.__core.get_state()}')
 
     @node_handler(internal_ms=50)
     def poll_internal_node(self):

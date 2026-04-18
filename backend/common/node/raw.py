@@ -29,7 +29,7 @@ class RawNode(NameServiceLayer):
 
     
 from .common.events.connect import NodeConnectionType
-from .common.plugins.replication.replication_plugin import ReplicationPlugin, NetEntry
+from .common.plugins.replication.replication_plugin import ReplicationPlugin
 from .common.storage.memory import MemoryStorageBackend
 
 class Farkas(RawNode):
