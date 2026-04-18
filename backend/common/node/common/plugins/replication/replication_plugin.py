@@ -45,7 +45,7 @@ class ReplicationPlugin(Plugin):
 
         # self.test_load = []
 
-        self.count = 0
+        # self.count = 0
 
     def __register_routes(
         self,
@@ -205,7 +205,7 @@ class ReplicationPlugin(Plugin):
 
         import random
         # if self.get_network_name() == 'hello2' and body.op == ReplicationOp.OPERATION:
-        #     self.count += 1
+        #     self.  += 1
         #     if self.count >= 3 and self.count <= 6:
         #         print('CRASHING')
         #         # pass
