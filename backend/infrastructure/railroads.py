@@ -8,4 +8,4 @@ class Railroad(InfrastructureNode):
         self.resource_type = "Railroad"
         self.resource_value = "operational"  # operational, degraded, down
 
-        self.connect(region_address)
+        self._net_connect(region_address)

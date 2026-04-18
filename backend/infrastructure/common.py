@@ -1,8 +1,8 @@
-from ..shared.node import NodeBase, node_handler
-# from ..common.node.raw import RawNode, node_handler
+# from ..shared.node import NodeBase, node_handler
+from ..common.node.raw import RawNode, node_handler
 
 
-class InfrastructureNode(NodeBase):
+class InfrastructureNode(RawNode):
     def __init__(self, network_name, address, name=None, region_name=None):
         super().__init__(network_name, address)
 

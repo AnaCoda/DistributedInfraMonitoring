@@ -9,4 +9,4 @@ class Powerplant(InfrastructureNode):
         self.resource_value = "Stable" # is power stable, semi-stable, unstable or gone
 
         # connect to its region so broadcast_update has a target
-        self.connect(region_address)
+        self._net_connect(region_address)

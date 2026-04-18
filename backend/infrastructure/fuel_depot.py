@@ -8,4 +8,6 @@ class FuelDepot(InfrastructureNode):
         self.resource_type = "Fuel Depot"
         self.resource_value = 100  # % fuel available
 
-        self.connect(region_address)
+        # self._con
+        self._net_connect(region_address)
+        # self.connect(region_address)

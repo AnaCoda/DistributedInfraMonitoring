@@ -11,4 +11,4 @@ class WaterTreatmentPlant(InfrastructureNode):
         self.resource_type = "Water Treatment Plant"
         self.resource_value = 100           # % of water needed for locale being produced
 
-        self.connect(region_address)
+        self._net_connect(region_address)
