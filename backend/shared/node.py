@@ -482,6 +482,22 @@ class NodeBase:
         self.init_evt.set()
 
         self.triggers = TriggerMap()
+        self._outage_until = 0.0
+        self._outage_lock = Lock()
+
+    def is_in_outage(self) -> bool:
+        with self._outage_lock:
+            return time.time() < self._outage_until
+
+    def begin_outage(self, duration_sec: int, reason: str = "simulated fail packet"):
+        duration = max(0, int(duration_sec or 0))
+        with self._outage_lock:
+            self._outage_until = max(self._outage_until, time.time() + duration)
+
+        for name in list(self.connection_map.get_outbound_names()):
+            self.connection_map.deregister(name)
+
+        print(f"[{self.network_name}] outage started for {duration}s ({reason})")
 
         
     ###
@@ -522,6 +538,10 @@ class NodeBase:
             _send_raw(connection, { 'status': 'fail', 'reason': 'no registry name present' })
             connection.close()
             return
+        if self.is_in_outage():
+            _send_raw(connection, { 'status': 'fail', 'reason': 'node unavailable (simulated outage)' })
+            connection.close()
+            return
         name: str = registry['name']
         if self.connection_map.has_inbound_connection(name):
             _send_raw(connection, { 'status': 'fail', 'reason': f'connection already exists for {name}' })
@@ -560,6 +580,15 @@ class NodeBase:
             if rid in self.response_registrar: # small fix for when replica managers send back ack message with same rid but isn't registered
                 self.response_registrar[rid].event.set()
                 self.response_registrar[rid].response = payload['body']
+        elif self.is_in_outage() and route != "api.simulate_fail":
+            response_body = {
+                'status': 'fail',
+                'reason': 'node unavailable (simulated outage)'
+            }
+            if response_connection is not None:
+                self.__send_message_raw(response_connection, '__response', response_body, rid=rid)
+            else:
+                self.__send_message_targeted(source, '__response', rid=rid, body=response_body, fire_and_forget=True)
         else:
             output = self.__call_route(payload, source)
             # print
@@ -808,6 +837,9 @@ class NodeBase:
         fire_and_forget: bool = False,
         timeout: Optional[float] = 2.0
     ):        # rid: str = str(uuid.uuid4()) if rid is None else rid
+        if self.is_in_outage():
+            raise RuntimeError(f"Node {self.network_name} is unavailable (simulated outage)")
+
         # payload: dict = {
         #     'route': method,
         #     'rid': rid,

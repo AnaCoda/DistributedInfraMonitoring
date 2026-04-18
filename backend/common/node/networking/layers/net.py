@@ -1,4 +1,4 @@
-from threading import Event, Thread
+from threading import Event, Thread, Lock
 from dataclasses import dataclass
 from typing import Optional, Callable
 
@@ -13,6 +13,7 @@ from websockets.sync.server import ServerConnection
 
 import websockets
 from ...template import NodeTemplate
+import time
 
 def _send_raw(connection: ThreadSafeSocket, body: dict):
     """
@@ -165,9 +166,25 @@ class NetLayer(RoutingLayer):
         self.dispatch_hook: Optional[Callable[..., ...]] = None
 
         self.response_registrar = ResponseRegistrar()
+        self._outage_until = 0.0
+        self._outage_lock = Lock()
 
         self.launch_background_thread(self.listener, function_args=(address,))
         self._start_routing_layer()
+
+    def is_in_outage(self) -> bool:
+        with self._outage_lock:
+            return time.time() < self._outage_until
+
+    def begin_outage(self, duration_sec: int, reason: str = "simulated fail packet"):
+        duration = max(0, int(duration_sec or 0))
+        with self._outage_lock:
+            self._outage_until = max(self._outage_until, time.time() + duration)
+
+        for name in list(self.connection_map.get_connection_names()):
+            self.connection_map.deregister(name)
+
+        print(f"[{self.network_name}] outage started for {duration}s ({reason})")
 
     def get_network_name(self):
         return self.network_name
@@ -212,6 +229,10 @@ class NetLayer(RoutingLayer):
         # print(f"recevied registry: {registry}")
         if 'name' not in registry:
             _send_raw(socket, _create_error('no registry name present'))
+            socket.close()
+            return
+        if self.is_in_outage():
+            _send_raw(socket, _create_error('node unavailable (simulated outage)'))
             socket.close()
             return
         name: str = registry['name']
@@ -270,6 +291,9 @@ class NetLayer(RoutingLayer):
         fire_and_forget: bool = False,
         timeout: Optional[float] = 2.0
     ):        # rid: str = str(uuid.uuid4()) if rid is None else rid
+        if self.is_in_outage():
+            raise RuntimeError(f"Node {self.network_name} is unavailable (simulated outage)")
+
         # payload: dict = {
         #     'route': method,
         #     'rid': rid,
@@ -444,6 +468,16 @@ class NetLayer(RoutingLayer):
                     # Set the event.
                     #print(f"[{self.network_name}] received __response rid={rid} body={message['body']}")
                     self.response_registrar.answer_registry(rid, message['body'])
+                elif self.is_in_outage() and route != "api.simulate_fail":
+                    self.__send_message_raw(
+                        connection,
+                        '__response',
+                        {
+                            'status': 'fail',
+                            'reason': 'node unavailable (simulated outage)'
+                        },
+                        rid=rid
+                    )
                 elif route.startswith("api.proxy."):
                     # Preserve in-order replica application from a single sender connection.
                     self.__handle_routed_message(name, route, rid, message['body'], connection)

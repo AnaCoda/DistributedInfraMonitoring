@@ -208,6 +208,83 @@ class CapitalNode(RawNode):
             "version": self.replica_state.version
         }
 
+    @node_handler(name="api.simulate_fail")
+    def handle_simulated_fail(self, body: dict, _sender: str):
+        target_name = str(body.get("target_name") or body.get("target_id") or "").strip()
+        target_type = str(body.get("target_type") or "").strip().lower()
+        duration = max(0, int(body.get("duration_sec", body.get("delay_sec", 0)) or 0))
+        relay_hops = int(body.get("__relay_hops", 0) or 0)
+
+        if target_name in {"", self.network_name} or target_type in {"capital", "replica"} and target_name == self.network_name:
+            self.begin_outage(duration, "simulated fail packet")
+            return {
+                "status": "success",
+                "target": self.network_name,
+                "target_type": "capital",
+                "action": "outage_started",
+                "duration_sec": duration,
+            }
+
+        if relay_hops >= 2:
+            return {
+                "status": "fail",
+                "reason": "simulate_fail relay hop limit reached",
+            }
+
+        if not self.is_leader and self.current_leader and self.current_leader != self.network_name:
+            if self.has_connection(self.current_leader):
+                forward = dict(body)
+                forward["__relay_hops"] = relay_hops + 1
+                return self.send_message(
+                    self.current_leader,
+                    "api.simulate_fail",
+                    forward,
+                    timeout=1,
+                )
+
+            return {
+                "status": "fail",
+                "reason": f"not leader and cannot reach leader {self.current_leader}",
+            }
+
+        if target_name.startswith("rm-"):
+            if target_name == self.network_name:
+                self.begin_outage(duration, "simulated fail packet")
+                return {
+                    "status": "success",
+                    "target": self.network_name,
+                    "target_type": "capital",
+                    "action": "outage_started",
+                    "duration_sec": duration,
+                }
+
+            if self.has_connection(target_name):
+                return self.send_message(
+                    target_name,
+                    "api.simulate_fail",
+                    {
+                        "target_name": target_name,
+                        "target_type": "capital",
+                        "duration_sec": duration,
+                    },
+                    timeout=1,
+                )
+
+            return {"status": "fail", "reason": f"capital replica {target_name} is not connected"}
+
+        if target_name and self.has_connection(target_name):
+            return self.send_message(
+                target_name,
+                "api.simulate_fail",
+                dict(body),
+                timeout=1,
+            )
+
+        return {
+            "status": "fail",
+            "reason": f"target {target_name or '<missing>'} is not connected to {self.network_name}",
+        }
+
     def on_start_election(self):
         pass
 

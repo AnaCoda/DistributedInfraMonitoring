@@ -26,6 +26,18 @@ class InfrastructureNode(NodeBase):
             "resource_value": self.resource_value
         }
 
+    @node_handler(name="api.simulate_fail")
+    def handle_simulated_fail(self, body: dict, _sender: str):
+        duration = max(0, int(body.get("duration_sec", body.get("delay_sec", 0)) or 0))
+        reason = body.get("reason", "simulated fail packet")
+        self.begin_outage(duration, reason)
+        return {
+            "status": "success",
+            "target": self.network_name,
+            "action": "outage_started",
+            "duration_sec": duration,
+        }
+
     @node_handler(internal_ms=3000)
     def broadcast_update(self):
         # Don't crash the interval thread if something is half-initialized

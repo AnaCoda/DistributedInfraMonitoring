@@ -542,6 +542,61 @@ class RegionalNode(RawNode):
             h = (h * 31 + ord(ch)) % span
         return (host, base_port + h)
 
+    @node_handler(name="api.simulate_fail")
+    def handle_simulated_fail(self, body: dict, _sender: str):
+        target_name = str(body.get("target_name") or body.get("target_id") or "").strip()
+        target_type = str(body.get("target_type") or "").strip().lower()
+        infra_name = str(body.get("infra_name") or "").strip()
+        duration = max(0, int(body.get("duration_sec", body.get("delay_sec", 0)) or 0))
+
+        if target_name in {"", self.network_name, self.region_name}:
+            self.begin_outage(duration, "simulated fail packet")
+            return {
+                "status": "success",
+                "target": self.network_name,
+                "target_type": "regional",
+                "action": "outage_started",
+                "duration_sec": duration,
+            }
+
+        if target_name in self.replica_peer_names:
+            return self.send_message(
+                target_name,
+                "api.simulate_fail",
+                {
+                    "target_name": target_name,
+                    "target_type": "regional",
+                    "duration_sec": duration,
+                },
+                timeout=1,
+            )
+
+        target_site_name = infra_name or target_name
+
+        for site in self.sites:
+            site_name = getattr(site, "name", None)
+            if target_site_name and site_name != target_site_name:
+                continue
+
+            if target_type and target_type != "infrastructure":
+                continue
+            try:
+                if hasattr(site, "begin_outage"):
+                    site.begin_outage(duration, "simulated fail packet via region")
+                else:
+                    site.shutdown()
+                return {
+                    "status": "success",
+                    "target": site_name,
+                    "target_type": "infrastructure",
+                    "action": "outage_started",
+                    "duration_sec": duration,
+                }
+            except Exception as e:
+                return {"status": "fail", "reason": f"failed to stop {site_name}: {e}"}
+
+        return {"status": "fail", "reason": f"unknown regional target {target_name or target_site_name}"}
+
     @node_handler(name="region.ping")
     def ping(self, _message: dict):
         return {

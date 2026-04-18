@@ -50,6 +50,13 @@
       </div>
     </div>
 
+    <AdminControlPanel
+      :node-targets="adminTargets"
+      :command-status="adminCommandStatus"
+      :disabled="connected.length === 0"
+      @submit="submitAdminCommand"
+    />
+
     <!-- Loading -->
     <div v-if="loading && regions.length === 0" class="text-sm text-gray-400">Loading…</div>
 
@@ -249,6 +256,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import StatusBadge from "./components/StatusBadge.vue";
 import ProgressBar from "./components/ProgressBar.vue";
 import SiteValue from "./components/SiteValue.vue";
+import AdminControlPanel from "./components/AdminControlPanel.vue";
 
 // ---- State ----
 
@@ -267,6 +275,7 @@ let reconnectTimer = null;
 
 const expanded = reactive({});
 const wsStatus = ref("disconnected");
+const adminCommandStatus = ref({ state: "idle", message: "" });
 
 const wsCandidates = (() => {
   const raw = (import.meta.env.VITE_WS_ENDPOINTS || "").trim();
@@ -287,6 +296,58 @@ const wsCandidates = (() => {
 const exampleCommands = [
   "python -m replication.failover_demo",
 ].join("\n");
+
+const regionalReplicaTargets = computed(() => {
+  const hb = heartbeats.value || {};
+  return Object.keys(hb)
+    .filter(name => name && !name.startsWith("rm-") && !name.startsWith("Frontend-"))
+    .sort((a, b) => a.localeCompare(b));
+});
+
+const adminTargets = computed(() => {
+  const out = [];
+
+  for (const endpoint of wsCandidates) {
+    const match = endpoint.match(/:(\d+)$/);
+    if (!match) continue;
+    const rid = Number(match[1]) - 4000;
+    if (!Number.isInteger(rid) || rid <= 0) continue;
+    out.push({
+      id: `capital:${rid}`,
+      label: `Capital Replica rm-${rid}`,
+      name: `rm-${rid}`,
+      type: "capital",
+    });
+  }
+
+  for (const regionReplica of regionalReplicaTargets.value) {
+    out.push({
+      id: `regional:${regionReplica}`,
+      label: `Regional Replica ${regionReplica}`,
+      name: regionReplica,
+      type: "regional",
+    });
+  }
+
+  for (const region of regions.value) {
+    const regionName = region.name;
+    const controller = regionalReplicaTargets.value.find(rep => rep.startsWith(`${regionName}-`)) || regionName;
+    for (const site of region.sites || []) {
+      const siteName = site?.name;
+      if (!siteName) continue;
+      out.push({
+        id: `infra:${controller}:${siteName}`,
+        label: `Infrastructure ${regionName}/${siteName}`,
+        name: controller,
+        type: "infrastructure",
+        region: regionName,
+        infraName: siteName,
+      });
+    }
+  }
+
+  return out;
+});
 
 function toggleSites(name) {
   expanded[name] = !expanded[name];
@@ -384,6 +445,90 @@ function applyStateUpdate(body) {
   error.value = "";
 }
 
+function getActiveSocket() {
+  if (connectedEndpoint.value && sockets.has(connectedEndpoint.value)) {
+    return sockets.get(connectedEndpoint.value);
+  }
+  for (const ws of sockets.values()) {
+    return ws;
+  }
+  return null;
+}
+
+function sendRpc(ws, route, body, timeoutMs = 1500) {
+  return new Promise((resolve, reject) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      reject(new Error("No open websocket connection"));
+      return;
+    }
+
+    const rid = crypto.randomUUID();
+    const timeout = setTimeout(() => {
+      ws.removeEventListener("message", onMessage);
+      reject(new Error(`Timeout waiting for response to ${route}`));
+    }, timeoutMs);
+
+    const onMessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.route !== "__response" || msg.rid !== rid) {
+          return;
+        }
+
+        clearTimeout(timeout);
+        ws.removeEventListener("message", onMessage);
+        resolve(msg.body ?? {});
+      } catch {
+        // ignore malformed responses from unrelated messages
+      }
+    };
+
+    ws.addEventListener("message", onMessage);
+    ws.send(JSON.stringify({ route, rid, body }));
+  });
+}
+
+async function submitAdminCommand(payload) {
+  const ws = getActiveSocket();
+  if (!ws) {
+    adminCommandStatus.value = { state: "error", message: "No active websocket connection." };
+    return;
+  }
+
+  adminCommandStatus.value = { state: "sending", message: "" };
+
+  try {
+    const body = {
+      target_name: payload.target_name,
+      target_type: payload.target_type,
+      duration_sec: payload.duration_sec,
+      delay_sec: payload.duration_sec,
+      infra_name: payload.infra_name,
+      target_region: payload.target_region,
+      requested_by: payload.requested_by,
+      requested_at: payload.requested_at,
+    };
+    const resp = await sendRpc(ws, "api.simulate_fail", body, 2000);
+    if (resp.status === "success") {
+      const target = resp.target || payload.infra_name || payload.target_name;
+      adminCommandStatus.value = {
+        state: "success",
+        message: `Fail packet sent for ${target}.`,
+      };
+    } else {
+      adminCommandStatus.value = {
+        state: "error",
+        message: resp.reason || "Command was rejected.",
+      };
+    }
+  } catch (e) {
+    adminCommandStatus.value = {
+      state: "error",
+      message: e instanceof Error ? e.message : "Failed to send command.",
+    };
+  }
+}
+
 // ---- WebSocket ----
 
 async function tryConnect(endpoint) {
@@ -436,7 +581,10 @@ async function tryConnect(endpoint) {
       if (msg.route === "push.state_update" || msg.route === "push.replica_state_update") {
         applyStateUpdate(msg.body ?? {});
       } else if (msg.route === "__response") {
-        applyStateUpdate(msg.body ?? {});
+        const body = msg.body ?? {};
+        if (body.__state || body.state || body.heartbeats) {
+          applyStateUpdate(body);
+        }
       }
     });
   } catch (_e) {
