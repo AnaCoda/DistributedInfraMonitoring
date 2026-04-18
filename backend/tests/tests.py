@@ -6,7 +6,7 @@ from ..common.node.common.patching.patch import Patch
 from ..common.node.common.patching.mpatch import VersionedPatch, ManagedState
 from ..common.node.common.storage.memory import MemoryStorageBackend
 from ..common.node.common.rep_log.log import ReplicationLog, Operation
-from ..common.node.common.plugins.replication.rep_state_machine import ReplicationStateMachine, ReplicationOp, ReplicationMsg
+from ..common.node.common.plugins.replication.rep_state_machine import ReplicationStateMachine, ReplicationStateMachineState, ReplicationOp, ReplicationMsg
 
 class DictUtils(unittest.TestCase):
 
@@ -29,16 +29,19 @@ class DictUtils(unittest.TestCase):
     #     self.assertEqual(original, updated)
 
     def test_replication_state_machine_init(self):
-        sm = ReplicationStateMachine(MemoryStorageBackend())
+        sm = ReplicationStateMachine('dummy', MemoryStorageBackend())
         # print(sm.poll())
+        sm.set_leader('jeff')
         polled = sm.poll()
         self.assertEqual(len(polled), 1)
         self.assertEqual(polled[0].op, ReplicationOp.SYNC_REQUEST)
         self.assertEqual(polled[0].body['sequence'], 0)
 
     def test_replication_state_machine_syncup(self):
-        sm = ReplicationStateMachine(MemoryStorageBackend())
+        sm = ReplicationStateMachine('dummy', MemoryStorageBackend())
         
+        sm.set_leader('jeff')
+
         # Poll is not necessary but will help.
         sm.poll()
 
@@ -84,8 +87,10 @@ class DictUtils(unittest.TestCase):
 
 
     def test_replication_state_machine_behind(self):
-        sm = ReplicationStateMachine(MemoryStorageBackend())
+        sm = ReplicationStateMachine('dummy', MemoryStorageBackend())
         
+        sm.set_leader('jeff')
+
         # Poll is not necessary but will help.
         sm.poll()
 
@@ -99,9 +104,60 @@ class DictUtils(unittest.TestCase):
         self.assertEqual(sm.replication_log.get_sequence_pos(), 1)
         # Now we should be in executing.
 
-       
+        self.assertFalse(
+            expr=sm.receive(ReplicationMsg.from_op(
+                op=ReplicationOp.OPERATION,
+                body=Operation(3, {})
+            )),
+            msg="We should have been able to succesfully commit message with sequence number 2."
+        )
+
+        polled = sm.poll()
+        self.assertEqual(len(polled), 1)
+
+        obj = polled[0]
+        self.assertEqual(obj.op, ReplicationOp.REQUEST_MISSING)
+        self.assertListEqual(obj.body['logs'], [2, 3])
+
+ 
+        self.assertFalse(
+            expr=sm.receive(ReplicationMsg.from_op(
+                op=ReplicationOp.RESEND,
+                body={ 'logs': [ asdict(Operation(2, {})) ]}
+            )),
+            msg="We did not resend the requested sequence."
+        )
+        self.assertTrue(
+            expr=sm.receive(ReplicationMsg.from_op(
+                op=ReplicationOp.RESEND,
+                body={ 'logs': [ asdict(Operation(2, {})), asdict(Operation(3, {})) ]}
+            )),
+            msg="We resent the requested sequence."
+        )
+
+        self.assertEqual(sm.replication_log.get_sequence_pos(), 3)
+        self.assertEqual(sm.get_state(), ReplicationStateMachineState.EXECUTING)
 
     
+    def test_replication_sm_leader(self):
+
+        sm = ReplicationStateMachine('jeff', MemoryStorageBackend())
+        self.assertEqual(sm.get_state(), ReplicationStateMachineState.INIT)
+
+        sm.set_leader('jeff')
+
+        self.assertEqual(len(sm.poll()), 0)
+        self.assertEqual(sm.get_state(), ReplicationStateMachineState.EXECUTING)
+
+    def test_replication_sm_wait_for_leader(self):
+        sm = ReplicationStateMachine('bob', MemoryStorageBackend())
+        self.assertEqual(len(sm.poll()), 0)
+        self.assertEqual(sm.get_state(), ReplicationStateMachineState.INIT)
+        
+        sm.set_leader('jeff')
+        self.assertEqual(len(sm.poll()), 1)
+        self.assertEqual(sm.get_state(), ReplicationStateMachineState.STARTED)
+
 
     def test_replication_log(self):
         backend = MemoryStorageBackend()

@@ -1,4 +1,4 @@
-from ..state_machine import StateMachine, StateMachineMessage
+from ..state_machine import StateMachine, StateMachineMessage, BaseStateMachine
 from ...rep_log.log import ReplicationLog, ReplicationOutOfOrder, Operation
 from dataclasses import dataclass, is_dataclass, asdict
 from enum import Enum
@@ -19,75 +19,143 @@ class ReplicationMsg(StateMachineMessage):
 
     @staticmethod
     def from_op(op: ReplicationOp, body: dict):
+        return ReplicationMsg.from_op_targeted(None, op, body)
+    
+    @staticmethod
+    def from_op_targeted(target: str, op: ReplicationOp, body: dict):
         if is_dataclass(body):
             body = asdict(body)
-        return ReplicationMsg(op, body)
+        return ReplicationMsg(op, None, target, body)
 
 
 class ReplicationStateMachineState(Enum):
-    STARTED = 0
-    EXECUTING = 1
-    IN_OPERATION = 2
+    INIT = 0
+    STARTED = 1
+    EXECUTING = 2
+    IN_OPERATION = 3
+    REQUESTING_CATCHUP = 4
+    WAITING_CATCHUP = 5
 
-class ReplicationStateMachine(StateMachine):
+class ReplicationSMResponseCode(Enum):
+    FAILED = 0
+    SUCCESS = 1
+
+
+class ReplicationSMTarget(Enum):
+    LEADER = 0
+
+class ReplicationStateMachine(BaseStateMachine):
     
     def __init__(
             self,
+            name: str,
             backend: StorageBackend
         ):
-        super().__init__()
+        super().__init__(name, ReplicationStateMachineState.INIT)
         self.backend = backend
         self.replication_log = ReplicationLog(self.backend)
-        self._set_state(ReplicationStateMachineState.STARTED)
-        # self.state = ReplicationStateMachineState.STARTED
         self.current_op: Optional[Operation] = None
+        self.leader: Optional[str] = None
 
-    def get_state(self) -> ReplicationStateMachineState:
-        return self.state
+    def __is_leader(self) -> bool:
+        return self.leader is not None and self.leader == self.get_name()
 
-    def _set_state(self, state):
-        self.state = state
-        # return super()._set_state(state)
-        # return super().get_state()
+    def set_leader(self, value: Optional[str]):
+        self.leader = value
 
-    def poll(self):
-        if self.state == ReplicationStateMachineState.STARTED:
-            # We need to fast forward.
-            return [ ReplicationMsg(ReplicationOp.SYNC_REQUEST, { 'sequence': self.replication_log.get_sequence_pos() }) ]
-        else:
-            raise Exception(f'State {self.state} not yet supported.')
+    def get_leader(self) -> Optional[str]:
+        return self.leader
     
+    def modify_outbound(self, msg: ReplicationMsg):
+        super().modify_outbound(msg)
+        if msg.op == ReplicationOp.SYNC_REQUEST or ReplicationOp.REQUEST_MISSING:
+            msg.target = self.get_leader()
+        
 
-    def receive(self, packet) -> Optional[bool]:
+    def _on_poll(self):
+        if self.get_state() == ReplicationStateMachineState.INIT and self.get_leader() is not None:
+            if self.__is_leader():
+                # If we are the leader we can start right up.
+                self._set_state(ReplicationStateMachineState.EXECUTING)
+            else:
+                self._enqueue(ReplicationMsg.from_op(ReplicationOp.SYNC_REQUEST, { 'sequence': self.replication_log.get_sequence_pos() }))
+                self._set_state(ReplicationStateMachineState.STARTED)
+        elif self.get_state() == ReplicationStateMachineState.REQUESTING_CATCHUP:
+            self._enqueue(ReplicationMsg.from_op(ReplicationOp.REQUEST_MISSING, { 'logs': self.__required_ops() }))
+            self._set_state(ReplicationStateMachineState.WAITING_CATCHUP)
+
+        
+    def __required_ops(self) -> list[int]:
+        return list(range(self.replication_log.get_sequence_pos() + 1, self.current_op.get_seq_num() + 1))
+
+    def receive(self, packet: StateMachineMessage) -> bool:
         #TODO: Send the actual Sync request.
-        if self.state == ReplicationStateMachineState.STARTED:
+        if self.get_state() == ReplicationStateMachineState.STARTED:
             if packet.op == ReplicationOp.SYNC_RESPONSE:
                 logs = packet.body['logs']
                 for log in logs:
                     self.replication_log.add_log(Operation(**log))
-                self.state = ReplicationStateMachineState.EXECUTING
+                self._set_state(ReplicationStateMachineState.EXECUTING)
             else:
                 # We ignore all other packets.
                 return
-        elif self.state == ReplicationStateMachineState.EXECUTING:
+        elif self.get_state() == ReplicationStateMachineState.EXECUTING:
             if packet.op == ReplicationOp.OPERATION:
                 operation = Operation(**packet.body)
                 flag = False
                 if operation.sequence_number == self.replication_log.get_sequence_pos() + 1:
                     flag = True
-                    self.state = ReplicationStateMachineState.IN_OPERATION
+                    self._set_state(ReplicationStateMachineState.IN_OPERATION)
                     self.current_op = operation
+                elif operation.sequence_number + 1 > self.replication_log.get_sequence_pos():
+                    self._set_state(ReplicationStateMachineState.REQUESTING_CATCHUP)
+                    self.current_op = operation
+                    flag = False
                 return flag
+            elif self.__is_leader():
+                if packet.op == ReplicationOp.REQUEST_MISSING:
+                    missing = packet.body['logs']
+                    logs = self.replication_log.retrieve_at_idxs(missing)
+                    self._enqueue(ReplicationMsg.from_op_targeted(packet.target, ReplicationOp.RESEND, { 'logs': logs }))
+                    return True
+                elif packet.op == ReplicationOp.SYNC_REQUEST:
+                    sequence = packet.body['sequence']
+                    logs = self.replication_log.retrieve_logs(sequence + 1, None)
+                    self._enqueue(ReplicationMsg.from_op_targeted(packet.source, ReplicationOp.SYNC_RESPONSE, { 'logs': logs } ))
+                    return True
+                    # return True
+                else:
+                    return False
             else:
                 # We did not handle any operation.
                 return False
-        elif self.state == ReplicationStateMachineState.IN_OPERATION:
+        elif self.get_state() == ReplicationStateMachineState.REQUESTING_CATCHUP:
+            return False
+        elif self.get_state() == ReplicationStateMachineState.WAITING_CATCHUP:
+            if packet.op == ReplicationOp.RESEND:
+                ops: list[Operation]  = [ Operation(**op) for op in packet.body['logs']  ]
+                seqs: list[int] = [ op.sequence_number for op in ops ]
+                seqs.sort()
+                if seqs == self.__required_ops():
+                    ops.sort(key = lambda k : k.get_seq_num())
+                    # self.replication_log.add_log()
+                    for op in ops:
+                        self.replication_log.add_log(op)
+                    self._set_state(ReplicationStateMachineState.EXECUTING)
+                    return True
+                else:
+                    return False
+            else:
+                # We are currently waiting a catchup, so we will not
+                # handle any messages right now.
+                return False
+        elif self.get_state() == ReplicationStateMachineState.IN_OPERATION:
             if packet.op == ReplicationOp.COMMIT:
                 operation_num = int(packet.body['sequence'])
                 if self.current_op.sequence_number == operation_num:
                     self.replication_log.add_log(self.current_op)
                     self.current_op = None
-                    self.state = ReplicationStateMachineState.EXECUTING
+                    self._set_state(ReplicationStateMachineState.EXECUTING)
                     return True
                 else:
                     # The sequence number does not check out so we

@@ -45,6 +45,12 @@ class ReplicationLog:
             self.log_state.sequence_position = operation.sequence_number
             self.__write_back_log_state()
         
+    def __retrieve_at_idxs(self, idcs: list[int]) -> list[Operation]:
+        return [ Operation(**self.backend.read('logs', op)) for op in idcs ]
+
+    def retrieve_at_idxs(self, idcs: list[int]) -> list[Operation]:
+        with self.log_lock:
+            return self.__retrieve_at_idxs(idcs)
 
     def retrieve_logs(self, start: Optional[int], end: Optional[int]):
         with self.log_lock:
@@ -57,7 +63,7 @@ class ReplicationLog:
             if start is None:
                 start = 1
           
-            return [ Operation(**self.backend.read('logs', op)) for op in range(start, end) ]
+            return self.__retrieve_at_idxs(list(range(start, end)))
 
     def retrieve_all_logs(self):
         return self.retrieve_logs(None, None)
