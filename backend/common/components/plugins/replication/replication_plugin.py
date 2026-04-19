@@ -170,13 +170,13 @@ class ReplicationPlugin(Plugin):
                 output = self.__apply_operation(Operation(**operation.body))
                 self.__poll_unlocked()
 
-            # for replica in filter(lambda x : x != self.get_network_name(), self.__replicas):
-            #     # Forward the message to all of the nodes that are not ourselves.
-            #     try:
-            #         self.send_message_no_wait(replica, 'plugin.replication', asdict(operation))
-            #     except Exception as e:
-            #         pass
-            #         # print(f'excepted {type(e)}')
+            for replica in filter(lambda x : x != self.get_network_name(), self.__replicas):
+                # Forward the message to all of the nodes that are not ourselves.
+                try:
+                    self.send_message_no_wait(replica, 'plugin.replication', asdict(operation))
+                except Exception as e:
+                    pass
+                    # print(f'excepted {type(e)}')
             return output
         else:
             # In this case we actually need to forward the message to the leader, which will handle it
