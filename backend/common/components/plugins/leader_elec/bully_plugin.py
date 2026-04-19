@@ -127,13 +127,13 @@ class BullyPlugin(Plugin):
         target, ip, port = self.peer_translator[destination]
 
 
-        for i in range(3):
+        for i in range(10):
             if target == self.get_network_name():
                 return target
 
             if not self.has_connection(target):
                 if not self._try_connect(NetworkAddress(ip=ip, port=port)):
-                    time.sleep(0.3)
+                    time.sleep(0.75)
                     continue
                 # self.connect((ip, port))
             return target

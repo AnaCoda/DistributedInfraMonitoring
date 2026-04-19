@@ -84,7 +84,7 @@ class KeyInfraNode(RawNode):
     def handle_pingre(self, body: dict):
         return { 'name': self.get_network_name() }
     
-    @node_handler(internal_ms=4000)
+    @node_handler(internal_ms=10_000)
     def pinger_int(self):
         for peer in self.peers:
             if peer.name == self.get_network_name():
