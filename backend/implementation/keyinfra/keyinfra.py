@@ -6,12 +6,14 @@ from typing import Any, Callable, Dict, List, Tuple
 from colorama import Fore, Style
 from pydantic import BaseModel
 
+from backend.common.components.events.connect import NodeConnectionType
 from backend.common.components.plugins.leader_elec.bully_plugin import BullyPlugin
 from backend.common.components.plugins.leader_elec.bully_state_machine import BullyPeer
 from backend.common.components.plugins.replication.replication_plugin import ReplicationPlugin
 from backend.common.components.storage.disk import DiskBackend
 from backend.common.components.storage.memory import MemoryStorageBackend
 from backend.common.components.util import NetworkEntry
+from backend.common.layers.routing.routing_layer import node_handler
 from backend.common.raw import RawNode
 from json import dumps
 
@@ -33,7 +35,8 @@ class KeyInfraNode(RawNode):
                 BullyPeer(entry.name, entry.name, 1): (entry.name, entry.address.ip, entry.address.port)
 
                 for entry in peers
-            }
+            },
+            heartbeat_interval_ms=8_000
         ))
 
         self.replication_plugin = self.register_plugin(ReplicationPlugin(
@@ -62,6 +65,24 @@ class KeyInfraNode(RawNode):
     def get_state(self) -> BaseModel:
         return self.__state
     
+
+    @node_handler(on_connect=NodeConnectionType.OUTBOUND)
+    def handle_outbound_conn(self, name: str):
+        print(f'{Fore.YELLOW}[CONNECTION]{Fore.RESET} Connected to {name} (type=OUTBOUND)')
+
+    @node_handler(on_connect=NodeConnectionType.INBOUND)
+    def handle_inbound_conn(self, name: str):
+        print(f'{Fore.YELLOW}[CONNECTION]{Fore.RESET} Connected to {name} (type=INBOUND)')
+
+
+    node_handler(on_disconnect=NodeConnectionType.OUTBOUND)
+    def handle_outbound_dconn(self, name: str):
+        print(f'{Fore.YELLOW}[DISCONNECTION]{Fore.RESET} Disconnected from {name} (type=OUTBOUND)')
+
+    @node_handler(on_disconnect=NodeConnectionType.INBOUND)
+    def handle_inbound_dconn(self, name: str):
+        print(f'{Fore.YELLOW}[DISCONNECTION]{Fore.RESET} Disconnected from {name} (type=INBOUND)')
+
 
 
     def on_start_election(self):

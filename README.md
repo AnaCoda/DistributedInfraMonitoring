@@ -12,6 +12,12 @@ allowed_frontend_cidr_blocks = ["<YOUR_IP>/32"]
 key_name = "<KEYPAIR_NAME>"
 ```
 
+Monitoring
+
+```
+sudo journalctl -u distinfra-capital.service -n 400 --no-pager -o cat
+```
+
 ## Backend
 ```bash
 $ uv run python -m replication.failover_demo
