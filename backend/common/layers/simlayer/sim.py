@@ -24,5 +24,11 @@ class SimulationLayer(RoutingLayer):
         print(f'{Fore.MAGENTA}[{self.get_network_name()}] Requested downtime with duration={body["duration"]}{Fore.RESET}')
         self.down = duration
 
+    @node_handler(name='sim.connlist')
+    def handle_conn_list(self, body: dict):
+        return {
+            'names': self._net_connlist()
+        }
+
     def is_sim_down(self) -> Optional[int]:
         return self.down

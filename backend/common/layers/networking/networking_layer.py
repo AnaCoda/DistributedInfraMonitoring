@@ -1,6 +1,6 @@
 from threading import Event, Thread
 from dataclasses import dataclass
-from typing import Optional, Callable
+from typing import List, Optional, Callable
 
 import json
 
@@ -194,6 +194,9 @@ class NetLayer(SimulationLayer):
         return self.address
 
         # return super().get_network_name(
+
+    def _net_connlist(self) -> List[str]:
+        return self.connection_map.get_connection_names()
 
     # @abstractmethod
     def _net_on_connect_evt(self, name: str):
