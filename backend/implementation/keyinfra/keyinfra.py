@@ -12,10 +12,12 @@ from backend.common.components.plugins.leader_elec.bully_state_machine import Bu
 from backend.common.components.plugins.replication.replication_plugin import ReplicationPlugin
 from backend.common.components.storage.disk import DiskBackend
 from backend.common.components.storage.memory import MemoryStorageBackend
-from backend.common.components.util import NetworkEntry
+from backend.common.components.util import NetworkAddress, NetworkEntry
 from backend.common.layers.routing.routing_layer import node_handler
 from backend.common.raw import RawNode
 from json import dumps
+
+from backend.implementation.state.monitoring import ElectionState, HeartBeatState
 
 class KeyInfraNode(RawNode):
 
@@ -65,6 +67,21 @@ class KeyInfraNode(RawNode):
     def get_state(self) -> BaseModel:
         return self.__state
     
+    def election_state(self):
+        return ElectionState(
+            name=self.get_network_name(),
+            heartbeat={
+                NetworkEntry(name=bully.name): HeartBeatState(
+                    heartbeat_state=state.state,
+                    last_heartbeat=state.last_hb
+                )
+                for bully, state in self.leader_election.node.heartbeat
+            }
+        )
+    
+    @node_handler(name='election.state')
+    def handle_get_election_state(self, body: dict):
+        return self.election_state().model_dump(mode='json')
 
     @node_handler(on_connect=NodeConnectionType.OUTBOUND)
     def handle_outbound_conn(self, name: str):
@@ -75,7 +92,7 @@ class KeyInfraNode(RawNode):
         print(f'{Fore.YELLOW}[CONNECTION]{Fore.RESET} Connected to {name} (type=INBOUND)')
 
 
-    node_handler(on_disconnect=NodeConnectionType.OUTBOUND)
+    @node_handler(on_disconnect=NodeConnectionType.OUTBOUND)
     def handle_outbound_dconn(self, name: str):
         print(f'{Fore.YELLOW}[DISCONNECTION]{Fore.RESET} Disconnected from {name} (type=OUTBOUND)')
 
