@@ -54,7 +54,7 @@ class RegionalNode(KeyInfraNode):
     ):
         current_state: dict = self.get_state().model_dump()
 
-        self.send_message(target, 'region.update', current_state)
+        self.send_message_no_wait(target, 'region.update', current_state)
         self.__dirty = False
 
     @node_handler(internal_ms=500)
