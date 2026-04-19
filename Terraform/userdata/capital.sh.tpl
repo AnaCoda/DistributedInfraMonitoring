@@ -1,12 +1,25 @@
 #!/bin/bash
-set -euxo pipefail
+set -euo pipefail
 
 dnf update -y
-dnf install -y git python3 python3-pip unzip awscli
-
+dnf install -y git unzip
 curl -LsSf https://astral.sh/uv/install.sh | sh
-install -Dm755 /root/.local/bin/uv /usr/local/bin/uv
-install -Dm755 /root/.local/bin/uvx /usr/local/bin/uvx
+install -m 0755 /root/.local/bin/uv /usr/local/bin/uv
+if [ -f /root/.local/bin/uvx ]; then
+  install -m 0755 /root/.local/bin/uvx /usr/local/bin/uvx
+fi
+export PATH="/root/.local/bin:/home/ec2-user/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+
+id -u "${app_user}" >/dev/null 2>&1 || useradd -m "${app_user}"
+
+rm -rf "${app_dir}"
+install -d -o "${app_user}" -g "${app_user}" "$(dirname "${app_dir}")"
+sudo -u "${app_user}" git clone --branch "${repo_ref}" --single-branch "${repo_url}" "${app_dir}"
+
+cd "${app_dir}"
+sudo -u "${app_user}" /usr/local/bin/uv venv
+sudo -u "${app_user}" /usr/local/bin/uv sync || true
+sudo -u "${app_user}" /usr/local/bin/uv pip install websockets pydantic colorama
 
 mkdir -p /etc/distinfra
 
@@ -24,35 +37,6 @@ cat >/etc/distinfra/node.json <<EOF
 }
 EOF
 
-rm -rf "${app_dir}"
-mkdir -p /opt
-rm -rf /tmp/distinfra-unpack
-mkdir -p /tmp/distinfra-unpack
-
-aws s3 cp s3://cpsc-559-repo-158210429599-us-west-2-an/DistributedInfraMonitoring.zip /tmp/distinfra.zip
-unzip -q /tmp/distinfra.zip -d /tmp/distinfra-unpack
-
-APP_ROOT="$(find /tmp/distinfra-unpack -type f -name pyproject.toml -exec dirname {} \; | head -n 1)"
-
-if [ -z "$${APP_ROOT}" ]; then
-  echo "Could not locate app root after unzip"
-  find /tmp/distinfra-unpack -maxdepth 3 -type d
-  exit 1
-fi
-
-mv "$${APP_ROOT}" "${app_dir}"
-
-# Kill any bundled local virtualenv from the uploaded artifact
-rm -rf "${app_dir}/.venv"
-
-chown -R ${app_user}:${app_user} "${app_dir}" /etc/distinfra
-
-sudo -u ${app_user} -H bash -lc '
-  cd "'"${app_dir}"'"
-  /usr/local/bin/uv sync || true
-  /usr/local/bin/uv pip install websockets pydantic colorama
-'
-
 cat >/etc/systemd/system/distinfra-capital.service <<EOF
 [Unit]
 Description=Distributed Infra Capital Runner
@@ -61,10 +45,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=ec2-user
-WorkingDirectory=/opt/DistributedInfraMonitoring
-Environment=HOME=/home/ec2-user
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
+User=${app_user}
+WorkingDirectory=${app_dir}
+Environment=HOME=/home/${app_user}
+Environment=PATH=/home/${app_user}/.local/bin:/root/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=NODE_CONFIG_PATH=/etc/distinfra/node.json
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/local/bin/uv run python -u -m backend.runners.capital_runner
@@ -77,4 +61,4 @@ EOF
 
 systemctl daemon-reload
 systemctl enable distinfra-capital.service
-systemctl start distinfra-capital.service
+systemctl restart distinfra-capital.service

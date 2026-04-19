@@ -187,3 +187,5 @@ cython_debug/
 
 terraform.tfvars
 .terraform
+*.tfstate
+*.tfstate.backup
