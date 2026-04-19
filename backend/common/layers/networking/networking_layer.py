@@ -232,6 +232,7 @@ class NetLayer(SimulationLayer):
         socket: ThreadSafeSocket
     ) -> None:
         name = None
+        should_cleanup = True
         try:
             registry: dict = _recv_raw(socket)
             # print(f"recevied registry: {registry}")
@@ -243,6 +244,9 @@ class NetLayer(SimulationLayer):
             name: str = registry['name']
 
             if self.connection_map.has_connection(name):
+                # We want to prevent cleanup here, else the finally
+                # block will remove the original connection.
+                should_cleanup = False
                 print(f'[{self.get_network_name()}] We already have a connection for {name}, so denying the incoming connection.')
                 _send_raw(socket, _create_error(f'connection already exists for {name}'))
                 socket.close()
@@ -272,7 +276,7 @@ class NetLayer(SimulationLayer):
         ):
             pass
         finally:
-            if name is not None:
+            if should_cleanup and name is not None:
                 try:
                     self.connection_map.deregister(name)
                 except Exception:

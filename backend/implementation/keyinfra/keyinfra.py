@@ -72,7 +72,7 @@ class KeyInfraNode(RawNode):
             name=self.get_network_name(),
             leader=self.leader_election.current_leader(),
             heartbeat={
-                NetworkEntry(name=bully.name): HeartBeatState(
+                bully.name: HeartBeatState(
                     heartbeat_state=state.state,
                     last_heartbeat=state.last_hb
                 )

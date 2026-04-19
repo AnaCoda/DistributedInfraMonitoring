@@ -131,7 +131,7 @@ class BullyPlugin(Plugin):
             )
         except Exception as e:
             self.node.__print(f'[{self.get_network_name()}] {Fore.RED}Failed to handle a bully message={message} with exception={e}{Fore.RESET}')
-            pass
+        
 
     def __handle_bully_messages(self, messages: list[BullyPacket]):
         for message in messages:

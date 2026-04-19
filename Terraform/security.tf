@@ -26,7 +26,7 @@ resource "aws_security_group" "cluster" {
     for_each = length(var.allowed_frontend_cidr_blocks) > 0 ? [1] : []
     content {
       description = "Frontend access to capital websocket ports"
-      from_port   = 4001
+      from_port   = 4000
       to_port     = 4003
       protocol    = "tcp"
       cidr_blocks = var.allowed_frontend_cidr_blocks
