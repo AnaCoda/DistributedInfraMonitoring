@@ -39,7 +39,7 @@ class KeyInfraNode(RawNode):
         self.replication_plugin = self.register_plugin(ReplicationPlugin(
             host=self,
             name=self.get_network_name(),
-            backend=MemoryStorageBackend(),
+            backend=DiskBackend(self.get_network_name()),
             replicas=[ r.name for r in peers ],
             routes=operation_routes
         ))

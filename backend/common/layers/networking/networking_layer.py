@@ -7,6 +7,7 @@ import json
 from colorama import Fore, Style
 
 from backend.common.components.util import NetworkAddress
+from backend.common.layers.simlayer.sim import SimulationLayer
 from .connection_map import ConnectionMap, ConnectionRegistry
 from ...components.events.event import NodeEvent
 from .threadsafesocket import ThreadSafeSocket
@@ -165,7 +166,7 @@ class MessagePackingResult:
 
 from .response_registry import ResponseRegistryEntry, ResponseRegistrar
 
-class NetLayer(RoutingLayer):
+class NetLayer(SimulationLayer):
 
     def __init__(self, network_name: str, address: tuple[str, int]):
         super().__init__()

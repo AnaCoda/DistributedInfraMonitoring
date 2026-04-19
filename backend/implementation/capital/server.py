@@ -1,6 +1,7 @@
 from typing import List
 
 from backend.common.components.util import NetworkEntry
+from backend.common.layers.routing.routing_layer import node_handler
 from backend.implementation.keyinfra.keyinfra import KeyInfraNode
 from backend.implementation.state.monitoring import CapitalState, RegionState
 
@@ -32,6 +33,11 @@ class CapitalNode(KeyInfraNode):
         self.replication_plugin.commit(self.get_state())
 
         self._print_digest('capital')
+
+    @node_handler(name='query.capital')
+    def query_capital(self, body: dict, source: str):
+        # pass
+        return self.get_state().model_dump()
 
 
     def _default_state(self) -> CapitalState:

@@ -68,7 +68,9 @@ class InfrastructureNode(RawNode):
             self.__notified_region = True
 
 
-
+    @node_handler(name='infra.random')
+    def handle_infra_random(self, body: dict):
+        self.update_value()
     
     
     @node_handler(internal_ms=200)

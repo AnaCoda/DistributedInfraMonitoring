@@ -21,3 +21,17 @@ output "regional_private_ips" {
     for name, instance in aws_instance.regional : name => instance.private_ip
   }
 }
+
+data "aws_caller_identity" "current" {}
+
+output "aws_account_id" {
+  value = data.aws_caller_identity.current.account_id
+}
+
+output "aws_arn" {
+  value = data.aws_caller_identity.current.arn
+}
+
+output "aws_user_id" {
+  value = data.aws_caller_identity.current.user_id
+}
