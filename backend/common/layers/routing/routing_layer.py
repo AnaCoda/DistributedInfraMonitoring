@@ -40,7 +40,7 @@ class RoutingLayer(FunctionalLayer):
 
         # self.stop_event = Event()
         self.ready_signal = HoldSignal()
-        self.executor = ThreadPoolExecutor()
+        self.executor = ThreadPoolExecutor(max_workers=32)
 
         self.generate_routing_templates()
 
