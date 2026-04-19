@@ -100,7 +100,15 @@ class BullyPlugin(Plugin):
         if leader is None:
             return
 
-        target = self.__translate_and_ensure_connect(leader)
+        try:
+            target = self.__translate_and_ensure_connect(leader)
+        except Exception as e:
+            print(
+                f"{Fore.RED}[BULLY][{self.get_network_name()}] "
+                f"failed to prepare leader link "
+                f"leader={leader.name} err={type(e).__name__}: {e}{Fore.RESET}"
+            )
+            return
 
         self.host.launch_background_thread(
             self.host.on_elect_leader,
@@ -131,7 +139,12 @@ class BullyPlugin(Plugin):
                 body=_serialize_bully_packet(message)
             )
         except Exception as e:
-            self.node.__print(f'[{self.get_network_name()}] {Fore.RED}Failed to handle a bully message={message} with exception={e}{Fore.RESET}')
+            print(
+                f"{Fore.RED}[BULLY][{self.get_network_name()}] "
+                f"send failed type={message.type} "
+                f"dest={getattr(message.destination, 'name', 'unknown')} "
+                f"err={type(e).__name__}: {e}{Fore.RESET}"
+            )
         
 
     def __handle_bully_messages(self, messages: list[BullyPacket]):

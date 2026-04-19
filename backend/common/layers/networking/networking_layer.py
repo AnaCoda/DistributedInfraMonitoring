@@ -277,14 +277,16 @@ class NetLayer(SimulationLayer):
             pass
         finally:
             if should_cleanup and name is not None:
+                removed = False
                 try:
-                    self.connection_map.deregister(name)
-                except Exception:
-                    pass
-                try:
-                    self._net_on_disconnect_evt(name)
-                except Exception:
-                    pass
+                    removed = self.connection_map.deregister_if_same(name, socket)
+                except Exception as e:
+                    print(f"[{self.network_name}] cleanup error for {name}: {type(e).__name__}: {e}")
+                if removed:
+                    try:
+                        self._net_on_disconnect_evt(name)
+                    except Exception as e:
+                        print(f"[{self.network_name}] disconnect event error for {name}: {type(e).__name__}: {e}")
 
 
     def __send_message_raw(
@@ -465,7 +467,23 @@ class NetLayer(SimulationLayer):
         try:
             self._net_connect(address.to_tuple())
             return True
-        except ConnectionRefusedError:
+        except (
+            ConnectionRefusedError,
+            TimeoutError,
+            ConnectionAbortedError,
+            ConnectionResetError,
+            BrokenPipeError,
+            OSError,
+            websockets.exceptions.ConnectionClosed,
+            websockets.exceptions.InvalidURI,
+            websockets.exceptions.InvalidHandshake,
+            websockets.exceptions.NegotiationError,
+            websockets.exceptions.WebSocketException,
+        ) as e:
+            print(
+                f"[{self.network_name}] _try_connect failed for "
+                f"{address.ip}:{address.port}: {type(e).__name__}: {e}"
+            )
             return False
 
     def _net_connect(self, address: tuple[str, int]):
@@ -555,11 +573,16 @@ class NetLayer(SimulationLayer):
             except Exception:
                 pass
 
+            removed = False
             try:
-                self.connection_map.deregister(name)
-            except Exception:
-                pass
-            self._net_on_disconnect_evt(name)
+                removed = self.connection_map.deregister_if_same(name, connection)
+            except Exception as e:
+                print(f"[{self.network_name}] registered cleanup error for {name}: {type(e).__name__}: {e}")
+            if removed:
+                try:
+                    self._net_on_disconnect_evt(name)
+                except Exception as e:
+                    print(f"[{self.network_name}] disconnect event error for {name}: {type(e).__name__}: {e}")
             # self.connection_map.deregister(name)
             
             # except NodeRpcError as nre:

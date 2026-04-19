@@ -15,7 +15,7 @@ key_name = "<KEYPAIR_NAME>"
 Monitoring
 
 ```
-sudo journalctl -u distinfra-capital.service -n 400 -f -o cat
+sudo journalctl -u distinfra-capital.service -n 4000 -f -o cat
 ```
 
 ## Backend

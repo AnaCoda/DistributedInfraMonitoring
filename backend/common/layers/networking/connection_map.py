@@ -24,6 +24,12 @@ class ConnectionMap:
         print(f'Registering connection for {name}')
         with self.lock:
             # self.inbound_connections[name] = entry
+            old = self.outbound_connections.get(name)
+            if old is not None and old.connection is not entry.connection:
+                try:
+                    old.connection.close()
+                except Exception:
+                    pass
             self.outbound_connections[name] = entry
 
     def deregister(self, target: str):
@@ -35,6 +41,22 @@ class ConnectionMap:
                 except Exception:
                     pass
                 self.outbound_connections.pop(target, None)
+
+    def deregister_if_same(self, target: str, connection: ThreadSafeSocket) -> bool:
+        with self.lock:
+            entry = self.outbound_connections.get(target)
+            if entry is None:
+                return False
+            if entry.connection is not connection:
+                # A newer socket is now mapped for this target.
+                return False
+
+            self.outbound_connections.pop(target, None)
+            try:
+                connection.close()
+            except Exception:
+                pass
+            return True
 
             # if target in self.inbound_connections:
             #     try:
