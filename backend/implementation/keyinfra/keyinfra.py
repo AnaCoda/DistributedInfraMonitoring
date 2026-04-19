@@ -82,6 +82,7 @@ class KeyInfraNode(RawNode):
     
     @node_handler(name='election.state')
     def handle_get_election_state(self, body: dict):
+        print(f'GOT A GET ELECTION STATE CALL')
         return self.election_state().model_dump(mode='json')
 
     @node_handler(on_connect=NodeConnectionType.OUTBOUND)

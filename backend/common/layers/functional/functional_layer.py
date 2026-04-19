@@ -37,6 +37,7 @@ class FunctionalLayer(NodeTemplate):
         This method should be invoked when we are ready to
         handle events.
         """
+        print(f'{Fore.GREEN}[{self.get_network_name()}] Marked as ready to handle!{Fore.RESET}')
         self.__started_evt.set()
         # import colorama
         # print(f'{colorama.Fore.YELLOW} The node {self.get_network_name()} is ready. {colorama.Fore.RESET}')

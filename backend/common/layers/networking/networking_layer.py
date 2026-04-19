@@ -243,6 +243,7 @@ class NetLayer(SimulationLayer):
             name: str = registry['name']
 
             if self.connection_map.has_connection(name):
+                print(f'[{self.get_network_name()}] We already have a connection for {name}, so denying the incoming connection.')
                 _send_raw(socket, _create_error(f'connection already exists for {name}'))
                 socket.close()
                 return
