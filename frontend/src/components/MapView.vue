@@ -1,101 +1,120 @@
 <template>
-  <div class="relative w-full h-[600px] border border-gray-200 rounded-xl overflow-hidden shadow-inner bg-gray-50">
+  <div class="relative w-full h-[650px] border border-gray-200 rounded-2xl overflow-hidden shadow-2xl bg-slate-50">
     <div id="map" class="w-full h-full"></div>
 
-    <!-- Floating Info Card (shown on hover) -->
+    <!-- Floating Region Card -->
     <div
-      v-if="hoveredRegion && !hoveredSite"
-      class="absolute bottom-6 right-6 z-[1000] w-[320px] bg-white rounded-xl shadow-2xl border border-gray-100 p-4 transition-all duration-200"
+      v-if="hoveredRegion && !hoveredSite && !hoveredReplica"
+      class="absolute bottom-6 right-6 z-[1000] w-[340px] bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-white/20 p-5 transition-all duration-300 animate-in fade-in slide-in-from-bottom-4"
+    >
+      <div class="flex justify-between items-start mb-4">
+        <div>
+          <h3 class="text-xl font-bold text-slate-800 tracking-tight">{{ hoveredRegion.name }}</h3>
+          <div class="flex gap-2 mt-1.5">
+            <span
+              class="text-[10px] px-2 py-0.5 rounded-full border font-black uppercase tracking-widest"
+              :class="hoveredRegion.isCapital ? 'bg-amber-500 text-white border-amber-500 shadow-sm' : 'bg-slate-100 text-slate-600 border-slate-200'"
+            >
+              {{ hoveredRegion.regionType }}
+            </span>
+            <span class="text-[11px] text-slate-400 font-medium">{{ hoveredRegion.sites?.length || 0 }} Infrastructure Sites</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <div class="bg-slate-50 p-2 rounded-xl border border-slate-100">
+          <p class="text-[10px] font-bold text-slate-400 uppercase mb-1">Power</p>
+          <StatusBadge :value="hoveredRegion.state.power" />
+        </div>
+        <div class="bg-slate-50 p-2 rounded-xl border border-slate-100">
+          <p class="text-[10px] font-bold text-slate-400 uppercase mb-1">Transport</p>
+          <StatusBadge :value="hoveredRegion.state.transport" />
+        </div>
+      </div>
+
+      <div class="space-y-3">
+        <div v-for="res in ['medical_capacity', 'water_capacity', 'fuel_storage']" :key="res" class="space-y-1">
+          <div class="flex justify-between items-center text-[10px] font-bold text-slate-500 uppercase">
+            <span>{{ res.replace('_', ' ') }}</span>
+          </div>
+          <ProgressBar :value="hoveredRegion.state[res]" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Replica Info Card -->
+    <div
+      v-if="hoveredReplica"
+      class="absolute bottom-6 right-6 z-[1000] w-[280px] bg-slate-900/95 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-700 p-4 text-white transition-all duration-300"
     >
       <div class="flex justify-between items-start mb-3">
         <div>
-          <h3 class="text-lg font-bold text-gray-800">{{ hoveredRegion.name }}</h3>
-          <div class="flex gap-2 mt-1">
-            <span
-              class="text-[10px] px-1.5 py-0.5 rounded border font-bold uppercase tracking-wider"
-              :class="hoveredRegion.isCapital ? 'bg-slate-800 text-white border-slate-800' : 'bg-purple-50 text-purple-700 border-purple-200'"
-            >
-              {{ hoveredRegion.isCapital ? 'CAPITAL' : 'REGION' }}
-            </span>
-            <span class="text-[11px] text-gray-400">{{ hoveredRegion.sites?.length || 0 }} sites</span>
-          </div>
+          <h3 class="text-base font-bold text-white">{{ hoveredReplica.id }}</h3>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{{ hoveredReplica.regionName }} REPLICA</p>
         </div>
-        <div class="text-[10px] text-gray-400 font-medium uppercase">{{ hoveredRegion.lastSeenText }}</div>
-      </div>
-
-      <hr class="border-gray-50 mb-3" />
-
-      <div class="space-y-2.5">
-        <div class="flex items-center text-sm">
-          <span class="w-20 text-gray-500 font-medium">Power</span>
-          <StatusBadge :value="hoveredRegion.state.power" />
-        </div>
-        <div class="flex items-center text-sm">
-          <span class="w-20 text-gray-500 font-medium">Transport</span>
-          <StatusBadge :value="hoveredRegion.state.transport" />
-        </div>
-        <div class="flex items-center text-sm gap-3">
-          <span class="w-20 text-gray-500 font-medium">Medical</span>
-          <ProgressBar :value="hoveredRegion.state.medical_capacity" />
-        </div>
-        <div class="flex items-center text-sm gap-3">
-          <span class="w-20 text-gray-500 font-medium">Water</span>
-          <ProgressBar :value="hoveredRegion.state.water_capacity" />
-        </div>
-        <div class="flex items-center text-sm gap-3">
-          <span class="w-20 text-gray-500 font-medium">Fuel</span>
-          <ProgressBar :value="hoveredRegion.state.fuel_storage" />
-        </div>
-      </div>
-      <div v-if="!hoveredRegion.sites?.length" class="mt-3 text-[11px] text-gray-400 italic">No site details</div>
-    </div>
-
-    <!-- Site Info Card (shown on hover over shape) -->
-    <div
-      v-if="hoveredSite"
-      class="absolute bottom-6 right-6 z-[1000] w-[280px] bg-white rounded-xl shadow-2xl border border-gray-100 p-4 transition-all duration-200"
-    >
-      <div class="flex justify-between items-start mb-2">
-        <div>
-          <h3 class="text-base font-bold text-gray-800">{{ hoveredSite.name }}</h3>
-          <p class="text-[10px] text-gray-400 font-bold uppercase tracking-wide">{{ hoveredSite.regionName }}</p>
-        </div>
-        <div class="text-[10px] px-1.5 py-0.5 rounded border border-blue-200 bg-blue-50 text-blue-700 font-bold uppercase">SITE</div>
+        <div v-if="hoveredReplica.isLeader" class="bg-amber-500 text-[10px] px-2 py-0.5 rounded-full font-black uppercase shadow-lg shadow-amber-500/20">LEADER</div>
       </div>
       
-      <hr class="border-gray-50 mb-3" />
+      <div class="flex items-center justify-between text-[11px] bg-white/5 p-2.5 rounded-xl border border-white/10">
+        <span class="text-slate-400 font-medium">Heartbeat Status</span>
+        <span class="flex items-center gap-2 font-bold text-emerald-400">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          SYNCHRONIZED
+        </span>
+      </div>
+      <p class="mt-3 text-[10px] text-slate-500 italic text-center">Physical Node ID: {{ hoveredReplica.id }}</p>
+    </div>
 
-      <div class="space-y-3">
-        <div class="flex flex-col gap-1">
-          <div class="flex justify-between text-[11px] font-bold text-gray-500 uppercase">
-            <span>{{ hoveredSite.resource_type }} Level</span>
+    <!-- Site Info Card -->
+    <div
+      v-if="hoveredSite"
+      class="absolute bottom-6 right-6 z-[1000] w-[280px] bg-white rounded-2xl shadow-2xl border border-slate-100 p-5 transition-all duration-300"
+    >
+      <div class="flex items-center gap-3 mb-4">
+        <div class="p-2 bg-slate-50 rounded-xl border border-slate-100 shadow-sm" v-html="getSiteIcon(hoveredSite.resource_type, 'w-6 h-6 text-slate-700')"></div>
+        <div>
+          <h3 class="text-base font-bold text-slate-800">{{ hoveredSite.name }}</h3>
+          <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{{ hoveredSite.resource_type }}</p>
+        </div>
+      </div>
+      
+      <div class="space-y-4">
+        <div class="space-y-1.5">
+          <div class="flex justify-between text-[10px] font-black text-slate-500 uppercase tracking-wider">
+            <span>Operational Capacity</span>
           </div>
-          <ProgressBar :value="hoveredSite.resource_value" />
+          <ProgressBar :value="hoveredSite.resource_value === 'stable' ? 100 : (hoveredSite.resource_value === 'unstable' ? 50 : (hoveredSite.resource_value === 'down' ? 0 : hoveredSite.resource_value))" />
         </div>
         
-        <div class="flex items-center justify-between text-xs bg-gray-50 p-2 rounded-lg">
-          <span class="text-gray-500">Node Status</span>
-          <span class="flex items-center gap-1.5 font-bold" :class="hoveredSite.resource_value < 30 ? 'text-red-600' : 'text-green-600'">
-            <span class="w-1.5 h-1.5 rounded-full" :class="hoveredSite.resource_value < 30 ? 'bg-red-500' : 'bg-green-500'"></span>
-            {{ hoveredSite.resource_value < 30 ? 'CRITICAL' : 'ACTIVE' }}
+        <div class="flex items-center justify-between text-[11px] bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+          <span class="text-slate-500 font-medium">Infrastructure State</span>
+          <span class="flex items-center gap-2 font-bold" :class="isBadSite(hoveredSite) ? 'text-rose-600' : 'text-emerald-600'">
+            <span class="w-1.5 h-1.5 rounded-full" :class="isBadSite(hoveredSite) ? 'bg-rose-500' : 'bg-emerald-500'"></span>
+            {{ hoveredSite.resource_value.toString().toUpperCase() }}
           </span>
         </div>
       </div>
     </div>
 
-    <!-- Map Overlay Legend -->
-    <div class="absolute top-4 right-4 z-[1000] bg-white/90 backdrop-blur-sm p-2 rounded-lg border border-gray-200 text-[10px] font-semibold text-gray-600 shadow-sm flex flex-col gap-1">
-      <div class="flex items-center gap-2">
-        <div class="w-2 h-2 rounded-full border border-dashed border-gray-600"></div>
-        <span>REGION BOUNDARY</span>
+    <!-- Legend -->
+    <div class="absolute top-4 right-4 z-[1000] bg-white/90 backdrop-blur-md p-3 rounded-2xl border border-slate-200 shadow-xl flex flex-col gap-2">
+      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Legend</p>
+      <div class="flex items-center gap-3 text-[10px] font-bold text-slate-600">
+        <div class="w-3 h-3 rounded-full bg-slate-800 shadow-sm shadow-slate-400"></div>
+        <span>CAPITAL REPLICA</span>
       </div>
-      <div class="flex items-center gap-2">
-        <div class="w-2 h-2 rounded-full bg-blue-400"></div>
-        <span>STABLE SITE</span>
+      <div class="flex items-center gap-3 text-[10px] font-bold text-slate-600">
+        <div class="w-3 h-3 rounded-full bg-blue-500 shadow-sm shadow-blue-300"></div>
+        <span>REGION REPLICA</span>
       </div>
-      <div class="flex items-center gap-2">
-        <div class="w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-b-[6px] border-b-gray-400"></div>
-        <span>AUXILIARY SITE</span>
+      <div class="flex items-center gap-3 text-[10px] font-bold text-slate-600">
+        <div class="w-3 h-3 rounded-full bg-amber-500 shadow-lg shadow-amber-300 border-2 border-white"></div>
+        <span>CURRENT LEADER</span>
+      </div>
+      <div class="flex items-center gap-3 text-[10px] font-bold text-slate-600">
+        <div class="w-3 h-3 rounded-full border-2 border-dashed border-slate-400"></div>
+        <span>LOGICAL BOUNDARY</span>
       </div>
     </div>
   </div>
@@ -109,18 +128,17 @@ import StatusBadge from './StatusBadge.vue';
 import ProgressBar from './ProgressBar.vue';
 
 const props = defineProps({
-  regions: {
-    type: Array,
-    required: true
-  }
+  regions: { type: Array, required: true },
+  heartbeats: { type: Object, required: true }
 });
 
 const hoveredRegion = ref(null);
+const hoveredReplica = ref(null);
 const hoveredSite = ref(null);
+const currentZoom = ref(4);
 let map = null;
-const regionLayers = new Map();
+const layers = new Map();
 
-// Hardcoded coordinates for demonstration
 const regionCoords = {
   "Capital": [45.4215, -75.6972],
   "Alberta": [53.5461, -113.4938],
@@ -131,132 +149,165 @@ const regionCoords = {
   "Ontario": [43.6532, -79.3832]
 };
 
+const ICONS = {
+  Powerplant: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
+  Hospital: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49 0 2.5-1.01 2.5-2.5s-1.01-2.5-2.5-2.5h-1V5c0-1.1-.9-2-2-2H8c-1.1 0-2 .9-2 2v4H5c-1.49 0-2.5 1.01-2.5 2.5S3.51 14 5 14h1v7c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2v-7h1Z"/><path d="M12 7v10"/><path d="M8 12h8"/></svg>`,
+  Railroad: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="16" x="4" y="4" rx="2"/><path d="m9 22 3-3 3 3"/><path d="M9 2h6"/><path d="M12 22V2"/><path d="M5 12h14"/><path d="M5 8h14"/><path d="M5 16h14"/></svg>`,
+  "Fuel Depot": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 6.6 6.6A11 11 0 0 1 12 22a11 11 0 0 1-6.6-13.4L12 2Z"/></svg>`,
+  "Water Treatment Plant": `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7Z"/></svg>`
+};
+
+function getSiteIcon(type, className) {
+  const svg = ICONS[type] || ICONS.Powerplant;
+  return svg.replace('<svg', `<svg class="${className}"`);
+}
+
+function isBadSite(site) {
+  const v = site.resource_value;
+  return v === 'down' || v === 'unstable' || (typeof v === 'number' && v < 30);
+}
+
+function getSiteColorHex(site) {
+  const v = site.resource_value;
+  if (v === 'down' || (typeof v === 'number' && v < 30)) return '#f43f5e';
+  if (v === 'unstable' || (typeof v === 'number' && v < 70)) return '#f59e0b';
+  return '#10b981';
+}
+
+function getSiteIconStyled(type, colorHex) {
+  const svg = ICONS[type] || ICONS.Powerplant;
+  // Inject stroke color inline so it works inside Leaflet divIcons (no Tailwind)
+  return svg.replace('stroke="currentColor"', `stroke="${colorHex}"`);
+}
+
 function initMap() {
-  // Center on Canada
-  map = L.map('map', {
-    zoomControl: false,
-    attributionControl: false
-  }).setView([56.1304, -106.3468], 4);
+  map = L.map('map', { zoomControl: false, attributionControl: false }).setView([56.1304, -106.3468], 4);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
+  L.control.zoom({ position: 'topleft' }).addTo(map);
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19,
-  }).addTo(map);
-
-  L.control.zoom({
-    position: 'topleft'
-  }).addTo(map);
+  map.on('zoomend', () => {
+    currentZoom.value = map.getZoom();
+    updateMapLayers();
+  });
 
   updateMapLayers();
 }
 
 function updateMapLayers() {
   if (!map) return;
+  layers.forEach(l => map.removeLayer(l));
+  layers.clear();
 
-  // Clear existing layers
-  regionLayers.forEach(layer => map.removeLayer(layer));
-  regionLayers.clear();
+  // Group heartbeats by region logical name
+  const replicasByRegion = {};
+  Object.entries(props.heartbeats).forEach(([replicaId, hb]) => {
+    if (!replicasByRegion[hb.name]) replicasByRegion[hb.name] = [];
+    replicasByRegion[hb.name].push({ id: replicaId, ...hb });
+  });
 
   props.regions.forEach(region => {
-    const coords = regionCoords[region.name] || [50 + Math.random() * 5, -100 + Math.random() * 10];
+    const coords = regionCoords[region.name] || [50, -100];
     const group = L.layerGroup();
 
-    // 1. Region Boundary (Dashed Circle)
-    const isBad = region.isStale || region.state.medical_capacity < 30 || region.state.power === 'UNSTABLE';
+    // 1. Logical Boundary
+    const isBad = region.state.power === 'unstable' || region.state.medical_capacity < 30;
     const boundary = L.circle(coords, {
-      radius: 150000, // 150km
-      color: isBad ? '#ef4444' : '#333',
-      weight: isBad ? 2 : 1.5,
-      dashArray: '5, 5',
-      fillOpacity: isBad ? 0.1 : 0.05,
-      fillColor: isBad ? '#ef4444' : '#333'
+      radius: 180000,
+      color: isBad ? '#f43f5e' : '#94a3b8',
+      weight: 1.5,
+      dashArray: '8, 8',
+      fillOpacity: 0.03,
+      fillColor: isBad ? '#f43f5e' : '#94a3b8'
     }).addTo(group);
 
-    boundary.on('mouseover', () => {
-      hoveredRegion.value = region;
-    });
-    boundary.on('mouseout', () => {
-      hoveredRegion.value = null;
+    boundary.on('mouseover', () => { hoveredRegion.value = region; });
+    boundary.on('mouseout', () => { hoveredRegion.value = null; });
+
+    // 2. Physical Replicas (Nodes)
+    const replicas = replicasByRegion[region.name] || [];
+    replicas.forEach((rep, idx) => {
+      // Spread replicas in a small ring around the region centre
+      const angle = replicas.length > 1 ? (idx / replicas.length) * 2 * Math.PI : 0;
+      const jitter = replicas.length > 1 ? 0.5 : 0;
+      const repCoords = [
+        coords[0] + Math.cos(angle) * jitter,
+        coords[1] + Math.sin(angle) * jitter
+      ];
+
+      // isCapital comes from normalizeRegion (App.vue sets capital.value === name)
+      const isCapital = region.isCapital;
+      const baseColor = isCapital ? '#1e293b' : '#3b82f6';
+
+      const replicaMarker = L.circleMarker(repCoords, {
+        radius: isCapital ? 11 : 8,
+        fillColor: rep.is_leader ? '#f59e0b' : baseColor,
+        color: rep.is_leader ? '#d97706' : '#fff',
+        weight: 3,
+        fillOpacity: 1,
+        className: rep.is_leader ? 'leader-glow' : ''
+      }).addTo(group);
+
+      replicaMarker.on('mouseover', (e) => {
+        L.DomEvent.stopPropagation(e);
+        hoveredReplica.value = { ...rep, regionName: region.name, isCapital };
+      });
+      replicaMarker.on('mouseout', () => { hoveredReplica.value = null; });
     });
 
-    // 2. Sites (Markers)
+    // 3. Infrastructure Sites
     if (region.sites) {
       region.sites.forEach((site, index) => {
-        // Offset sites slightly from center for visualization
         const angle = (index / region.sites.length) * 2 * Math.PI;
-        const dist = 0.5 + Math.random() * 0.5;
-        const siteCoords = [
-          coords[0] + Math.cos(angle) * dist,
-          coords[1] + Math.sin(angle) * dist
-        ];
+        const dist = 1.2 + Math.random() * 0.4;
+        const siteCoords = [coords[0] + Math.cos(angle) * dist, coords[1] + Math.sin(angle) * dist];
 
-        if (index % 2 === 0) {
-          // Circle Marker
-          const marker = L.circleMarker(siteCoords, {
-            radius: 6,
-            fillColor: region.isStale ? '#ef4444' : (region.name === 'Capital' ? '#475569' : (site.resource_value < 30 ? '#ef4444' : '#60a5fa')),
+        const colorHex = getSiteColorHex(site);
+        let marker;
+
+        if (currentZoom.value < 6) {
+          // Dot view — small coloured circle when zoomed out
+          marker = L.circleMarker(siteCoords, {
+            radius: 4,
+            fillColor: colorHex,
             color: '#fff',
-            weight: 2,
-            fillOpacity: 0.8
+            weight: 1.5,
+            fillOpacity: 0.9
           }).addTo(group);
-
-          marker.on('mouseover', (e) => {
-            L.DomEvent.stopPropagation(e);
-            hoveredSite.value = { ...site, regionName: region.name };
-          });
-          marker.on('mouseout', () => {
-            hoveredSite.value = null;
-          });
         } else {
-          // Triangle Marker (Custom SVG)
-          const isSiteBad = site.resource_value < 30 || region.isStale;
-          const triangleIcon = L.divIcon({
-            className: 'custom-div-icon',
-            html: `<div style="width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 10px solid ${isSiteBad ? '#ef4444' : (region.name === 'Capital' ? '#475569' : '#94a3b8')};"></div>`,
-            iconSize: [12, 12],
-            iconAnchor: [6, 10]
+          // Full icon view — SVG with inline stroke colour
+          const iconHtml = getSiteIconStyled(site.resource_type, colorHex);
+          const siteIcon = L.divIcon({
+            className: 'infra-icon',
+            html: `<div style="padding:4px;background:white;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.12);width:28px;height:28px;display:flex;align-items:center;justify-content:center;">${iconHtml}</div>`,
+            iconSize: [28, 28],
+            iconAnchor: [14, 14]
           });
-          const marker = L.marker(siteCoords, { icon: triangleIcon }).addTo(group);
-
-          marker.on('mouseover', (e) => {
-            L.DomEvent.stopPropagation(e);
-            hoveredSite.value = { ...site, regionName: region.name };
-          });
-          marker.on('mouseout', () => {
-            hoveredSite.value = null;
-          });
+          marker = L.marker(siteCoords, { icon: siteIcon }).addTo(group);
         }
+
+        marker.on('mouseover', (e) => {
+          L.DomEvent.stopPropagation(e);
+          hoveredSite.value = { ...site, regionName: region.name };
+        });
+        marker.on('mouseout', () => { hoveredSite.value = null; });
       });
     }
 
     group.addTo(map);
-    regionLayers.set(region.name, group);
+    layers.set(region.name, group);
   });
 }
 
-watch(() => props.regions, updateMapLayers, { deep: true });
-
-onMounted(() => {
-  initMap();
-});
-
-onUnmounted(() => {
-  if (map) {
-    map.remove();
-  }
-});
+watch(() => [props.regions, props.heartbeats], updateMapLayers, { deep: true });
+onMounted(() => initMap());
+onUnmounted(() => { if (map) map.remove(); });
 </script>
 
 <style scoped>
-#map {
-  z-index: 1;
-}
-
-:deep(.leaflet-tile-pane) {
-  filter: grayscale(0.2) contrast(1.1);
-}
-
-:deep(.custom-div-icon) {
-  background: none;
-  border: none;
-}
+#map { z-index: 1; border-radius: inherit; }
+:deep(.leaflet-tile-pane) { filter: saturate(0.8) contrast(1.05) brightness(1.02); }
+:deep(.infra-icon) { background: none; border: none; }
+:deep(.leader-glow) { filter: drop-shadow(0 0 6px #f59e0b); }
+.animate-in { animation: animate-in 0.3s ease-out; }
+@keyframes animate-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 </style>

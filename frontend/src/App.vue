@@ -261,7 +261,7 @@
         </div>
       </div>
       <div v-else>
-        <MapView :regions="regions" />
+        <MapView :regions="regions" :heartbeats="heartbeats" />
       </div>
     </div>
   </div>
@@ -278,31 +278,57 @@ import MapView from "./components/MapView.vue";
 
 const data = ref({
   "Capital": {
-    state: { power: "STABLE", transport: "OPERATIONAL", medical_capacity: 100, water_capacity: 100, fuel_storage: 100 },
-    meta: { region_type: "urban", sites: [{ name: "S1", resource_type: "power", resource_value: 100 }, { name: "S2", resource_type: "medical", resource_value: 100 }] }
+    state: { power: "stable", transport: "operational", medical_capacity: 100, water_capacity: 100, fuel_storage: 100 },
+    meta: { region_type: "CapitalNode", sites: [] }
   },
   "Alberta": {
-    state: { power: "STABLE", transport: "OPERATIONAL", medical_capacity: 85, water_capacity: 92, fuel_storage: 95 },
-    meta: { region_type: "standard", sites: [{ name: "S1", resource_type: "power", resource_value: 100 }, { name: "S2", resource_type: "water", resource_value: 90 }] }
+    state: { power: "stable", transport: "operational", medical_capacity: 85, water_capacity: 92, fuel_storage: 95 },
+    meta: { 
+      region_type: "StandardRegionNode", 
+      sites: [
+        { name: "pp-1", resource_type: "Powerplant", resource_value: "stable" },
+        { name: "h-1", resource_type: "Hospital", resource_value: 85 },
+        { name: "rr-1", resource_type: "Railroad", resource_value: "operational" },
+        { name: "wtp-1", resource_type: "Water Treatment Plant", resource_value: 92 },
+        { name: "fd-1", resource_type: "Fuel Depot", resource_value: 95 }
+      ] 
+    }
   },
   "British Columbia": {
-    state: { power: "STABLE", transport: "OPERATIONAL", medical_capacity: 95, water_capacity: 100, fuel_storage: 80 },
-    meta: { region_type: "urban", sites: [{ name: "S1", resource_type: "power", resource_value: 100 }] }
+    state: { power: "stable", transport: "operational", medical_capacity: 95, water_capacity: 100, fuel_storage: 80 },
+    meta: { 
+      region_type: "UrbanRegionNode", 
+      sites: [
+        { name: "pp-1", resource_type: "Powerplant", resource_value: "stable" },
+        { name: "h-1", resource_type: "Hospital", resource_value: 95 }
+      ] 
+    }
   },
   "Quebec": {
-    state: { power: "UNSTABLE", transport: "DISRUPTED", medical_capacity: 15, water_capacity: 40, fuel_storage: 10 },
-    meta: { region_type: "standard", sites: [{ name: "S1", resource_type: "medical", resource_value: 15 }, { name: "S2", resource_type: "fuel", resource_value: 10 }] }
+    state: { power: "unstable", transport: "down", medical_capacity: 15, water_capacity: 40, fuel_storage: 10 },
+    meta: { 
+      region_type: "StandardRegionNode", 
+      sites: [
+        { name: "pp-1", resource_type: "Powerplant", resource_value: "unstable" },
+        { name: "h-1", resource_type: "Hospital", resource_value: 15 }
+      ] 
+    }
   }
 });
 const heartbeats = ref({
-  "Quebec": { last_contact: new Date(Date.now() - 10000).toISOString() } // 10s ago, makes it stale
+  "rm-1": { name: "Capital", last_contact: new Date().toISOString(), is_leader: true },
+  "rm-2": { name: "Capital", last_contact: new Date().toISOString(), is_leader: false },
+  "reg-1": { name: "Alberta", last_contact: new Date().toISOString(), is_leader: true },
+  "reg-2": { name: "Alberta", last_contact: new Date().toISOString(), is_leader: false },
+  "bc-1": { name: "British Columbia", last_contact: new Date().toISOString(), is_leader: true },
+  "qc-1": { name: "Quebec", last_contact: new Date(Date.now() - 10000).toISOString(), is_leader: true }
 });
 const loading = ref(false);
 const error = ref("");
 const lastFetch = ref(null);
 const connectedEndpoint = ref("");
-const leader = ref("");
-const capital = ref("");
+const leader = ref("rm-1");
+const capital = ref("rm-1");
 const connected = ref([]);
 const sockets = new Map();
 
