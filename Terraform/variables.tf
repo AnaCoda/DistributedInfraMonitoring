@@ -90,7 +90,7 @@ variable "app_repo_url" {
 variable "app_repo_ref" {
   description = "Git branch/tag/commit to deploy."
   type        = string
-  default     = "hosting"
+  default     = "feature/backend-port"
 }
 
 variable "app_dir" {

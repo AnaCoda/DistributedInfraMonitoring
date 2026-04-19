@@ -65,6 +65,8 @@ def main():
                 print(f'{Fore.RED}[SIMULATION] Detected down request for {sim_down}ms{Fore.RESET}')
                 node.shutdown()
                 break
+            time.sleep(1)
+            print(f'Hello')
         if stop_event.is_set():
             break
         time.sleep(sim_down / 1000.0)
