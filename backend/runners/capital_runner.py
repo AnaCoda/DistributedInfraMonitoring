@@ -66,7 +66,7 @@ def main():
                 node.shutdown()
                 break
             time.sleep(1)
-            print(f'Hello')
+            # print(f'Hello')
         if stop_event.is_set():
             break
         time.sleep(sim_down / 1000.0)
