@@ -47,9 +47,9 @@ class BullyElectionHook(Enum):
     ON_ELECTION_START = 3
 
 
-from ..state_machine import StateMachine
+from ..state_machine import StateMachine, BaseStateMachine
 
-class BullyElectionNode(StateMachine):
+class BullyElectionNode(BaseStateMachine):
 
     def __init__(
         self,
@@ -99,6 +99,15 @@ class BullyElectionNode(StateMachine):
         }
 
         self.bully_lock = Lock()
+
+    def _on_poll(self):
+        return super()._on_poll()
+
+    def get_state(self):
+        return self.state
+        # return super().get_state()
+
+
 
     def register_hook(
         self,

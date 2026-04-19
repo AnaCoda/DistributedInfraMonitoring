@@ -52,6 +52,8 @@ class BullyPlugin(Plugin):
         super().__init__(host)
         self.init_bully_election(node, peers, heartbeat_interval_ms, leader_timeout_ms)
 
+    
+
     def init_bully_election(
         self,
         node: BullyPeer,
