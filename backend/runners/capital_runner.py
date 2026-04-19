@@ -36,6 +36,7 @@ def load_config() -> dict:
 def main():
     while True:
         cfg = load_config()
+        print(f'Starting capital with config {cfg}')
 
         entry = parse_entry(cfg["entry"])
         peers = [parse_entry(x) for x in cfg["peers"]]
@@ -45,6 +46,8 @@ def main():
             entry=entry,
             peers=peers,
         )
+
+        print(f'Capital Entry: {entry}')
 
         stop_event = threading.Event()
 
