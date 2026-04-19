@@ -6,6 +6,8 @@ import json
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from colorama import Fore, Style
+
 from backend.common.node.common.util import NetworkEntry
 from backend.implementation.keyinfra.keyinfra import KeyInfraNode
 
@@ -37,20 +39,28 @@ from ..state.monitoring import InfrastructureState, RegionState, StateInfrastruc
 class RegionalNode(KeyInfraNode):
     def __init__(
             self,
+            region_name: str,
             entry: NetworkEntry,
             capital_addresses: List[NetworkEntry],
             peers: List[NetworkEntry]
         ):
+        self.region_name = region_name
+
         super().__init__(entry, peers, [
             ('infra.update', self.handle_infra_update)
         ])
+
+        
+        self.capitals = capital_addresses
+
+        self.__dirty = True
 
         # We are ready.
         self.ready_to_handle()
     
     def _default_state(self) -> RegionState:
         return RegionState(
-            name=self.get_network_name(),
+            name=self.region_name,
             infrastructure={}
         )
 
@@ -64,7 +74,37 @@ class RegionalNode(KeyInfraNode):
         self.get_state().infrastructure[infra_state.name] = infra_state
         self.replication_plugin.commit(self.get_state())
 
-        print(f'[region={self.get_network_name()}] Resulting state after update: {self.get_state()}')
+        self._print_digest('region')
+        self.__dirty = True
+
+    
+    def __send_update_target(
+        self,
+        target: str
+    ):
+        current_state: dict = self.get_state().model_dump()
+
+        self.send_message(target, 'region.update', current_state)
+        self.__dirty = False
+
+    @node_handler(internal_ms=500)
+    def periodical(self):
+        # Try to connect to the regions if we are
+        # not already connected.
+        for region in self.capitals:
+            if not self.has_connection(region.name):
+                self._try_connect(region.address)
+        
+        
+
+        if self.__dirty:
+            # Recall that we only need to send an
+            # update to ONE of the nodes, not all of
+            # them.
+            for region in self.capitals:
+                if self.has_connection(region.name):
+                    self.__send_update_target(region.name)
+                    break
 
     # def __init__(
     #     self,

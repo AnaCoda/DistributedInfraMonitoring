@@ -1,7 +1,9 @@
 
 from abc import abstractmethod
+from hashlib import sha256
 from typing import Any, Callable, Dict, List, Tuple
 
+from colorama import Fore, Style
 from pydantic import BaseModel
 
 from backend.common.node.common.plugins.leader_elec.bully_plugin import BullyPlugin
@@ -10,7 +12,7 @@ from backend.common.node.common.plugins.replication.replication_plugin import Re
 from backend.common.node.common.storage.memory import MemoryStorageBackend
 from backend.common.node.common.util import NetworkEntry
 from backend.common.node.raw import RawNode
-
+from json import dumps
 
 class KeyInfraNode(RawNode):
 
@@ -46,10 +48,20 @@ class KeyInfraNode(RawNode):
         if loaded is not None:
             self.__state = self._parse_state(loaded)
 
+    def _print_digest(
+        self,
+        name: str
+    ):
+        state_dump: Dict = self.get_state().model_dump(mode='json')
+
+        digest = sha256(dumps(state_dump, sort_keys=True).encode()).hexdigest()
+        print(f'[{name}={Style.BRIGHT}{self.get_network_name()}{Style.RESET_ALL}] State = {Fore.LIGHTBLACK_EX}{self.get_state()}{Fore.RESET} {Fore.YELLOW}({digest[:4]}...){Fore.RESET}')
+
+
     def get_state(self) -> BaseModel:
         return self.__state
     
-    
+
 
     def on_start_election(self):
         pass

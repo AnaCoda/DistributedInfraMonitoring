@@ -25,7 +25,3 @@ class InfrastructureState(BaseModel):
     resource_type: str
     value: int | str
 
-@dataclass
-class CapitalState:
-    heartbeat: dict
-    state: Dict[str, StateInfrastructure]

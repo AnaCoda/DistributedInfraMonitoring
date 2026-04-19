@@ -3,6 +3,8 @@ import sys
 import time
 from typing import List
 
+from colorama import Fore
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.common.node.common.util import NetworkAddress, NetworkEntry
@@ -17,6 +19,7 @@ def start_capital_replica(
     peers: List[NetworkEntry],
 ):
     node = CapitalNode(
+        entry.name.split('-')[0],
         entry,
         peers
     )
@@ -46,6 +49,7 @@ def start_region_replica(
     cls = StandardRegionNode if region_type == "standard" else UrbanRegionNode
 
     region = cls(
+        region_name=entry.name.split('-')[0],
         entry=entry,
         capital_addresses=capitals,
         peers=peers
@@ -105,16 +109,21 @@ def main():
         NetworkEntry(name='Carstairs-r2', address=NetworkAddress(ip='127.0.0.1', port=3052))
     ])
 
-    replicas: dict[int, CapitalNode] = {
-        rid: start_capital_replica(rid, port, peer_addresses)
-        for rid, port in replica_ports.items()
-    }
-
     full_capital_entries = [
         NetworkEntry(name=f'rm-{rid}', address=NetworkAddress(ip='127.0.0.1', port=port))
         # DnsEntry(name=f"rm-{rid}", ip="127.0.0.1", port=port)
         for rid, port in replica_ports.items()
     ]
+
+    replicas: dict[int, CapitalNode] = {
+        rid: start_capital_replica(
+            entry=NetworkEntry(name=f'rm-{rid}', address=NetworkAddress(ip='127.0.0.1', port=port)),
+            peers=full_capital_entries
+        )
+        for rid, port in replica_ports.items()
+    }
+
+    
 
     time.sleep(2)
 
@@ -144,11 +153,11 @@ def main():
     #     (30, "region_replica_down", "Carstairs-r3"),
     #     (45, "region_replica_up", "Carstairs-r3"),
     # ]
-    # timeline = [
-    #     (6, "replica_down", 2),
-    #     (15, "replica_up", 2)
-    # ]
-    timeline = []
+    timeline = [
+        (6, "replica_down", 2),
+        (25, "replica_up", 2)
+    ]
+    # timeline = []
 
     start_time = time.time()
     event_index = 0
@@ -163,14 +172,17 @@ def main():
             if event_index < len(timeline):
                 trigger_second, action, target = timeline[event_index]
                 if elapsed >= trigger_second:
+                    print(f'[Simulation] {Fore.CYAN}Executing action={action} towards target={target}{Fore.RESET}')
                     if action == "replica_down":
                         stop_capital_replica(target, replicas)
 
                     elif action == "replica_up" and target not in replicas:
                         replicas[target] = start_capital_replica(
-                            target,
-                            replica_ports[target],
-                            peer_addresses,
+                            entry=NetworkEntry(
+                                name=f'rm-{target}',
+                                address=NetworkAddress(ip='127.0.0.1', port=replica_ports[target])
+                            ),
+                            peers=full_capital_entries
                         )
                         time.sleep(2)
 
