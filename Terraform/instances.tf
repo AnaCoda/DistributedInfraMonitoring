@@ -23,20 +23,18 @@ resource "aws_instance" "capital" {
   private_ip                  = each.value.private_ip
   associate_public_ip_address = var.assign_public_ip
   key_name                    = var.key_name
-
-  iam_instance_profile = aws_iam_instance_profile.ec2_s3_access.name
   user_data_replace_on_change = true
 
   user_data = templatefile("${path.module}/userdata/capital.sh.tpl", {
-    node_name     = each.key
-    capital_name  = "rm"
-    node_port     = each.value.port
-    node_ip       = each.value.private_ip
-    peers_json    = jsonencode(local.capital_peers)
-    repo_url      = var.app_repo_url
-    repo_ref      = var.app_repo_ref
-    app_dir       = var.app_dir
-    app_user      = var.app_user
+    node_name    = each.key
+    capital_name = "rm"
+    node_port    = each.value.port
+    node_ip      = each.value.private_ip
+    peers_json   = jsonencode(local.capital_peers)
+    repo_url     = var.app_repo_url
+    repo_ref     = var.app_repo_ref
+    app_dir      = var.app_dir
+    app_user     = var.app_user
   })
 
   tags = {
@@ -55,45 +53,51 @@ resource "aws_instance" "regional" {
   private_ip                  = each.value.private_ip
   associate_public_ip_address = var.assign_public_ip
   key_name                    = var.key_name
-
-  iam_instance_profile = aws_iam_instance_profile.ec2_s3_access.name
   user_data_replace_on_change = true
 
-    user_data = (
-    each.key == "Carstairs-r1"
-    ? templatefile("${path.module}/userdata/regional_with_infra.sh.tpl", {
-        node_name     = each.key
-        region_name   = "Carstairs"
-        node_port     = each.value.port
-        node_ip       = each.value.private_ip
-        peers_json    = jsonencode(local.regional_peers)
-        capitals_json = jsonencode(local.capital_peers)
-        infra_json    = jsonencode({
-            node_name = "Hospital-1"
-            node_type = "hospital"
-            regions   = local.infra_regions
-        })
-        repo_url = var.app_repo_url
-        repo_ref = var.app_repo_ref
-        app_dir  = var.app_dir
-        app_user = var.app_user
-        })
-    : templatefile("${path.module}/userdata/regional.sh.tpl", {
-        node_name     = each.key
-        region_name   = "Carstairs"
-        node_port     = each.value.port
-        node_ip       = each.value.private_ip
-        peers_json    = jsonencode(local.regional_peers)
-        capitals_json = jsonencode(local.capital_peers)
-        repo_url      = var.app_repo_url
-        repo_ref      = var.app_repo_ref
-        app_dir       = var.app_dir
-        app_user      = var.app_user
-        })
-    )
+  user_data = templatefile("${path.module}/userdata/regional.sh.tpl", {
+    node_name     = each.key
+    region_name   = each.value.region_name
+    node_port     = each.value.port
+    node_ip       = each.value.private_ip
+    peers_json    = jsonencode(local.regional_peers_by_node[each.key])
+    capitals_json = jsonencode(local.capital_peers)
+    repo_url      = var.app_repo_url
+    repo_ref      = var.app_repo_ref
+    app_dir       = var.app_dir
+    app_user      = var.app_user
+  })
 
   tags = {
     Name = each.key
-    Role = each.key == "Carstairs-r1" ? "regional+infra" : "regional"
+    Role = "regional"
+  }
+}
+
+resource "aws_instance" "infra" {
+  for_each = local.infra_nodes
+
+  ami                         = data.aws_ami.al2023.id
+  instance_type               = var.instance_type_infra
+  subnet_id                   = aws_subnet.app.id
+  vpc_security_group_ids      = [aws_security_group.cluster.id]
+  private_ip                  = each.value.private_ip
+  associate_public_ip_address = var.assign_public_ip
+  key_name                    = var.key_name
+  user_data_replace_on_change = true
+
+  user_data = templatefile("${path.module}/userdata/infra.sh.tpl", {
+    node_name    = each.key
+    node_type    = each.value.node_type
+    regions_json = jsonencode(local.infra_regions_by_node[each.key])
+    repo_url     = var.app_repo_url
+    repo_ref     = var.app_repo_ref
+    app_dir      = var.app_dir
+    app_user     = var.app_user
+  })
+
+  tags = {
+    Name = each.key
+    Role = "infra"
   }
 }

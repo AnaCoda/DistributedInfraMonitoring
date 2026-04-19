@@ -23,24 +23,17 @@ sudo -u "${app_user}" /usr/local/bin/uv pip install websockets pydantic colorama
 
 mkdir -p /etc/distinfra
 
-cat >/etc/distinfra/node.json <<EOF
+cat >/etc/distinfra/infra.json <<EOF
 {
-  "region_name": "${region_name}",
-  "entry": {
-    "name": "${node_name}",
-    "address": {
-      "ip": "${node_ip}",
-      "port": ${node_port}
-    }
-  },
-  "capitals": ${capitals_json},
-  "peers": ${peers_json}
+  "node_name": "${node_name}",
+  "node_type": "${node_type}",
+  "regions": ${regions_json}
 }
 EOF
 
-cat >/etc/systemd/system/distinfra-regional.service <<EOF
+cat >/etc/systemd/system/distinfra-infra.service <<EOF
 [Unit]
-Description=Distributed Infra Regional Runner
+Description=Distributed Infra ${node_name} Runner
 After=network-online.target
 Wants=network-online.target
 
@@ -50,9 +43,9 @@ User=${app_user}
 WorkingDirectory=${app_dir}
 Environment=HOME=/home/${app_user}
 Environment=PATH=/home/${app_user}/.local/bin:/root/.local/bin:/usr/local/bin:/usr/bin:/bin
-Environment=NODE_CONFIG_PATH=/etc/distinfra/node.json
+Environment=NODE_CONFIG_PATH=/etc/distinfra/infra.json
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/local/bin/uv run python -u -m backend.runners.regional_runner
+ExecStart=/usr/local/bin/uv run python -u -m backend.runners.infra_runner
 Restart=always
 RestartSec=5
 
@@ -61,5 +54,5 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable distinfra-regional.service
-systemctl restart distinfra-regional.service
+systemctl enable distinfra-infra.service
+systemctl restart distinfra-infra.service

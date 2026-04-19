@@ -64,6 +64,11 @@ variable "instance_type_region" {
   default     = "t3.small"
 }
 
+variable "instance_type_infra" {
+  type    = string
+  default = "t3.micro"
+}
+
 variable "capital_base_port" {
   description = "Base port range for capital replicas."
   type        = number

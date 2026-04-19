@@ -18,7 +18,7 @@ resource "aws_iam_role" "ec2_s3_access" {
 
 data "aws_iam_policy_document" "ec2_s3_read_repo_zip" {
   statement {
-    effect = "Allow"
+    effect  = "Allow"
     actions = ["s3:GetObject"]
     resources = [
       "arn:aws:s3:::cpsc-559-repo-158210429599-us-west-2-an/DistributedInfraMonitoring.zip"
