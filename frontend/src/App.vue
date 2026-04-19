@@ -37,6 +37,23 @@
         />
         {{ wsStatus }}
       </span>
+
+      <div class="flex items-center bg-gray-100 rounded-lg p-1 ml-2">
+        <button
+          @click="viewMode = 'grid'"
+          class="px-3 py-1 text-xs font-bold rounded-md transition-all"
+          :class="viewMode === 'grid' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'"
+        >
+          Grid
+        </button>
+        <button
+          @click="viewMode = 'map'"
+          class="px-3 py-1 text-xs font-bold rounded-md transition-all"
+          :class="viewMode === 'map' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'"
+        >
+          Map
+        </button>
+      </div>
     </div>
 
     <div class="pb-6 flex flex-row gap-3 flex-wrap">
@@ -115,130 +132,136 @@
         </div>
       </div>
 
-      <!-- Region cards -->
-      <div
-        class="grid gap-4 items-start"
-        style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));"
-      >
+      <!-- Region visualization -->
+      <div v-if="viewMode === 'grid'">
+        <!-- Region cards -->
         <div
-          v-for="r in regions"
-          :key="r.name"
-          class="border rounded-xl p-4 shadow-sm bg-white transition-colors"
-          :class="r.isCapital
-            ? 'border-slate-400 bg-slate-50 shadow-md'
-            : r.isStale
-              ? 'border-red-300 opacity-70'
-              : 'border-gray-200'"
+          class="grid gap-4 items-start"
+          style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));"
         >
-          <!-- Card header -->
-          <div class="flex items-start justify-between gap-3 mb-3">
-            <div>
-              <h2 class="text-base font-semibold leading-tight">{{ r.name }}</h2>
-              <div class="flex items-center gap-2 mt-1 flex-wrap">
-                <span
-                  class="text-[11px] px-1.5 py-0.5 rounded border font-medium uppercase tracking-wide"
-                  :class="r.regionType === 'urban'
-                    ? 'border-purple-300 text-purple-700 bg-purple-50'
-                    : r.regionType === 'standard'
-                      ? 'border-blue-300 text-blue-700 bg-blue-50'
-                      : r.isCapital
-                        ? 'border-slate-700 text-white bg-slate-700'
-                        : 'border-gray-300 text-gray-500'"
-                >
-                  {{ r.isCapital ? "capital" : (r.regionType || "unknown") }}
-                </span>
+          <div
+            v-for="r in regions"
+            :key="r.name"
+            class="border rounded-xl p-4 shadow-sm bg-white transition-colors"
+            :class="r.isCapital
+              ? 'border-slate-400 bg-slate-50 shadow-md'
+              : r.isStale
+                ? 'border-red-300 opacity-70'
+                : 'border-gray-200'"
+          >
+            <!-- Card header -->
+            <div class="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <h2 class="text-base font-semibold leading-tight">{{ r.name }}</h2>
+                <div class="flex items-center gap-2 mt-1 flex-wrap">
+                  <span
+                    class="text-[11px] px-1.5 py-0.5 rounded border font-medium uppercase tracking-wide"
+                    :class="r.regionType === 'urban'
+                      ? 'border-purple-300 text-purple-700 bg-purple-50'
+                      : r.regionType === 'standard'
+                        ? 'border-blue-300 text-blue-700 bg-blue-50'
+                        : r.isCapital
+                          ? 'border-slate-700 text-white bg-slate-700'
+                          : 'border-gray-300 text-gray-500'"
+                  >
+                    {{ r.isCapital ? "capital" : (r.regionType || "unknown") }}
+                  </span>
 
-                <span
-                  v-if="r.name === leader"
-                  class="text-[11px] px-1.5 py-0.5 rounded border border-green-300 text-green-700 bg-green-50 font-medium uppercase tracking-wide"
-                >
-                  leader
-                </span>
+                  <span
+                    v-if="r.name === leader"
+                    class="text-[11px] px-1.5 py-0.5 rounded border border-green-300 text-green-700 bg-green-50 font-medium uppercase tracking-wide"
+                  >
+                    leader
+                  </span>
 
-                <span v-if="r.sites" class="text-[11px] text-gray-400">{{ r.sites.length }} sites</span>
+                  <span v-if="r.sites" class="text-[11px] text-gray-400">{{ r.sites.length }} sites</span>
+                </div>
+              </div>
+
+              <div class="shrink-0 text-right text-xs">
+                <span
+                  v-if="r.isStale"
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-red-400 text-red-600 bg-red-50 font-semibold uppercase"
+                >
+                  ⚠ Stale
+                </span>
+                <span v-else class="text-gray-400">{{ r.lastSeenText }}</span>
               </div>
             </div>
 
-            <div class="shrink-0 text-right text-xs">
-              <span
-                v-if="r.isStale"
-                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-red-400 text-red-600 bg-red-50 font-semibold uppercase"
+            <hr class="border-gray-100 mb-3" />
+
+            <!-- Status rows -->
+            <div class="space-y-2">
+              <div class="flex items-center text-sm">
+                <span class="label-col">Power</span>
+                <StatusBadge :value="r.state.power" />
+              </div>
+              <div class="flex items-center text-sm">
+                <span class="label-col">Transport</span>
+                <StatusBadge :value="r.state.transport" />
+              </div>
+              <div class="flex items-center text-sm gap-3">
+                <span class="label-col">Medical</span>
+                <ProgressBar :value="r.state.medical_capacity" />
+              </div>
+              <div class="flex items-center text-sm gap-3">
+                <span class="label-col">Water</span>
+                <ProgressBar :value="r.state.water_capacity" />
+              </div>
+              <div class="flex items-center text-sm gap-3">
+                <span class="label-col">Fuel</span>
+                <ProgressBar :value="r.state.fuel_storage" />
+              </div>
+            </div>
+
+            <!-- Sites toggle -->
+            <div v-if="r.sites && r.sites.length" class="mt-3">
+              <button
+                @click="toggleSites(r.name)"
+                class="btn w-full flex justify-between items-center px-3 py-1.5 text-xs"
               >
-                ⚠ Stale
-              </span>
-              <span v-else class="text-gray-400">{{ r.lastSeenText }}</span>
-            </div>
-          </div>
+                <span>Site details</span>
+                <span class="flex items-center gap-1.5">
+                  <span class="bg-gray-100 rounded px-1.5 py-0.5">{{ r.sites.length }}</span>
+                  {{ expanded[r.name] ? '▲' : '▼' }}
+                </span>
+              </button>
 
-          <hr class="border-gray-100 mb-3" />
+              <div v-if="expanded[r.name]" class="mt-2 rounded-lg overflow-hidden border border-gray-200">
+                <table class="w-full text-xs">
+                  <thead class="bg-gray-50 text-gray-400 uppercase tracking-wide">
+                    <tr>
+                      <th class="th-cell">Site</th>
+                      <th class="th-cell">Type</th>
+                      <th class="th-cell text-right">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="s in r.sites"
+                      :key="s.name + s.resource_type"
+                      class="border-t border-gray-100 hover:bg-gray-50"
+                    >
+                      <td class="td-cell font-mono text-gray-600">{{ s.name }}</td>
+                      <td class="td-cell text-gray-500">{{ s.resource_type }}</td>
+                      <td class="td-cell text-right">
+                        <SiteValue :value="s.resource_value" />
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
-          <!-- Status rows -->
-          <div class="space-y-2">
-            <div class="flex items-center text-sm">
-              <span class="label-col">Power</span>
-              <StatusBadge :value="r.state.power" />
+            <div v-else class="mt-2.5 text-[11px] text-gray-400 italic">
+              No site details
             </div>
-            <div class="flex items-center text-sm">
-              <span class="label-col">Transport</span>
-              <StatusBadge :value="r.state.transport" />
-            </div>
-            <div class="flex items-center text-sm gap-3">
-              <span class="label-col">Medical</span>
-              <ProgressBar :value="r.state.medical_capacity" />
-            </div>
-            <div class="flex items-center text-sm gap-3">
-              <span class="label-col">Water</span>
-              <ProgressBar :value="r.state.water_capacity" />
-            </div>
-            <div class="flex items-center text-sm gap-3">
-              <span class="label-col">Fuel</span>
-              <ProgressBar :value="r.state.fuel_storage" />
-            </div>
-          </div>
-
-          <!-- Sites toggle -->
-          <div v-if="r.sites && r.sites.length" class="mt-3">
-            <button
-              @click="toggleSites(r.name)"
-              class="btn w-full flex justify-between items-center px-3 py-1.5 text-xs"
-            >
-              <span>Site details</span>
-              <span class="flex items-center gap-1.5">
-                <span class="bg-gray-100 rounded px-1.5 py-0.5">{{ r.sites.length }}</span>
-                {{ expanded[r.name] ? '▲' : '▼' }}
-              </span>
-            </button>
-
-            <div v-if="expanded[r.name]" class="mt-2 rounded-lg overflow-hidden border border-gray-200">
-              <table class="w-full text-xs">
-                <thead class="bg-gray-50 text-gray-400 uppercase tracking-wide">
-                  <tr>
-                    <th class="th-cell">Site</th>
-                    <th class="th-cell">Type</th>
-                    <th class="th-cell text-right">Value</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="s in r.sites"
-                    :key="s.name + s.resource_type"
-                    class="border-t border-gray-100 hover:bg-gray-50"
-                  >
-                    <td class="td-cell font-mono text-gray-600">{{ s.name }}</td>
-                    <td class="td-cell text-gray-500">{{ s.resource_type }}</td>
-                    <td class="td-cell text-right">
-                      <SiteValue :value="s.resource_value" />
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div v-else class="mt-2.5 text-[11px] text-gray-400 italic">
-            No site details
           </div>
         </div>
+      </div>
+      <div v-else>
+        <MapView :regions="regions" />
       </div>
     </div>
   </div>
@@ -249,12 +272,32 @@ import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import StatusBadge from "./components/StatusBadge.vue";
 import ProgressBar from "./components/ProgressBar.vue";
 import SiteValue from "./components/SiteValue.vue";
+import MapView from "./components/MapView.vue";
 
 // ---- State ----
 
-const data = ref({});
-const heartbeats = ref({});
-const loading = ref(true);
+const data = ref({
+  "Capital": {
+    state: { power: "STABLE", transport: "OPERATIONAL", medical_capacity: 100, water_capacity: 100, fuel_storage: 100 },
+    meta: { region_type: "urban", sites: [{ name: "S1", resource_type: "power", resource_value: 100 }, { name: "S2", resource_type: "medical", resource_value: 100 }] }
+  },
+  "Alberta": {
+    state: { power: "STABLE", transport: "OPERATIONAL", medical_capacity: 85, water_capacity: 92, fuel_storage: 95 },
+    meta: { region_type: "standard", sites: [{ name: "S1", resource_type: "power", resource_value: 100 }, { name: "S2", resource_type: "water", resource_value: 90 }] }
+  },
+  "British Columbia": {
+    state: { power: "STABLE", transport: "OPERATIONAL", medical_capacity: 95, water_capacity: 100, fuel_storage: 80 },
+    meta: { region_type: "urban", sites: [{ name: "S1", resource_type: "power", resource_value: 100 }] }
+  },
+  "Quebec": {
+    state: { power: "UNSTABLE", transport: "DISRUPTED", medical_capacity: 15, water_capacity: 40, fuel_storage: 10 },
+    meta: { region_type: "standard", sites: [{ name: "S1", resource_type: "medical", resource_value: 15 }, { name: "S2", resource_type: "fuel", resource_value: 10 }] }
+  }
+});
+const heartbeats = ref({
+  "Quebec": { last_contact: new Date(Date.now() - 10000).toISOString() } // 10s ago, makes it stale
+});
+const loading = ref(false);
 const error = ref("");
 const lastFetch = ref(null);
 const connectedEndpoint = ref("");
@@ -267,6 +310,7 @@ let reconnectTimer = null;
 
 const expanded = reactive({});
 const wsStatus = ref("disconnected");
+const viewMode = ref("grid");
 
 const wsCandidates = (() => {
   const raw = (import.meta.env.VITE_WS_ENDPOINTS || "").trim();
