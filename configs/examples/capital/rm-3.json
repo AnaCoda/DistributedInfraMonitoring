@@ -1,0 +1,33 @@
+{
+  "capital_name": "rm",
+  "entry": {
+    "name": "rm-3",
+    "address": {
+      "ip": "127.0.0.1",
+      "port": 4003
+    }
+  },
+  "peers": [
+    {
+      "name": "rm-1",
+      "address": {
+        "ip": "127.0.0.1",
+        "port": 4001
+      }
+    },
+    {
+      "name": "rm-2",
+      "address": {
+        "ip": "127.0.0.1",
+        "port": 4002
+      }
+    },
+    {
+      "name": "rm-3",
+      "address": {
+        "ip": "127.0.0.1",
+        "port": 4003
+      }
+    }
+  ]
+}

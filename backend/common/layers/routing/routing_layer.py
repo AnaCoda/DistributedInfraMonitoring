@@ -1,5 +1,6 @@
 from __future__ import annotations
 from ...components.template import NodeTemplate
+import traceback
 
 from typing import Callable, Any
 import inspect
@@ -89,7 +90,8 @@ class RoutingLayer(FunctionalLayer):
                 try:
                     functor()
                 except Exception as e:
-                    print(f'{Fore.RED}[{self.get_network_name()}] Crash in interval functor (interval={interval}): {e}{Fore.RESET}')
+                    print(f'{Fore.RED}[{self.get_network_name()}] Crash in interval functor (interval={interval}): {type(e).__name__}: {e}{Fore.RESET}')
+                    traceback.print_exc()
                     # break
                 time.sleep(interval / 1000.0)
             
