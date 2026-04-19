@@ -1,12 +1,13 @@
 from threading import Event, Thread
 from dataclasses import dataclass
-from typing import Optional, Callable
+from typing import List, Optional, Callable
 
 import json
 
 from colorama import Fore, Style
 
 from backend.common.components.util import NetworkAddress
+from backend.common.layers.simlayer.sim import SimulationLayer
 from .connection_map import ConnectionMap, ConnectionRegistry
 from ...components.events.event import NodeEvent
 from .threadsafesocket import ThreadSafeSocket
@@ -165,7 +166,7 @@ class MessagePackingResult:
 
 from .response_registry import ResponseRegistryEntry, ResponseRegistrar
 
-class NetLayer(RoutingLayer):
+class NetLayer(SimulationLayer):
 
     def __init__(self, network_name: str, address: tuple[str, int]):
         super().__init__()
@@ -193,6 +194,9 @@ class NetLayer(RoutingLayer):
         return self.address
 
         # return super().get_network_name(
+
+    def _net_connlist(self) -> List[str]:
+        return self.connection_map.get_connection_names()
 
     # @abstractmethod
     def _net_on_connect_evt(self, name: str):

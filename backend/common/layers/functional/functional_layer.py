@@ -1,4 +1,10 @@
 from __future__ import annotations
+
+from colorama import Fore
+
+# from backend.common.layers.routing.routing_layer import node_handler
+
+# from backend.common.layers.routing.routing_layer import node_handler
 from ...components.template import NodeTemplate
 
 from typing import Callable, Any
@@ -20,8 +26,12 @@ class FunctionalLayer(NodeTemplate):
         super().__init__()
         self.__shutdown_evt = Event()
         self.__started_evt = Event()
+        self.__sim_action = None
         # self.__shutdown_flag = False
 
+  
+    # @node_handler(name='sim.down')
+    
     def ready_to_handle(self):
         """
         This method should be invoked when we are ready to

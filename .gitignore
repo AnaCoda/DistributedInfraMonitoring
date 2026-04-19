@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+Terraform/terraform.tfstate
+Terraform/terraform.tfstate.backup
+
 disk_cache/
 
 # C extensions
