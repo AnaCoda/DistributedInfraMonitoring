@@ -104,11 +104,6 @@ class KeyInfraNode(RawNode):
                         f'[PING] [{self.get_network_name()} -> {peer.name}] '
                         f'Ping failed: {type(e).__name__}: {e}'
                     )
-                    try:
-                        self.disconnect(peer.name)
-                        print(f'[{self.get_network_name()}] Disconnecting from node in retaliation for failed ping.')
-                    except Exception as e:
-                        pass
     @node_handler(name='election.state')
     def handle_get_election_state(self, body: dict):
         print(f'GOT A GET ELECTION STATE CALL')

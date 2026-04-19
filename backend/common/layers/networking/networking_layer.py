@@ -77,19 +77,9 @@ def _create_error(reason: str) -> dict:
 
 def _unpack_response(body: dict) -> EndpointResponse:
     """
-    Unpacks a status response. This method is generally used
-    for unpacking the handshake sequence but may have various
-    other uses.
-
-    Args:
         body (dict): The total payload to unpack.
 
     Raises:
-        RuntimeError: Failed to unpack the status response because it was
-        malformed.
-
-    Returns:
-        EndpointResponse: The response from the endpoint we are trying
         to connect to.
     """
     if 'status' in body:

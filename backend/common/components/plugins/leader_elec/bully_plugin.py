@@ -124,6 +124,9 @@ class BullyPlugin(Plugin):
     def __translate_and_ensure_connect(self, destination: BullyPeer) -> str:
         target, ip, port = self.peer_translator[destination]
 
+        if target == self.get_network_name():
+            return target
+
         if not self.has_connection(target):
             if not self._try_connect(NetworkAddress(ip=ip, port=port)):
                 raise RuntimeError(f'Failed to ensure connection with target={target}')
@@ -132,6 +135,8 @@ class BullyPlugin(Plugin):
 
     def __handle_bully_message(self, message: BullyPacket):
         try:
+            if message.destination.name == self.get_network_name():
+                return
             target = self.__translate_and_ensure_connect(message.destination)
             self.send_message_no_wait(
                 target=target,
