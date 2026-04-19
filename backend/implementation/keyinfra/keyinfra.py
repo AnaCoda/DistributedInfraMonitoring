@@ -84,14 +84,16 @@ class KeyInfraNode(RawNode):
     def handle_pingre(self, body: dict):
         return { 'name': self.get_network_name() }
     
-    @node_handler(internal_ms=2000)
+    @node_handler(internal_ms=4000)
     def pinger_int(self):
         for peer in self.peers:
             if self.has_connection(peer.name):
                 print(f'[PING] [{self.get_network_name()} -> {peer.name}] Starting ping...')
-                o = self.send_message(peer.name, 'ping.re', {})
-                print(f'[PING] [{self.get_network_name()} -> {peer.name}] Ping succeeded: {o}')
-
+                try:
+                    o = self.send_message(peer.name, 'ping.re', {})
+                    print(f'[PING] [{self.get_network_name()} -> {peer.name}] Ping succeeded: {o}')
+                except Exception:
+                    print(f'[PING] [{self.get_network_name()} -> {peer.name}] Ping failed.')
     @node_handler(name='election.state')
     def handle_get_election_state(self, body: dict):
         print(f'GOT A GET ELECTION STATE CALL')
