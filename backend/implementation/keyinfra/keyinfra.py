@@ -87,6 +87,8 @@ class KeyInfraNode(RawNode):
     @node_handler(internal_ms=4000)
     def pinger_int(self):
         for peer in self.peers:
+            if peer.name == self.get_network_name():
+                continue
             if not self.has_connection(peer.name):
                 try:
                     self._try_connect(peer.address)
