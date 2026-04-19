@@ -1,4 +1,6 @@
 from threading import Lock
+
+from backend.common.node.common.util import NetworkAddress
 from ..networking.networking_layer import NetLayer
 from dataclasses import dataclass, asdict
 from ..routing.routing_layer import RoutingLayer, node_handler
@@ -56,10 +58,11 @@ class NameServiceLayer(NetLayer):
 
     def __safe_connect(self, name, registry: NameRegistry):
         if not self.has_connection(name):
-            try:
-                self._net_connect((registry.ip, registry.port))
-            except RuntimeError as e:
-                pass
+            self._try_connect(NetworkAddress(ip=registry.ip, port=registry.port))
+            # try:
+            #     self._net_connect((registry.ip, registry.port))
+            # except RuntimeError as e:
+            #     pass
 
     
 

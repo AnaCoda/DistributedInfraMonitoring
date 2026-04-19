@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from typing import Optional, Callable
 
 import json
+
+from backend.common.node.common.util import NetworkAddress
 from .connection_map import ConnectionMap, ConnectionRegistry
 from ...common.events.event import NodeEvent
 from .threadsafesocket import ThreadSafeSocket
@@ -162,6 +164,11 @@ class NetLayer(RoutingLayer):
     def __init__(self, network_name: str, address: tuple[str, int]):
         super().__init__()
         self.network_name = network_name
+
+
+        self.address = None
+        self.__address_evt = Event()
+
         # self.address = address
         self.connection_map = ConnectionMap()
         self.dispatch_hook: Optional[Callable[..., ...]] = None
@@ -174,6 +181,10 @@ class NetLayer(RoutingLayer):
     def get_network_name(self):
         return self.network_name
     
+    def _get_net_addr(self):
+        while not self.__address_evt.is_set():
+            self.__address_evt.wait()
+        return self.address
 
         # return super().get_network_name(
 
@@ -393,10 +404,21 @@ class NetLayer(RoutingLayer):
             except Exception:
                 pass
             return
+        
+    def disconnect(self, name):
+        self._net_disconnect(name)
+        # return super().disconnect(name)
             
     def _net_disconnect(self, name: str):
         self.connection_map.deregister(name)
         # self._net_disconnect(name)
+
+    def _try_connect(self, address: NetworkAddress):
+        try:
+            self._net_connect(address.to_tuple())
+            return True
+        except ConnectionRefusedError:
+            return False
 
     def _net_connect(self, address: tuple[str, int]):
         # print(f'Started Conn: {address}')
@@ -483,6 +505,7 @@ class NetLayer(RoutingLayer):
         with serve(connection_handler, address[0], address[1]) as server:
             self.server = server
             self.address = (address[0], server.socket.getsockname()[1])
+            self.__address_evt.set()
             server.serve_forever()
 
     def shutdown(self):

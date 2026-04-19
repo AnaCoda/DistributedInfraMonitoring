@@ -2,8 +2,18 @@
 from typing import Optional, Callable
 from abc import ABC, abstractmethod
 
+from backend.common.node.common.util import NetworkAddress
+
 class NodeTemplate(ABC):
 
+
+    @abstractmethod
+    def _try_connect(self, address: NetworkAddress):
+        pass
+
+    @abstractmethod
+    def disconnect(self, name: str):
+        pass
 
     @abstractmethod
     def _register_route(self, route: str, functor: Callable[..., any]):

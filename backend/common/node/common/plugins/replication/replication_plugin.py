@@ -227,6 +227,7 @@ class ReplicationPlugin(Plugin):
         # print(f'[{self.get_network_name()}] Received {body}')
         with self.__core_lock:
             if body.op == ReplicationOp.OPERATION:
+                self.__core.wait_for_state(ReplicationStateMachineState.EXECUTING)
                 o = self.__core.receive(body)
                 # self.__poll_unlocked()
                 # print(f'[BOO] [{self.get_network_name()}] {o}')
@@ -234,6 +235,7 @@ class ReplicationPlugin(Plugin):
                     self.__apply_operation(Operation(**body.body))
                 self.__poll_unlocked()
             elif body.op == ReplicationOp.SYNC_RESPONSE or body.op == ReplicationOp.RESEND:
+                
                 logs: list[Operation] = [ Operation(**ser_op) for ser_op in body.body['logs'] ]
                 
 

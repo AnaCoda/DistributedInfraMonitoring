@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from ...common.sync.signal import HoldSignal
 import time
 from ..functional.functional_layer import FunctionalLayer
-
+from colorama import Fore
 
 @dataclass
 class IntervalFunctorDefinition:
@@ -86,8 +86,13 @@ class RoutingLayer(FunctionalLayer):
         def runnable():
             self.ready_signal.barrier()
             while not self.is_shutting_down():
-                functor()
+                try:
+                    functor()
+                except Exception as e:
+                    print(f'{Fore.RED}[{self.get_network_name()}] Crash in interval functor (interval={interval}): {e}{Fore.RESET}')
+                    # break
                 time.sleep(interval / 1000.0)
+            
         self.launch_background_thread(runnable, function_args=None)
 
     def _call_route(

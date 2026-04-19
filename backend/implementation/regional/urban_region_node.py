@@ -15,20 +15,20 @@ class UrbanRegionNode(StandardRegionNode):
     """
 
     def build_sites(self):
-        rn = self.region_name
-        region_addr = self.address 
+        rn = self.get_network_name()
+        region_addr = self._get_net_addr()
 
         return [
-            Powerplant("pp-1", rn, self.infra_addr("pp-1"), region_addr),
+            Powerplant("pp-1", rn, region_addr),
 
-            Hospital("h-1", rn, self.infra_addr("h-1"), region_addr),
-            Hospital("h-2", rn, self.infra_addr("h-2"), region_addr),
+            Hospital("h-1", rn, region_addr),
+            Hospital("h-2", rn, region_addr),
 
-            Railroad("rr-1", rn, self.infra_addr("rr-1"), region_addr),
-            Railroad("rr-2", rn, self.infra_addr("rr-2"), region_addr),
+            Railroad("rr-1", rn, region_addr),
+            Railroad("rr-2", rn,  region_addr),
 
-            WaterTreatmentPlant("wtp-1", rn, self.infra_addr("wtp-1"), region_addr),
-            FuelDepot("fd-1", rn, self.infra_addr("fd-1"), region_addr),
+            WaterTreatmentPlant("wtp-1", rn, region_addr),
+            FuelDepot("fd-1", rn, region_addr),
         ]
 
     def simulate_tick(self):

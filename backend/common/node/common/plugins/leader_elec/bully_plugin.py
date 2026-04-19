@@ -1,3 +1,5 @@
+from backend.common.node.common.util import NetworkAddress
+
 from ..plugin import Plugin
 
 from typing import Optional
@@ -47,7 +49,7 @@ class BullyPlugin(Plugin):
         node: BullyPeer,
         peers: dict[BullyPeer, tuple[str, str, int]],
         heartbeat_interval_ms: int = 1500,
-        leader_timeout_ms: int = 1500,
+        leader_timeout_ms: int = 2500,
         verbose: bool = True
     ):
         super().__init__(host)
@@ -57,10 +59,15 @@ class BullyPlugin(Plugin):
     def is_leader(self):
         return self.node.is_leader()
     
-    def current_leader(self) -> str:
-        return self.node.get_leader().name
+    def current_leader(self) -> Optional[str]:
+        leader: Optional[BullyPeer] = self.node.get_leader()
+        if leader is None:
+            return None
+        else:
+            return leader.name
+        # return self.node.get_leader().name
     
-    
+
 
 
     def init_bully_election(
@@ -108,7 +115,8 @@ class BullyPlugin(Plugin):
         target, ip, port = self.peer_translator[destination]
 
         if not self.has_connection(target):
-            self.connect((ip, port))
+            self._try_connect(NetworkAddress(ip=ip, port=port))
+            # self.connect((ip, port))
         return target
 
     def __handle_bully_message(self, message: BullyPacket):
