@@ -141,24 +141,27 @@ class CapitalNode(RawNode):
         # import colorama
         # print(f'{colorama.Fore.GREEN}[US]{colorama.Fore.RESET} [{self.network_name}] body ~ {body} ')
 
-    def _connect_to(self, address: tuple[str, int]):
-        if hasattr(self, "connect") and callable(getattr(self, "connect")):
-            return self.connect(address)
-        if hasattr(self, "_net_connect") and callable(getattr(self, "_net_connect")):
-            return self._net_connect(address)
-        raise AttributeError("RawNode does not expose connect or _net_connect")
+    # def _connect_to(self, address: tuple[str, int]):
+    #     if hasattr(self, "connect") and callable(getattr(self, "connect")):
+    #         return self.connect(address)
+    #     if hasattr(self, "_net_connect") and callable(getattr(self, "_net_connect")):
+    #         return self._net_connect(address)
+    #     raise AttributeError("RawNode does not expose connect or _net_connect")
 
-    def _disconnect_name(self, name: str):
-        if hasattr(self, "disconnect") and callable(getattr(self, "disconnect")):
-            return self.disconnect(name)
-        if hasattr(self, "_net_disconnect") and callable(getattr(self, "_net_disconnect")):
-            return self._net_disconnect(name)
-        if hasattr(self, "connection_map"):
-            try:
-                return self.connection_map.deregister(name)
-            except Exception:
-                pass
-        raise AttributeError("RawNode does not expose disconnect/_net_disconnect/connection_map.deregister")
+    # def _disconnect_name(self, name: str):
+    #     if hasattr(self, "disconnect") and callable(getattr(self, "disconnect")):
+    #         print(f'PATH DN-1')
+    #         return self.disconnect(name)
+    #     if hasattr(self, "_net_disconnect") and callable(getattr(self, "_net_disconnect")):
+    #         print(f'PATH DN-2')
+    #         return self._net_disconnect(name)
+    #     if hasattr(self, "connection_map"):
+    #         print(f'PATH DN-3')
+    #         try:
+    #             return self.connection_map.deregister(name)
+    #         except Exception:
+    #             pass
+    #     raise AttributeError("RawNode does not expose disconnect/_net_disconnect/connection_map.deregister")
 
     def _outbound_names(self) -> list[str]:
         if hasattr(self, "connection_map"):
@@ -222,7 +225,8 @@ class CapitalNode(RawNode):
             except Exception:
                 try:
                     if self.has_connection(name):
-                        self._disconnect_name(name)
+                        self._net_disconnect(name)
+                        # self._disconnect_name(name)
                 except Exception:
                     pass
 
@@ -234,7 +238,7 @@ class CapitalNode(RawNode):
             if self.has_connection(peer_name):
                 continue
             try:
-                self._connect_to((peer_ip, peer_port))
+                self._net_connect((peer_ip, peer_port))
             except Exception:
                 pass
 
