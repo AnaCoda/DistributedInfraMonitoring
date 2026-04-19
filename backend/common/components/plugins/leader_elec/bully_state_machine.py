@@ -277,6 +277,8 @@ class BullyElectionNode(BaseStateMachine):
             return self.__receive(packet)
 
     def __receive(self, packet: Optional[BullyPacket]):
+        if packet is not None:
+            self.__print(f'[{self.node_info.name}] Receiving bully packet={packet} in state={self.state}')
         if (
             not (packet is not None and packet.type == 'BULLY')
             and self.state == _BullyState.WAIT_ELECTION
