@@ -2,7 +2,7 @@
 from typing import Optional, Callable
 from abc import ABC, abstractmethod
 
-from backend.common.node.common.util import NetworkAddress
+from backend.common.components.util import NetworkAddress
 
 class NodeTemplate(ABC):
 

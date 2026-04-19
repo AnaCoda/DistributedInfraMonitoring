@@ -1,6 +1,6 @@
 from threading import Lock
 
-from backend.common.node.common.util import NetworkAddress
+from backend.common.components.util import NetworkAddress
 from ..networking.networking_layer import NetLayer
 from dataclasses import dataclass, asdict
 from ..routing.routing_layer import RoutingLayer, node_handler

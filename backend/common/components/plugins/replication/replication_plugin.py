@@ -2,7 +2,7 @@ from ..plugin import Plugin
 from ...template import NodeTemplate
 from ...storage.backend import StorageBackend
 
-from typing import Optional
+from typing import List, Optional, Tuple
 
 from .rep_state_machine import (
     ReplicationStateMachineState,
@@ -11,9 +11,9 @@ from .rep_state_machine import (
     ReplicationStateMachine,
     Operation
 )
-from threading import Lock, Event, Condition
+from threading import Lock, Event
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 
 from typing import Callable, Any
 
@@ -27,8 +27,8 @@ class ReplicationPlugin(Plugin):
             host: NodeTemplate,
             name: str,
             backend: StorageBackend,
-            replicas: list[str],
-            routes: list[tuple[str, Callable[..., Any]]]
+            replicas: List[str],
+            routes: List[Tuple[str, Callable[..., Any]]]
         ):
         super().__init__(host)
 
@@ -40,12 +40,6 @@ class ReplicationPlugin(Plugin):
         self.__op_map: dict[str, Callable[..., Any]] = {}
 
         self.__register_routes(routes)
-        
-        # self.__state_condition = Condition()
-
-        # self.test_load = []
-
-        # self.count = 0
 
     def __register_routes(
         self,

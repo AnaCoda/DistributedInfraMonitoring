@@ -1,16 +1,7 @@
 from __future__ import annotations
-from typing import Optional, Any, Dict
-from dataclasses import dataclass
 from pydantic import BaseModel
 
 
-# @dataclass
-class StateInfrastructure(BaseModel):
-    power: str = 'stable'
-    medical_capacity: int = 100
-    transport: str = 'operational'
-    water_capacity: int = 100
-    fuel_storage: int = 100
 
 class CapitalState(BaseModel):
     name: str

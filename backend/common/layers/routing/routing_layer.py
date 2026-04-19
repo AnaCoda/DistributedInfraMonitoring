@@ -1,14 +1,14 @@
 from __future__ import annotations
-from ...common.template import NodeTemplate
+from ...components.template import NodeTemplate
 
 from typing import Callable, Any
 import inspect
-from ...common.events.event import NodeEvent, Event
-from ...common.events.connect import NodeConnectionType, EventOnConnectRegistry, EventOnDisconnectRegistry
+from ...components.events.event import NodeEvent, Event
+from ...components.events.connect import NodeConnectionType, EventOnConnectRegistry, EventOnDisconnectRegistry
 from dataclasses import dataclass
 from threading import Event
 from concurrent.futures import ThreadPoolExecutor
-from ...common.sync.signal import HoldSignal
+from ...components.sync.signal import HoldSignal
 import time
 from ..functional.functional_layer import FunctionalLayer
 from colorama import Fore

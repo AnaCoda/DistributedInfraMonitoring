@@ -5,13 +5,12 @@ from typing import List
 
 from colorama import Fore
 
+from backend.implementation.regional.base import RegionalNode
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.common.node.common.util import NetworkAddress, NetworkEntry
+from backend.common.components.util import NetworkAddress, NetworkEntry
 from backend.implementation.capital.server import CapitalNode
-from backend.implementation.regional.standard_region_node import StandardRegionNode
-from backend.implementation.regional.urban_region_node import UrbanRegionNode
-from backend.common.node.common.sync.mdns import DnsEntry
 
 
 def start_capital_replica(
@@ -46,9 +45,8 @@ def start_region_replica(
     # capital_candidates,
     # replica_peer_addresses,
 ):
-    cls = StandardRegionNode if region_type == "standard" else UrbanRegionNode
 
-    region = cls(
+    region = RegionalNode(
         region_name=entry.name.split('-')[0],
         entry=entry,
         capital_addresses=capitals,

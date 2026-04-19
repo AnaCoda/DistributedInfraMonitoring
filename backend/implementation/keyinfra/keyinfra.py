@@ -6,12 +6,12 @@ from typing import Any, Callable, Dict, List, Tuple
 from colorama import Fore, Style
 from pydantic import BaseModel
 
-from backend.common.node.common.plugins.leader_elec.bully_plugin import BullyPlugin
-from backend.common.node.common.plugins.leader_elec.bully_state_machine import BullyPeer
-from backend.common.node.common.plugins.replication.replication_plugin import ReplicationPlugin
-from backend.common.node.common.storage.memory import MemoryStorageBackend
-from backend.common.node.common.util import NetworkEntry
-from backend.common.node.raw import RawNode
+from backend.common.components.plugins.leader_elec.bully_plugin import BullyPlugin
+from backend.common.components.plugins.leader_elec.bully_state_machine import BullyPeer
+from backend.common.components.plugins.replication.replication_plugin import ReplicationPlugin
+from backend.common.components.storage.memory import MemoryStorageBackend
+from backend.common.components.util import NetworkEntry
+from backend.common.raw import RawNode
 from json import dumps
 
 class KeyInfraNode(RawNode):

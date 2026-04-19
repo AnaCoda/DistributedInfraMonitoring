@@ -4,9 +4,11 @@ from typing import Optional, Callable
 
 import json
 
-from backend.common.node.common.util import NetworkAddress
+from colorama import Fore, Style
+
+from backend.common.components.util import NetworkAddress
 from .connection_map import ConnectionMap, ConnectionRegistry
-from ...common.events.event import NodeEvent
+from ...components.events.event import NodeEvent
 from .threadsafesocket import ThreadSafeSocket
 
 from websockets.sync.server import serve
@@ -14,7 +16,7 @@ from websockets.sync.client import ClientConnection, connect as ws_connect
 from websockets.sync.server import ServerConnection
 
 import websockets
-from ...common.template import NodeTemplate
+from ...components.template import NodeTemplate
 
 def _send_raw(connection: ThreadSafeSocket, body: dict):
     """
@@ -364,7 +366,7 @@ class NetLayer(RoutingLayer):
             } if output is None else output
 
         except Exception as e:
-            print(f"[{self.network_name}] route crash on {route}: {type(e).__name__}: {e}")
+            print(f"{Fore.RED}{Style.BRIGHT}[{self.network_name}]{Style.NORMAL} route crash on {route}: {type(e).__name__}: {e}{Fore.RESET}")
             response_body = {
                 'status': 'fail',
                 'reason': f'{type(e).__name__}: {e}'

@@ -1,4 +1,4 @@
-from backend.common.node.common.util import NetworkAddress
+from backend.common.components.util import NetworkAddress
 
 from ..plugin import Plugin
 

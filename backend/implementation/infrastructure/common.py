@@ -5,17 +5,17 @@
 
 from random import randint
 
-from backend.common.node.common.events.connect import NodeConnectionType
+from backend.common.components.events.connect import NodeConnectionType
 
-from ...common.node.raw import RawNode, node_handler
+from ...common.raw import RawNode, node_handler
 from abc import abstractmethod
 
 from typing import List
 
 from threading import Lock
 
-from ..state.monitoring import InfrastructureState, StateInfrastructure
-from ...common.node.common.util import NetworkEntry, NetworkAddress
+from ..state.monitoring import InfrastructureState
+from ...common.components.util import NetworkEntry
 
 
 class InfrastructureNode(RawNode):

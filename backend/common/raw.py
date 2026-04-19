@@ -1,4 +1,4 @@
-from .common.template import NodeTemplate
+from .components.template import NodeTemplate
 from .layers.networking.connection_map import ConnectionMap, ConnectionRegistry
 # from .routing.router import Router, node_handler
 from websockets.sync.server import serve
@@ -28,9 +28,9 @@ class RawNode(NameServiceLayer):
         # return super()._net_handle_msg(source, route
 
     
-from .common.events.connect import NodeConnectionType
-from .common.plugins.replication.replication_plugin import ReplicationPlugin
-from .common.storage.memory import MemoryStorageBackend
+from .components.events.connect import NodeConnectionType
+from .components.plugins.replication.replication_plugin import ReplicationPlugin
+from .components.storage.memory import MemoryStorageBackend
 
 class Farkas(RawNode):
 
@@ -77,8 +77,8 @@ class Farkas(RawNode):
             # print(f'O: {o}')
             self.count += 1
     
-from .common.plugins.plugin import Plugin
-from .common.plugins.leader_elec.bully_plugin import BullyPlugin
+from .components.plugins.plugin import Plugin
+from .components.plugins.leader_elec.bully_plugin import BullyPlugin
 
 class TestBlugin(Plugin):
     
