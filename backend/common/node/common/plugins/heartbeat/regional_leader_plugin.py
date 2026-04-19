@@ -53,7 +53,7 @@ class RegionalLeaderPlugin(Plugin):
             peer_list=peers.keys(),
             hb_timeout=heartbeat_interval_ms / 1000.0,
             timeout=leader_timeout_ms / 1000.0,
-            verbose=True,
+            verbose=False,
         )
         self.node.register_hook(BullyElectionHook.ON_ELECT_OTHER, self.__on_elect_other)
         self.node.register_hook(BullyElectionHook.ON_BECOME_LEADER, self.on_become_leader)

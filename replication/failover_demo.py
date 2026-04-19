@@ -77,9 +77,7 @@ def main():
 
     replica_ports = {
         1: 4001,
-        2: 4002,
-        3: 4003,
-        4: 4004,
+        2: 4002
     }
 
     peer_addresses = [
@@ -93,7 +91,7 @@ def main():
             "replicas": {
                 "Carstairs-r1": 3051,
                 "Carstairs-r2": 3052,
-                "Carstairs-r3": 3053,
+                # "Carstairs-r3": 3053,
             },
         },
     }
@@ -135,6 +133,7 @@ def main():
         (30, "region_replica_down", "Carstairs-r3"),
         (45, "region_replica_up", "Carstairs-r3"),
     ]
+    timeline = []
 
     start_time = time.time()
     event_index = 0

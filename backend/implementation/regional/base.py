@@ -460,7 +460,7 @@ class RegionalNode(RawNode):
             return False
 
         if resp.get("status") != "success":
-            print(f"[{self.region_name}] no previous saved state available")
+            # print(f"[{self.region_name}] no previous saved state available")
             return False
 
         data = resp.get("data", {})
@@ -565,13 +565,13 @@ class RegionalNode(RawNode):
                 break
         return {"status": "ok"}
 
-    @node_handler(on_connect=NodeConnectionType.OUTBOUND)
-    def on_outbound_connect(self, name: str):
-        print(f"[{self.region_name}] outbound connected to {name}")
+    # @node_handler(on_connect=NodeConnectionType.OUTBOUND)
+    # def on_outbound_connect(self, name: str):
+    #     print(f"[{self.region_name}] outbound connected to {name}")
 
-    @node_handler(on_disconnect=NodeConnectionType.OUTBOUND)
-    def on_outbound_disconnect(self, name: str):
-        print(f"[{self.region_name}] outbound disconnected from {name}")
+    # @node_handler(on_disconnect=NodeConnectionType.OUTBOUND)
+    # def on_outbound_disconnect(self, name: str):
+    #     print(f"[{self.region_name}] outbound disconnected from {name}")
 
     def tick_and_send(self) -> None:
         if not self.is_region_leader:

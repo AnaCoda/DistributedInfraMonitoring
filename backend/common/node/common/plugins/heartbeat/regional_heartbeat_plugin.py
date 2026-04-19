@@ -18,4 +18,5 @@ class RegionalHeartbeatPlugin(Plugin):
         if not hasattr(self.host, "_send_to_capital"):
             raise AttributeError("Regional heartbeat host must expose _send_to_capital")
 
-        self.host._send_to_capital("api.region.heartbeat", {"status": "ok"})
+        print(f'[{self.get_network_name()}] RFK')
+        # self.host._send_to_capital("api.region.heartbeat", {"status": "ok"})

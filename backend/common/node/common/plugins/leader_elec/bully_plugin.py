@@ -47,10 +47,11 @@ class BullyPlugin(Plugin):
         node: BullyPeer,
         peers: dict[BullyPeer, tuple[str, str, int]],
         heartbeat_interval_ms: int = 1500,
-        leader_timeout_ms: int = 1500
+        leader_timeout_ms: int = 1500,
+        verbose: bool = True
     ):
         super().__init__(host)
-        self.init_bully_election(node, peers, heartbeat_interval_ms, leader_timeout_ms)
+        self.init_bully_election(node, peers, heartbeat_interval_ms, leader_timeout_ms, verbose)
 
     
 
@@ -60,6 +61,7 @@ class BullyPlugin(Plugin):
         peer_names: dict[BullyPeer, tuple[str, str, int]],
         heartbeat_interval_ms: int = 1500,
         leader_timeout_ms: int = 1500,
+        verbose: bool = True
     ):
         self.peer_translator = peer_names
         print(f'INitialized bully elec w/ {node}, peer_names = {peer_names}')
@@ -68,7 +70,7 @@ class BullyPlugin(Plugin):
             peer_list=peer_names.keys(),
             hb_timeout=heartbeat_interval_ms / 1000.0,
             timeout=leader_timeout_ms / 1000.0,
-            verbose=True
+            verbose=verbose
         )
         self.node.register_hook(BullyElectionHook.ON_ELECT_OTHER, self.__on_elect_other)
         self.node.register_hook(BullyElectionHook.ON_BECOME_LEADER, self.on_become_leader)

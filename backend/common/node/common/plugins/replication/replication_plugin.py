@@ -186,6 +186,9 @@ class ReplicationPlugin(Plugin):
         return self.__handle_operation(body)
         
     
+    def get_version_locked(self):
+        # if self.__core_lock.
+        return self.__core.replication_log.get_sequence_pos()
 
     @node_handler(name='plugin.replication')
     def handle_replication_msg(self, body: dict, source: str):
