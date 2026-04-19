@@ -34,6 +34,7 @@ def load_config() -> dict:
 
 
 def main():
+    print('NEW VERSION')
     while True:
         cfg = load_config()
         print(f'Starting capital with config {cfg}')
