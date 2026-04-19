@@ -252,7 +252,7 @@ class BullyElectionNode(BaseStateMachine):
         for node_info, state in self.heartbeat.items():
             should_send = (
                 state.state == _HBMsgState.IDLE
-                and now - state.last_hb > self.hb_timeout / 3.0
+                and now - state.last_hb > self.hb_timeout / 5.0
             )
 
             if should_send:
@@ -269,7 +269,7 @@ class BullyElectionNode(BaseStateMachine):
                     state.state = _HBMsgState.DEAD
                     self.__print(
                         f'[{self.node_info.name}] Detected non-leader node crash: '
-                        f'{node_info.name} ({(now - state.last_hb):.2f})'
+                        f'{node_info.name} ({(now - state.last_hb):.2f}, timeout_threshold={self.hb_timeout})'
                     )
 
     def receive(self, packet: Optional[BullyPacket]):

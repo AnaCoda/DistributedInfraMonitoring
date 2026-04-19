@@ -48,7 +48,7 @@ class BullyPlugin(Plugin):
         host,
         node: BullyPeer,
         peers: dict[BullyPeer, tuple[str, str, int]],
-        heartbeat_interval_ms: int = 1500,
+        heartbeat_interval_ms: int = 4000,
         leader_timeout_ms: int = 3000,
         verbose: bool = True
     ):
@@ -74,7 +74,7 @@ class BullyPlugin(Plugin):
         self,
         node: BullyPeer,
         peer_names: dict[BullyPeer, tuple[str, str, int]],
-        heartbeat_interval_ms: int = 1500,
+        heartbeat_interval_ms: int = 4000,
         leader_timeout_ms: int = 3000,
         verbose: bool = True
     ):
