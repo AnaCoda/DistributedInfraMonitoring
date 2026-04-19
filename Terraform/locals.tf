@@ -6,18 +6,18 @@ locals {
   }
 
   regional_nodes = {
-    # "Carstairs-r1" = {
-    #   private_ip  = "10.42.1.20"
-    #   port        = 3051
-    #   region_name = "Carstairs"
-    #   replica_set = ["Carstairs-r1", "Carstairs-r2"]
-    # }
-    # "Carstairs-r2" = {
-    #   private_ip  = "10.42.1.21"
-    #   port        = 3052
-    #   region_name = "Carstairs"
-    #   replica_set = ["Carstairs-r1", "Carstairs-r2"]
-    # }
+    "Carstairs-r1" = {
+      private_ip  = "10.42.1.20"
+      port        = 3051
+      region_name = "Carstairs"
+      replica_set = ["Carstairs-r1", "Carstairs-r2"]
+    }
+    "Carstairs-r2" = {
+      private_ip  = "10.42.1.21"
+      port        = 3051
+      region_name = "Carstairs"
+      replica_set = ["Carstairs-r1", "Carstairs-r2"]
+    }
 
     # "Airdrie-r1" = {
     #   private_ip  = "10.42.1.30"
