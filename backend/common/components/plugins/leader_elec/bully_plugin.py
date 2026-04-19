@@ -1,3 +1,5 @@
+import time
+
 from colorama import Fore
 
 from backend.common.components.util import NetworkAddress
@@ -124,14 +126,18 @@ class BullyPlugin(Plugin):
     def __translate_and_ensure_connect(self, destination: BullyPeer) -> str:
         target, ip, port = self.peer_translator[destination]
 
-        if target == self.get_network_name():
-            return target
 
-        if not self.has_connection(target):
-            if not self._try_connect(NetworkAddress(ip=ip, port=port)):
-                raise RuntimeError(f'Failed to ensure connection with target={target}')
-            # self.connect((ip, port))
-        return target
+        for i in range(3):
+            if target == self.get_network_name():
+                return target
+
+            if not self.has_connection(target):
+                if not self._try_connect(NetworkAddress(ip=ip, port=port)):
+                    time.sleep(0.3)
+                    continue
+                # self.connect((ip, port))
+            return target
+        raise RuntimeError(f'Failed to ensure connection with target={target}')
 
     def __handle_bully_message(self, message: BullyPacket):
         try:
