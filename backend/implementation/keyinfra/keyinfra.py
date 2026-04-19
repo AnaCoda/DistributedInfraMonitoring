@@ -1,6 +1,7 @@
 
 from abc import abstractmethod
 from hashlib import sha256
+import time
 from typing import Any, Callable, Dict, List, Tuple
 
 from colorama import Fore, Style
@@ -74,7 +75,7 @@ class KeyInfraNode(RawNode):
             heartbeat={
                 bully.name: HeartBeatState(
                     heartbeat_state=state.state,
-                    last_heartbeat=state.last_hb
+                    last_heartbeat=state.last_hb - time.time()
                 )
                 for bully, state in self.leader_election.node.heartbeat.items()
             }

@@ -15,7 +15,7 @@ class SimulationLayer(RoutingLayer):
     @node_handler(name='sim.down')
     def handle_sim_down(self, body: dict):
         duration = body['duration']
-        if duration < 0 or duration > 5000:
+        if duration < 0 or duration > 60_000:
             return {
                 'status': 'fail',
                 'message': 'Cannot take down a node for the specified duration.'

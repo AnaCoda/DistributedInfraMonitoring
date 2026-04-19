@@ -37,6 +37,13 @@ Here are some useful commands:
 - `infra.random` (INFRASTRUCTURE): This causes the infrastructure node to generate a new randomized state.
 - `query.capital` (CAPITAL): Causes the capital to return the current state of the system.
 
+## Methods
+### Any Node
+- `sim.down`: The payload for this request is `{ duration: INTEGER }` and it will return success if it deems that the request is valid. There are limits on how long a node is allowed to sleep and the request may be rejected.
+
+### Infrastructure Nodes
+- `infra.random`: This causes the infrastructure node to generate a new randomized state on demand.
+
 ## Frontend
 
 ```bash

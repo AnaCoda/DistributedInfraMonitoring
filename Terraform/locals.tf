@@ -1,4 +1,23 @@
 locals {
+
+  resource "aws_eip" "capital" {
+    for_each = local.capital_nodes
+
+    domain = "vpc"
+
+    tags = {
+      Name = "${each.key}-eip"
+    }
+  }
+
+  resource "aws_eip_association" "capital" {
+    for_each = local.capital_nodes
+
+    instance_id   = aws_instance.capital[each.key].id
+    allocation_id = aws_eip.capital[each.key].id
+  }
+
+
   capital_nodes = {
     "rm-1" = { private_ip = "10.42.1.10", port = 4000 }
     "rm-2" = { private_ip = "10.42.1.11", port = 4000 }
@@ -8,13 +27,13 @@ locals {
   regional_nodes = {
     "Carstairs-r1" = {
       private_ip  = "10.42.1.20"
-      port        = 3051
+      port        = 4000
       region_name = "Carstairs"
       replica_set = ["Carstairs-r1", "Carstairs-r2"]
     }
     "Carstairs-r2" = {
       private_ip  = "10.42.1.21"
-      port        = 3051
+      port        = 4000
       region_name = "Carstairs"
       replica_set = ["Carstairs-r1", "Carstairs-r2"]
     }
