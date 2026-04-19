@@ -31,8 +31,10 @@ class ConnectionMap:
             #     except Exception:
             #         pass
             if name in self.outbound_connections:
-                raise RuntimeError(f'Name {name} is ALREADY in the connection map.')
+                return False
+                # raise RuntimeError(f'Name {name} is ALREADY in the connection map.')
             self.outbound_connections[name] = entry
+            return True
 
     def deregister(self, target: str):
         print(f'Deregistering connection for {target}')

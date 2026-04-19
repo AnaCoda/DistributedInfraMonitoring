@@ -243,13 +243,17 @@ class NetLayer(SimulationLayer):
                 return
             
             # Register the connection internally to keep track.
-            self.connection_map.register(
+            o = self.connection_map.register(
                 name=name,
                 entry=ConnectionRegistry(
                     name,
                     connection=socket
                 )
             )
+            if not o:
+                _send_raw(socket, _create_error(f'connection already exists for {name}'))
+                socket.close()
+                return
             
             # print("HANDLE RECEIVE")
             self._net_on_connect_evt(name)
