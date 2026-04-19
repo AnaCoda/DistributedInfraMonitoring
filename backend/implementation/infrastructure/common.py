@@ -63,7 +63,7 @@ class InfrastructureNode(RawNode):
             current_state: dict = self.__state.model_dump()
 
         
-        self.send_message(target, 'infra.update', current_state)
+        self.send_message_no_wait(target, 'infra.update', current_state)
         with self.__region_notify_lock:
             self.__notified_region = True
 

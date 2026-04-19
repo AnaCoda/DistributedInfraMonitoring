@@ -1,4 +1,5 @@
 from threading import Lock
+import websockets
 from websockets.sync.server import ServerConnection
 
 class ThreadSafeSocket:
@@ -32,8 +33,15 @@ class ThreadSafeSocket:
         Args:
             data (bytes): The data to send over the socket.
         """
-        with self.write_lock:
-            self.raw_socket.send(data, text=True)
+        if self.closed:
+            raise ConnectionAbortedError("socket already closed")
+
+        try:
+            with self.write_lock:
+                self.raw_socket.send(data, text=True)
+        except websockets.exceptions.ConnectionClosed as exc:
+            self.closed = True
+            raise ConnectionAbortedError("websocket closed during send") from exc
             
     def recv(self, data: int) -> bytes:
         """
@@ -46,12 +54,29 @@ class ThreadSafeSocket:
         Returns:
             bytes: The byte buffer we received.
         """
-        out = self.raw_socket.recv()
-        if type(out) == bytes:
+        if self.closed:
+            raise ConnectionAbortedError("socket already closed")
+
+        try:
+            out = self.raw_socket.recv()
+        except websockets.exceptions.ConnectionClosed as exc:
+            self.closed = True
+            raise ConnectionAbortedError("websocket closed during recv") from exc
+
+        if out is None:
+            self.closed = True
+            raise ConnectionAbortedError("websocket returned no data")
+
+        if isinstance(out, bytes):
             return out
-        # print(out)
-        
-        return out.encode('utf-8')
+
+        return out.encode("utf-8")
     
     def close(self):
-        self.raw_socket.close()
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            self.raw_socket.close()
+        except Exception:
+            pass

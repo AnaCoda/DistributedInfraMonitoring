@@ -44,21 +44,19 @@ class ReplicationPlugin(Plugin):
     def get_seq_num(self) -> int:
         return self.__core.replication_log.get_sequence_pos()
 
-    def __register_routes(
-        self,
-        op_routes: list[tuple[str, Callable[..., Any]]]
-    ):
-        
+    def __register_routes(self, op_routes):
         for key, fn in op_routes:
-            @wraps(fn)
-            def bound(*args, **kwargs):
-                self.__handle_operation({
-                    'key': key,
-                    'args': list(args),
-                    'kwargs': kwargs
-                })
+            def make_bound(route_key):
+                @wraps(fn)
+                def bound(*args, **kwargs):
+                    return self.__handle_operation({
+                        'key': route_key,
+                        'args': list(args),
+                        'kwargs': kwargs
+                    })
+                return bound
             self.__op_map[key] = fn
-            self._register_route(key, bound)
+            self._register_route(key, make_bound(key))
         # def bound(*args, **kwargs):
 
 
@@ -88,11 +86,21 @@ class ReplicationPlugin(Plugin):
             return
         for poll in polled:
             # print(f'>> [{self.get_network_name()}] Sending {poll}')
-            self.send_message_no_wait(
-                target=poll.target,
-                body=asdict(poll),
-                method='plugin.replication'
-            )
+            if poll.target is None:
+                continue
+            if not self.has_connection(poll.target):
+                continue
+            try:
+                self.send_message_no_wait(
+                    target=poll.target,
+                    body=asdict(poll),
+                    method='plugin.replication'
+                )
+            except Exception:
+                try:
+                    self.disconnect(poll.target)
+                except Exception:
+                    pass
 
 
     
@@ -259,7 +267,7 @@ class ReplicationPlugin(Plugin):
             self.__poll_unlocked()
             # print(f'[{self.get_network_name()}] State: {self.__core.get_state()}')
 
-    @node_handler(internal_ms=50)
+    @node_handler(internal_ms=200)
     def poll_internal_node(self):
         with self.__core_lock:
             # print(f'Polling: {self.get_network_name()}')

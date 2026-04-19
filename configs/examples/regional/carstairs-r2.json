@@ -1,0 +1,49 @@
+{
+  "region_name": "Carstairs",
+  "entry": {
+    "name": "Carstairs-r2",
+    "address": {
+      "ip": "127.0.0.1",
+      "port": 3052
+    }
+  },
+  "peers": [
+    {
+      "name": "Carstairs-r1",
+      "address": {
+        "ip": "127.0.0.1",
+        "port": 3051
+      }
+    },
+    {
+      "name": "Carstairs-r2",
+      "address": {
+        "ip": "127.0.0.1",
+        "port": 3052
+      }
+    }
+  ],
+  "capitals": [
+    {
+      "name": "rm-1",
+      "address": {
+        "ip": "127.0.0.1",
+        "port": 4001
+      }
+    },
+    {
+      "name": "rm-2",
+      "address": {
+        "ip": "127.0.0.1",
+        "port": 4002
+      }
+    },
+    {
+      "name": "rm-3",
+      "address": {
+        "ip": "127.0.0.1",
+        "port": 4003
+      }
+    }
+  ]
+}

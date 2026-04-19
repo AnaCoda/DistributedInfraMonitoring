@@ -37,6 +37,13 @@
         />
         {{ wsStatus }}
       </span>
+
+      <span
+        v-if="hasEverLoaded && wsStatus !== 'connected'"
+        class="text-amber-600 text-xs"
+      >
+        showing last known state
+      </span>
     </div>
 
     <div class="pb-6 flex flex-row gap-3 flex-wrap">
@@ -267,6 +274,7 @@ let reconnectTimer = null;
 
 const expanded = reactive({});
 const wsStatus = ref("disconnected");
+const hasEverLoaded = ref(false);
 
 const wsCandidates = (() => {
   const raw = (import.meta.env.VITE_WS_ENDPOINTS || "").trim();
@@ -281,7 +289,7 @@ const wsCandidates = (() => {
     ? raw.split(",").map(v => v.trim()).filter(Boolean)
     : defaults;
 
-  return [...new Set(parsed.filter(url => /^ws:\/\/localhost:4\d{3}$/i.test(url)))];
+  return [...new Set(parsed.filter(url => /^ws:\/\/[^/]+:\d+$/i.test(url)))];
 })();
 
 const exampleCommands = [
@@ -374,17 +382,64 @@ const endpointLabel = computed(() => {
 // ---- State update handler ----
 
 function applyStateUpdate(body) {
+  console.log("applyStateUpdate raw body", body);
+
   const root = body.__state ?? body ?? {};
-  data.value = root.state ?? body.state ?? {};
-  heartbeats.value = root.heartbeat ?? body.heartbeats ?? {};
+  const nextData = root.state ?? body.state ?? {};
+  const nextHeartbeats = root.heartbeat ?? body.heartbeats ?? {};
+
+  console.log("applyStateUpdate parsed", {
+    root,
+    nextData,
+    nextHeartbeats,
+    leader: body.leader ?? "",
+    capital: body.capital ?? body.leader ?? "",
+  });
+
+  data.value = nextData;
+  heartbeats.value = nextHeartbeats;
   leader.value = body.leader ?? "";
   capital.value = body.capital ?? body.leader ?? "";
   lastFetch.value = Date.now();
   loading.value = false;
+  hasEverLoaded.value = true;
   error.value = "";
 }
 
 // ---- WebSocket ----
+
+async function waitForNextMessage(ws, timeoutMs = 2000) {
+  return await Promise.race([
+    new Promise((resolve, reject) => {
+      const onMessage = (e) => {
+        cleanup();
+        try {
+          resolve(JSON.parse(e.data));
+        } catch (err) {
+          reject(err);
+        }
+      };
+      const onClose = (e) => {
+        cleanup();
+        reject(new Error(`socket closed during wait (${e.code})`));
+      };
+      const onError = () => {
+        cleanup();
+        reject(new Error("socket errored during wait"));
+      };
+      const cleanup = () => {
+        ws.removeEventListener("message", onMessage);
+        ws.removeEventListener("close", onClose);
+        ws.removeEventListener("error", onError);
+      };
+
+      ws.addEventListener("message", onMessage, { once: true });
+      ws.addEventListener("close", onClose, { once: true });
+      ws.addEventListener("error", onError, { once: true });
+    }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("message timeout")), timeoutMs))
+  ]);
+}
 
 async function tryConnect(endpoint) {
   if (sockets.has(endpoint)) return;
@@ -398,15 +453,14 @@ async function tryConnect(endpoint) {
         ws.addEventListener("error", reject, { once: true });
         ws.addEventListener("open", resolve, { once: true });
       }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Connection timed out")), 1000))
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Connection timed out")), 3000))
     ]);
 
     ws.send(JSON.stringify({ name: `Frontend-${crypto.randomUUID()}` }));
-    const handshake = await new Promise(resolve => {
-      ws.addEventListener("message", e => resolve(JSON.parse(e.data)), { once: true });
-    });
+    const handshake = await waitForNextMessage(ws, 3000);
 
     if (handshake.status !== "success") {
+      console.log("WS handshake failed", endpoint, handshake);
       ws.close();
       return;
     }
@@ -419,27 +473,45 @@ async function tryConnect(endpoint) {
     connected.value = connected.value.filter(x => x !== endpoint);
     connected.value.push(endpoint);
 
-    refreshNow(ws);
+    ws.addEventListener("close", (event) => {
+      console.log("WS close", endpoint, {
+        code: event.code,
+        reason: event.reason,
+        wasClean: event.wasClean,
+      });
 
-    ws.addEventListener("close", () => {
       sockets.delete(endpoint);
       connected.value = connected.value.filter(x => x !== endpoint);
 
       if (connected.value.length === 0) {
         wsStatus.value = "disconnected";
         connectedEndpoint.value = "";
+        if (hasEverLoaded.value) {
+          error.value = "Connection lost; showing last known state";
+        }
       }
+    });
+
+    ws.addEventListener("error", (event) => {
+      console.log("WS error", endpoint, event);
     });
 
     ws.addEventListener("message", (event) => {
       const msg = JSON.parse(event.data);
+      console.log("WS message", msg);
+
       if (msg.route === "push.state_update" || msg.route === "push.replica_state_update") {
+        console.log("Applying push update", msg.body ?? {});
         applyStateUpdate(msg.body ?? {});
       } else if (msg.route === "__response") {
+        console.log("Applying response update", msg.body ?? {});
         applyStateUpdate(msg.body ?? {});
       }
     });
-  } catch (_e) {
+
+    refreshNow(ws);
+  } catch (e) {
+    console.log("WS connect/handshake failed", endpoint, e);
     if (ws) {
       try {
         ws.close();
@@ -470,9 +542,14 @@ async function connectWs() {
   await Promise.allSettled(attempts);
 
   if (connected.value.length === 0 && sockets.size === 0) {
-    error.value = "WebSocket error: no replica reachable";
     wsStatus.value = "disconnected";
     connectedEndpoint.value = "";
+    if (hasEverLoaded.value) {
+      error.value = "Connection lost; showing last known state";
+      loading.value = false;
+    } else {
+      error.value = "WebSocket error: no replica reachable";
+    }
   }
 
   reconnectTimer = setTimeout(connectWs, 2000);
@@ -483,6 +560,7 @@ function refreshNow(ws) {
   ws.send(JSON.stringify({
     route: "api.national_infrastructure",
     rid: crypto.randomUUID(),
+    fireforget: false,
     body: {}
   }));
 }

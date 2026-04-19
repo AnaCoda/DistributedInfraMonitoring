@@ -51,7 +51,11 @@ def _recv_raw(connection: ThreadSafeSocket) -> dict:
     # length = int.from_bytes(connection.recv(4), byteorder='little', signed=False)
     body = connection.recv(0)
     if isinstance(body, bytes):
-        body = body.decode('utf-8')
+        body = body.decode("utf-8")
+
+    if not body:
+        raise ConnectionAbortedError("received empty payload")
+
     return json.loads(body)
     
 
@@ -223,38 +227,56 @@ class NetLayer(RoutingLayer):
         self,
         socket: ThreadSafeSocket
     ) -> None:
-        registry: dict = _recv_raw(socket)
-        # print(f"recevied registry: {registry}")
-        if 'name' not in registry:
-            _send_raw(socket, _create_error('no registry name present'))
-            socket.close()
-            return
-        name: str = registry['name']
-        if self.connection_map.has_connection(name):
-            _send_raw(socket, _create_error(f'connection already exists for {name}'))
-            socket.close()
-            return
-        
-        # Register the connection internally to keep track.
-        self.connection_map.register(
-            name=name,
-            entry=ConnectionRegistry(
-                name,
-                connection=socket
-            )
-        )
-        
-        # print("HANDLE RECEIVE")
-        self._net_on_connect_evt(name)
-        # self._net_on_disconnect_evt(name)
-        # self._on_network_event(NodeEvent.ON_CONNECT, name: str)
-        # for evtha in self.event_maps[NodeEvent.ON_CONNECT]:
-        #     if evtha.method == NodeConnectionType.INBOUND:
-        #         evtha.functor(self, name)
+        name = None
+        try:
+            registry: dict = _recv_raw(socket)
+            # print(f"recevied registry: {registry}")
+            if 'name' not in registry:
+                _send_raw(socket, _create_error('no registry name present'))
+                socket.close()
+                return
+            
+            name: str = registry['name']
 
-        _send_raw(socket, { 'status': 'success', 'name': self.network_name })
-        # print("DONE")
-        self.__handle_registered_connection(name, socket)
+            if self.connection_map.has_connection(name):
+                _send_raw(socket, _create_error(f'connection already exists for {name}'))
+                socket.close()
+                return
+            
+            # Register the connection internally to keep track.
+            self.connection_map.register(
+                name=name,
+                entry=ConnectionRegistry(
+                    name,
+                    connection=socket
+                )
+            )
+            
+            # print("HANDLE RECEIVE")
+            self._net_on_connect_evt(name)
+
+            _send_raw(socket, { 'status': 'success', 'name': self.network_name })
+            # print("DONE")
+            self.__handle_registered_connection(name, socket)
+        except (
+            ConnectionAbortedError,
+            ConnectionResetError,
+            BrokenPipeError,
+            websockets.exceptions.ConnectionClosed,
+            json.JSONDecodeError,
+        ):
+            pass
+        finally:
+            if name is not None:
+                try:
+                    self.connection_map.deregister(name)
+                except Exception:
+                    pass
+                try:
+                    self._net_on_disconnect_evt(name)
+                except Exception:
+                    pass
+
 
     def __send_message_raw(
         self,
@@ -269,9 +291,8 @@ class NetLayer(RoutingLayer):
         try:
             # print(f'Sending {packed.message}')
             _send_raw(connection, packed.message)
-        except (websockets.exceptions.ConnectionClosedOK):
-            raise
-            # print(f'Tried to send a message along a websocket but it was closed.')
+        except websockets.exceptions.ConnectionClosed as e:
+            raise ConnectionAbortedError("websocket closed during send") from e
         except Exception as e:
             print(f'{type(e)}')
             print(f'ERROR: {e}, {method}, {body}')
@@ -313,7 +334,23 @@ class NetLayer(RoutingLayer):
             # )
         
         # print(f'[{self.network_name}] (stage=AFTER, method={method})')
-        packed = self.__send_message_raw(conn.connection, method, body, fire_and_forget, rid=rid)
+        try:
+            packed = self.__send_message_raw(conn.connection, method, body, fire_and_forget, rid=rid)
+        except (
+            ConnectionAbortedError,
+            ConnectionResetError,
+            BrokenPipeError,
+            websockets.exceptions.ConnectionClosed,
+        ):
+            try:
+                self.connection_map.deregister(target)
+            except Exception:
+                pass
+            try:
+                self._net_on_disconnect_evt(target)
+            except Exception:
+                pass
+            raise
         # print(f'Payload A: {payload}\nPayload B: {packed.message}')
         
         # print(f'[{self.network_name}, dest={conn.name}] Sending {packed.message}')
@@ -424,7 +461,12 @@ class NetLayer(RoutingLayer):
 
     def _net_connect(self, address: tuple[str, int]):
         # print(f'Started Conn: {address}')
-        connection = ThreadSafeSocket(ws_connect(f'ws://{address[0]}:{address[1]}'))
+        connection = ThreadSafeSocket(
+            ws_connect(
+                f'ws://{address[0]}:{address[1]}',
+                ping_interval=None
+            )
+        )
         # print(f'Yeyey')
         _send_raw(connection, { 'name': self.network_name })
         # print("SENT")
@@ -464,15 +506,18 @@ class NetLayer(RoutingLayer):
             while not self.is_shutting_down():
                 message = _recv_raw(connection)
                 # print(f'Recv\'d Message: {message}')
+
                 if 'route' not in message:
                     raise RuntimeError('No "route" key in the received payload.')
                 if 'rid' not in message:
                     raise RuntimeError('No "rid" key in the received payload.')
                 if 'body' not in message:
                     raise RuntimeError('No "body" key in the received payload.')
+                
                 route: str = message['route']
                 rid: str = message['rid']
                 fireforget: bool = message['fireforget']
+
                 if route == '__response':
                     # Set the event.
                     #print(f"[{self.network_name}] received __response rid={rid} body={message['body']}")
@@ -488,12 +533,25 @@ class NetLayer(RoutingLayer):
         except (
             ConnectionAbortedError,
             ConnectionResetError,
-            websockets.exceptions.ConnectionClosedOK
+            BrokenPipeError,
+            websockets.exceptions.ConnectionClosed,
+            json.JSONDecodeError,
         ):
             pass
+        except Exception as e:
+            print(f"[{self.network_name}] registered connection crash for {name}: {type(e).__name__}: {e}")
         finally:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+            try:
+                self.connection_map.deregister(name)
+            except Exception:
+                pass
             self._net_on_disconnect_evt(name)
-            self.connection_map.deregister(name)
+            # self.connection_map.deregister(name)
             
             # except NodeRpcError as nre:
             #     packed = MessagePackingResult.pack_msg('__response', { 'status': 'fail', 'reason': nre.message }, set_rid=message['rid'])
@@ -504,7 +562,12 @@ class NetLayer(RoutingLayer):
         def connection_handler(connection):
             # Wrap the connection in a thread safe socket and proceed.
             self.__handle_recv_conn(ThreadSafeSocket(connection))
-        with serve(connection_handler, address[0], address[1]) as server:
+        with serve(
+            connection_handler,
+            address[0],
+            address[1],
+            ping_interval=None
+        ) as server:
             self.server = server
             self.address = (address[0], server.socket.getsockname()[1])
             self.__address_evt.set()
@@ -522,4 +585,3 @@ class NetLayer(RoutingLayer):
         for name in self.connection_map.get_connection_names():
             self.connection_map.deregister(name)
         super().shutdown()
-    
