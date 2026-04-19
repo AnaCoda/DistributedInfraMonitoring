@@ -2,30 +2,14 @@
 CPSC 559 - Group 9 Final Project
 
 ## Backend
-
 ```bash
-python -m venv .venv
-.venv\Scripts\activate   # Windows
-.venv/bin/activate       # Unix/Mac
-pip install -r requirements.txt
-
-python -m backend.setup     
+$ uv run python -m replication.failover_demo
 ```
 
-## Active Replication  (run INSTEAD of `python -m backend.setup`)
+## Tests
 ```bash
-python -m replication.rmtest
+$ uv run python -m backend.tests
 ```
-
-## Replica Failover Demo
-
-```bash
-python -m replication.failover_demo
-```
-- Around 10s, replica 1 goes down
-- Around 20s, replica 1 comes back up
-- Around 30s, replica 2 goes down
-- Around 40s, replica 1 goes down again, leaving only replica 3 up
 
 ## Frontend
 
