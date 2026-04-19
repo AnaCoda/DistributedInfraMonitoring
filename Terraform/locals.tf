@@ -1,8 +1,8 @@
 locals {
   capital_nodes = {
-    "rm-1" = { private_ip = "10.42.1.10", port = 4001 }
-    "rm-2" = { private_ip = "10.42.1.11", port = 4002 }
-    "rm-3" = { private_ip = "10.42.1.12", port = 4003 }
+    "rm-1" = { private_ip = "10.42.1.10", port = 4000 }
+    "rm-2" = { private_ip = "10.42.1.11", port = 4000 }
+    "rm-3" = { private_ip = "10.42.1.12", port = 4000 }
   }
 
   regional_nodes = {
