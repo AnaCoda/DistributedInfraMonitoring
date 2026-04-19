@@ -47,12 +47,12 @@ locals {
   }
 
   infra_nodes = {
-    # "Hospital-1" = {
-    #   private_ip  = "10.42.1.50"
-    #   node_type   = "hospital"
-    #   region_name = "Carstairs"
-    #   regions     = ["Carstairs-r1", "Carstairs-r2"]
-    # }
+    "Hospital-1" = {
+      private_ip  = "10.42.1.50"
+      node_type   = "hospital"
+      region_name = "Carstairs"
+      regions     = ["Carstairs-r1", "Carstairs-r2"]
+    }
     # "Powerplant-1" = {
     #   private_ip  = "10.42.1.51"
     #   node_type   = "powerplant"

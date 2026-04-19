@@ -24,7 +24,7 @@ class InfrastructureNode(RawNode):
         network_name,
         regions: List[NetworkEntry]
     ):
-        super().__init__(network_name)
+        super().__init__(network_name, address=('0.0.0.0', 4000))
 
         self.regions = regions
         self.resource_value = 0

@@ -22,6 +22,18 @@ output "regional_private_ips" {
   }
 }
 
+output "infra_public_ips" {
+  value = {
+    for name, instance in aws_instance.infra : name => instance.public_ip
+  }
+}
+
+output "infra_private_ips" {
+  value = {
+    for name, instance in aws_instance.infra : name => instance.private_ip
+  }
+}
+
 data "aws_caller_identity" "current" {}
 
 output "aws_account_id" {

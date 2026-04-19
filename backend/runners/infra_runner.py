@@ -4,14 +4,16 @@ import signal
 import sys
 import threading
 import time
+from typing import Dict
 
 from colorama import Fore
 
 from backend.common.components.util import NetworkAddress, NetworkEntry
+from backend.implementation.infrastructure.common import InfrastructureNode
 from backend.implementation.infrastructure.hospital import Hospital
 
 
-INFRA_TYPE_MAP = {
+INFRA_TYPE_MAP: Dict[str, InfrastructureNode] = {
     "hospital": Hospital,
 }
 
