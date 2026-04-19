@@ -117,7 +117,8 @@ class BullyPlugin(Plugin):
         target, ip, port = self.peer_translator[destination]
 
         if not self.has_connection(target):
-            self._try_connect(NetworkAddress(ip=ip, port=port))
+            if not self._try_connect(NetworkAddress(ip=ip, port=port)):
+                raise RuntimeError(f'Failed to ensure connection with target={target}')
             # self.connect((ip, port))
         return target
 
