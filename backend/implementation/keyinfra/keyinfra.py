@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from backend.common.components.plugins.leader_elec.bully_plugin import BullyPlugin
 from backend.common.components.plugins.leader_elec.bully_state_machine import BullyPeer
 from backend.common.components.plugins.replication.replication_plugin import ReplicationPlugin
+from backend.common.components.storage.disk import DiskBackend
 from backend.common.components.storage.memory import MemoryStorageBackend
 from backend.common.components.util import NetworkEntry
 from backend.common.raw import RawNode
@@ -55,7 +56,7 @@ class KeyInfraNode(RawNode):
         state_dump: Dict = self.get_state().model_dump(mode='json')
 
         digest = sha256(dumps(state_dump, sort_keys=True).encode()).hexdigest()
-        print(f'[{name}={Style.BRIGHT}{self.get_network_name()}{Style.RESET_ALL}] State = {Fore.LIGHTBLACK_EX}{self.get_state()}{Fore.RESET} {Fore.YELLOW}({digest[:4]}...){Fore.RESET}')
+        print(f'[{name}={Style.BRIGHT}{self.get_network_name()}{Style.RESET_ALL}] State = {Fore.LIGHTBLACK_EX}{self.get_state()}{Fore.RESET} {Fore.YELLOW}({digest[:4]}...){Fore.RESET} {Fore.GREEN}(version={self.replication_plugin.get_seq_num()}){Fore.RESET}')
 
 
     def get_state(self) -> BaseModel:

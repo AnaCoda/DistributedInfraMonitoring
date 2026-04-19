@@ -41,6 +41,9 @@ class ReplicationPlugin(Plugin):
 
         self.__register_routes(routes)
 
+    def get_seq_num(self) -> int:
+        return self.__core.replication_log.get_sequence_pos()
+
     def __register_routes(
         self,
         op_routes: list[tuple[str, Callable[..., Any]]]
