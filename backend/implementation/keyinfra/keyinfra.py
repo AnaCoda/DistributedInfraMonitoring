@@ -75,7 +75,7 @@ class KeyInfraNode(RawNode):
             heartbeat={
                 bully.name: HeartBeatState(
                     heartbeat_state=state.state,
-                    last_heartbeat=state.last_hb - time.time()
+                    last_heartbeat=time.time() - state.last_hb
                 )
                 for bully, state in self.leader_election.node.heartbeat.items()
             }

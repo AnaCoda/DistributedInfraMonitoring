@@ -1,21 +1,6 @@
 locals {
 
-  resource "aws_eip" "capital" {
-    for_each = local.capital_nodes
-
-    domain = "vpc"
-
-    tags = {
-      Name = "${each.key}-eip"
-    }
-  }
-
-  resource "aws_eip_association" "capital" {
-    for_each = local.capital_nodes
-
-    instance_id   = aws_instance.capital[each.key].id
-    allocation_id = aws_eip.capital[each.key].id
-  }
+  
 
 
   capital_nodes = {

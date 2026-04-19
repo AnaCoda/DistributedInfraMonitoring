@@ -12,6 +12,10 @@ class SimulationLayer(RoutingLayer):
         super().__init__()
         self.down = None
 
+    @node_handler(name='sim.version')
+    def handle_sim_version(self, body: dict):
+        return { 'version': '1.0.0' }
+
     @node_handler(name='sim.down')
     def handle_sim_down(self, body: dict):
         duration = body['duration']

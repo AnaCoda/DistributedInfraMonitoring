@@ -12,6 +12,23 @@ allowed_frontend_cidr_blocks = ["<YOUR_IP>/32"]
 key_name = "<KEYPAIR_NAME>"
 ```
 
+### Redeploy app code without recreating EC2
+After pushing code to GitHub, redeploy in place from your local machine:
+
+```powershell
+.\scripts\redeploy-ec2.ps1 -KeyPath "C:\path\to\your-key.pem"
+```
+
+Redeploy only one node type:
+
+```powershell
+.\scripts\redeploy-ec2.ps1 -Role capital -KeyPath "C:\path\to\your-key.pem"
+.\scripts\redeploy-ec2.ps1 -Role regional -KeyPath "C:\path\to\your-key.pem"
+.\scripts\redeploy-ec2.ps1 -Role infra -KeyPath "C:\path\to\your-key.pem"
+```
+
+If your SSH agent or SSH config already knows the key, omit `-KeyPath`.
+
 Monitoring
 
 ```
