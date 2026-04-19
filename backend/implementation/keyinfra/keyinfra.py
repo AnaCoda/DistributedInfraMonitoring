@@ -28,7 +28,7 @@ class KeyInfraNode(RawNode):
         operation_routes: List[Tuple[str, Callable[..., Any]]]
     ):
         super().__init__(entry.name, entry.address.to_tuple())
-        self.peers = peers
+        self.peers = [ peer for peer in peers if peer.name != self.get_network_name() ]
 
         self.leader_election = self.register_plugin(BullyPlugin(
             host=self,
@@ -36,7 +36,7 @@ class KeyInfraNode(RawNode):
             peers={
                 BullyPeer(entry.name, entry.name, 1): (entry.name, entry.address.ip, entry.address.port)
 
-                for entry in peers
+                for entry in self.peers
             },
             heartbeat_interval_ms=8_000
         ))
@@ -45,7 +45,7 @@ class KeyInfraNode(RawNode):
             host=self,
             name=self.get_network_name(),
             backend=DiskBackend(self.get_network_name()),
-            replicas=[ r.name for r in peers ],
+            replicas=[ r.name for r in self.peers ],
             routes=operation_routes
         ))
 

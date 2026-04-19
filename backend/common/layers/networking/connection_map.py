@@ -24,12 +24,14 @@ class ConnectionMap:
         print(f'Registering connection for {name}')
         with self.lock:
             # self.inbound_connections[name] = entry
-            old = self.outbound_connections.get(name)
-            if old is not None and old.connection is not entry.connection:
-                try:
-                    old.connection.close()
-                except Exception:
-                    pass
+            # old = self.outbound_connections.get(name)
+            # if old is not None and old.connection is not entry.connection:
+            #     try:
+            #         old.connection.close()
+            #     except Exception:
+            #         pass
+            if name in self.outbound_connections:
+                raise RuntimeError(f'Name {name} is ALREADY in the connection map.')
             self.outbound_connections[name] = entry
 
     def deregister(self, target: str):
