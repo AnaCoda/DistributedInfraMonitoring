@@ -71,6 +71,7 @@ class ReplicationStateMachine(BaseStateMachine):
         if msg.op == ReplicationOp.SYNC_REQUEST or msg.op == ReplicationOp.REQUEST_MISSING:
             msg.target = self.get_leader()
         
+    
 
     def _on_poll(self):
         if self.get_state() == ReplicationStateMachineState.INIT and self.get_leader() is not None:
@@ -104,6 +105,8 @@ class ReplicationStateMachine(BaseStateMachine):
 
     def receive(self, packet: StateMachineMessage) -> bool:
         #TODO: Send the actual Sync request.
+        # if self.get_state() == ReplicationStateMachineState.INIT:
+        #     pass
         if self.get_state() == ReplicationStateMachineState.STARTED:
             if packet.op == ReplicationOp.SYNC_RESPONSE:
                 logs = packet.body['logs']
@@ -170,5 +173,9 @@ class ReplicationStateMachine(BaseStateMachine):
                 # We only support COMMIT messages in this state.
                 return False
         else:
-            raise Exception(f'State {self.state} not yet sypported.')
+            print(f'BAD NAME {self.get_name()}')
+            print(f'BAD STATE {self.get_state()}')
+            print(f'BAD PACKET {packet}')
+            print(f'BAD LEADER {self.get_leader()}')
+            raise Exception(f'State {self.get_state()} not yet sypported.')
         # return super().receive(packet)

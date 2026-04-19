@@ -54,6 +54,14 @@ class BullyPlugin(Plugin):
         self.init_bully_election(node, peers, heartbeat_interval_ms, leader_timeout_ms, verbose)
 
     
+    def is_leader(self):
+        return self.node.is_leader()
+    
+    def current_leader(self) -> str:
+        return self.node.get_leader().name
+    
+    
+
 
     def init_bully_election(
         self,

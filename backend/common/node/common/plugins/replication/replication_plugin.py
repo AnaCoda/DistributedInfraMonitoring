@@ -76,7 +76,12 @@ class ReplicationPlugin(Plugin):
     def __wait_leader(self):
         while not self.__leader_evt.is_set():
             self.__leader_evt.wait()
-        
+        with self.__core_lock:
+            # If we are the leader there is an edge case
+            # whereby we are not yet initialized.
+            if self.__core.is_leader():
+                self.__poll_unlocked()
+            
     
     def __poll_unlocked(
         self
@@ -176,6 +181,7 @@ class ReplicationPlugin(Plugin):
     
     @node_handler(name='operate')
     def handle_operate_msg(self, body: dict, source: str):
+        self.__wait_leader()
         if source not in self.__replicas:
             return {
                 # This is a protected route, so we will decline requests
@@ -192,6 +198,7 @@ class ReplicationPlugin(Plugin):
 
     @node_handler(name='plugin.replication')
     def handle_replication_msg(self, body: dict, source: str):
+        self.__wait_leader()
         if source not in self.__replicas:
             return {
                 # This is a protected route, so we will decline requests

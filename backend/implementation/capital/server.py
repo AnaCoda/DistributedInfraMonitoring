@@ -74,10 +74,6 @@ class CapitalNode(RawNode):
         self.sync_event = threading.Event()
         self.address = address
 
-        self.current_leader = network_name if bootstrap_leader else seed_leader_name
-        self.current_capital = network_name if bootstrap_leader else seed_leader_name
-        self.is_leader = bootstrap_leader
-        self.is_capital = bootstrap_leader
 
         super().__init__(network_name=network_name, address=address)
 
@@ -128,8 +124,6 @@ class CapitalNode(RawNode):
         self.ready_to_handle()
 
     def handle_test(self, body: dict):
-        print("UPDATE STATE REPLACED")
-
         name: str = body['name']
         data: str = body['state']
 
@@ -138,38 +132,7 @@ class CapitalNode(RawNode):
 
         self._print_state_hash2()
 
-        # import colorama
-        # print(f'{colorama.Fore.GREEN}[US]{colorama.Fore.RESET} [{self.network_name}] body ~ {body} ')
 
-    # def _connect_to(self, address: tuple[str, int]):
-    #     if hasattr(self, "connect") and callable(getattr(self, "connect")):
-    #         return self.connect(address)
-    #     if hasattr(self, "_net_connect") and callable(getattr(self, "_net_connect")):
-    #         return self._net_connect(address)
-    #     raise AttributeError("RawNode does not expose connect or _net_connect")
-
-    # def _disconnect_name(self, name: str):
-    #     if hasattr(self, "disconnect") and callable(getattr(self, "disconnect")):
-    #         print(f'PATH DN-1')
-    #         return self.disconnect(name)
-    #     if hasattr(self, "_net_disconnect") and callable(getattr(self, "_net_disconnect")):
-    #         print(f'PATH DN-2')
-    #         return self._net_disconnect(name)
-    #     if hasattr(self, "connection_map"):
-    #         print(f'PATH DN-3')
-    #         try:
-    #             return self.connection_map.deregister(name)
-    #         except Exception:
-    #             pass
-    #     raise AttributeError("RawNode does not expose disconnect/_net_disconnect/connection_map.deregister")
-
-    def _outbound_names(self) -> list[str]:
-        if hasattr(self, "connection_map"):
-            if hasattr(self.connection_map, "get_outbound_names"):
-                return self.connection_map.get_outbound_names()
-            if hasattr(self.connection_map, "get_connection_names"):
-                return self.connection_map.get_connection_names()
-        return []
 
     def _priority_from_peer_count(self) -> int:
         return len(self.peer_addresses)
@@ -201,34 +164,7 @@ class CapitalNode(RawNode):
             f"data={hashlib.sha256(serialized.encode()).hexdigest()}"
         )
 
-    # def _print_state_hash(self):
-    #     serialized = json.dumps(
-    #         obj=self.replica_state.inspect_dict(),
-    #         default=lambda x: str(x),
-    #         sort_keys=True,
-    #     )
-    #     role = "leader" if self.is_leader else "follower"
-    #     print(
-    #         f"[{self.network_name} | {role}] version={self.replica_state.version}, "
-    #         f"data={hashlib.sha256(serialized.encode()).hexdigest()}"
-    #     )
 
-    def multicast(self, target_glob: str, route: str, body: dict, include_self: bool = False):
-        prefix = target_glob[:-1] if target_glob.endswith("*") else target_glob
-        for name in self._outbound_names():
-            if not include_self and name == self.network_name:
-                continue
-            if not name.startswith(prefix):
-                continue
-            try:
-                self.send_message(name, route, body, timeout=1.0)
-            except Exception:
-                try:
-                    if self.has_connection(name):
-                        self._net_disconnect(name)
-                        # self._disconnect_name(name)
-                except Exception:
-                    pass
 
     @node_handler(internal_ms=500)
     def maintain_peer_links(self):
@@ -245,22 +181,10 @@ class CapitalNode(RawNode):
     @node_handler(name="api.who_is_leader")
     def handle_who_is_leader(self, _body: dict, _source=None):
         return {
-            "leader": self.current_leader,
-            "is_leader": self.is_leader,
+            "leader": self.bully_plugin.current_leader(),
+            "is_leader": self.bully_plugin.is_leader(),
         }
 
-    # @node_handler(name='fast.forward')
-    # def handle_fast_forward(self, _message):
-    #     return {
-    #         "__version": self.replica_state.version,
-    #         "__state": self.replica_state.inspect_dict()
-    #     }
-
-    # @node_handler(name='version')
-    # def handle_version(self, _):
-    #     return {
-    #         "version": self.replica_state.version
-    #     }
 
     def on_start_election(self):
         pass
@@ -277,40 +201,6 @@ class CapitalNode(RawNode):
             # We are now the leader.
             self.replication_plugin.set_leader(self.get_network_name())
 
-            # versions = {}
-            # for peer in self.peer_names:
-            #     if peer == self.network_name:
-            #         continue
-
-            #     if not self.has_connection(peer):
-            #         for (a, b, c) in self.peer_addresses:
-            #             if a == peer:
-            #                 try:
-            #                     self._connect_to((b, c))
-            #                 except Exception:
-            #                     pass
-
-            #     if not self.has_connection(peer):
-            #         continue
-
-            #     try:
-            #         vers = self.send_message(peer, 'version', {}, timeout=1.0)['version']
-            #         versions[peer] = vers
-            #     except Exception:
-            #         try:
-            #             if self.has_connection(peer):
-            #                 self._disconnect_name(peer)
-            #         except Exception:
-            #             pass
-            #         continue
-
-            # versions = list(versions.items())
-            # versions.sort(key=lambda x: x[1], reverse=True)
-
-            # if len(versions) > 0:
-            #     name, top_version = versions[0]
-            #     if self.replica_state.version < top_version:
-            #         self.__fast_forward_to_target(name)
         finally:
             self.fast_forward_signal.ready()
             self.replica_ready_signal.ready()
@@ -322,61 +212,9 @@ class CapitalNode(RawNode):
         self.is_leader = (target == self.network_name)
         self.is_capital = self.is_leader
 
-        # try:
-        #     vers = self.send_message(target, 'version', {}, timeout=1.0)['version']
-        # except Exception:
-        #     print(f'[{self.network_name}] Could not reach leader {target} for version check.')
-        #     return
-
-        # if vers > self.replica_state.version:
-        #     self.__fast_forward_to_target(target)
         self.replication_plugin.set_leader(target)
 
         self.replica_ready_signal.ready()
-
-    # def __commit_local_replica(self, tx_data: dict):
-    #     print("COMMITTING LOCAL REPLICAS")
-    #     result = self.replica_state.end_transaction(tx_data, apply=True)
-    #     self._print_state_hash()
-        # return result
-
-    # def __proxy_call(self, call, proxy_name: str, data, source=None):
-    #     with self.proxy_lock:
-    #         _, result = call(data, source)
-    #         if result is not None:
-    #             proxy_payload = dict(data)
-    #             if source is not None:
-    #                 proxy_payload["__origin_source"] = source
-    #             if proxy_name == "api.proxy.region.heartbeat" and "__heartbeat_ts" not in proxy_payload:
-    #                 hb = self.replica_state.inspect_dict().get("heartbeat", {}).get(source, {})
-    #                 ts = hb.get("last_contact")
-    #                 if ts is not None:
-    #                     proxy_payload["__heartbeat_ts"] = ts
-    #             self.multicast('rm-*', proxy_name, proxy_payload, include_self=False)
-    #     return {"status": "success"}
-
-    # def apply_region_heartbeat(self, data, source: str):
-    #     print(f'REGION HEARTBEAT')
-    #     # with self.lock:
-    #     #     state = self.replica_state.start_transaction()
-    #     #     if source not in state['heartbeat']:
-    #     #         state['heartbeat'][source] = {}
-
-    #     #     ts = data.get("__heartbeat_ts")
-    #     #     if ts is None:
-    #     #         ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
-
-    #     #     state['heartbeat'][source]['last_contact'] = ts
-    #     #     return None, self.__commit_local_replica(state)
-
-    # def proxy_region_heartbeat(self, data: dict, source: str):
-    #     return self.__proxy_call(
-    #         call=self.apply_region_heartbeat,
-    #         proxy_name='api.proxy.region.heartbeat',
-    #         data=data,
-    #         source=source
-    #     )
-
 
 
     @node_handler(name="api.national_infrastructure")
