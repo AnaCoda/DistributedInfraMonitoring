@@ -21,11 +21,13 @@ class ConnectionMap:
         self.outbound_connections: dict[str, ConnectionRegistry] = {}
 
     def register(self, name, entry: ConnectionRegistry):
+        print(f'Registering connection for {name}')
         with self.lock:
             # self.inbound_connections[name] = entry
             self.outbound_connections[name] = entry
 
     def deregister(self, target: str):
+        print(f'Deregistering connection for {target}')
         with self.lock:
             if target in self.outbound_connections:
                 try:
