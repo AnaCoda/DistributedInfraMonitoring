@@ -1,5 +1,7 @@
 from typing import List
 
+from backend.common.components.storage.backend import StorageBackend
+from backend.common.components.storage.memory import MemoryStorageBackend
 from backend.common.components.util import NetworkEntry
 from backend.common.layers.routing.routing_layer import node_handler
 from backend.implementation.keyinfra.keyinfra import KeyInfraNode
@@ -14,13 +16,14 @@ class CapitalNode(KeyInfraNode):
         self,
         capital_name: str,
         entry: NetworkEntry,
-        peers: List[NetworkEntry]
+        peers: List[NetworkEntry],
+        backend: StorageBackend = MemoryStorageBackend()
     ):
         self.capital_name = capital_name
         super().__init__(entry, peers, [
             ('region.update', self.region_update),
             ('query.capital', self.query_capital)
-        ])
+        ], backend)
 
         # We are ready.
         self.ready_to_handle()

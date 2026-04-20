@@ -1,5 +1,7 @@
 from typing import Dict, List
 
+from backend.common.components.storage.backend import StorageBackend
+from backend.common.components.storage.memory import MemoryStorageBackend
 from backend.common.components.util import NetworkEntry
 from backend.common.layers.routing.routing_layer import node_handler
 from backend.implementation.keyinfra.keyinfra import KeyInfraNode
@@ -12,13 +14,14 @@ class RegionalNode(KeyInfraNode):
             region_name: str,
             entry: NetworkEntry,
             capital_addresses: List[NetworkEntry],
-            peers: List[NetworkEntry]
+            peers: List[NetworkEntry],
+            backend: StorageBackend = MemoryStorageBackend()
         ):
         self.region_name = region_name
 
         super().__init__(entry, peers, [
             ('infra.update', self.handle_infra_update)
-        ])
+        ], backend)
 
         
         self.capitals = capital_addresses

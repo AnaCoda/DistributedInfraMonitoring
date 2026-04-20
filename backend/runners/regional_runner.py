@@ -7,6 +7,7 @@ import time
 
 from colorama import Fore
 
+from backend.common.components.storage.memory import MemoryStorageBackend
 from backend.common.components.util import NetworkAddress, NetworkEntry
 from backend.implementation.regional.base import RegionalNode
 
@@ -46,6 +47,7 @@ def main():
             entry=entry,
             capital_addresses=capitals,
             peers=peers,
+            backend=MemoryStorageBackend()
         )
 
         stop_event = threading.Event()

@@ -11,6 +11,7 @@ from backend.common.components.events.connect import NodeConnectionType
 from backend.common.components.plugins.leader_elec.bully_plugin import BullyPlugin
 from backend.common.components.plugins.leader_elec.bully_state_machine import BullyPeer
 from backend.common.components.plugins.replication.replication_plugin import ReplicationPlugin
+from backend.common.components.storage.backend import StorageBackend
 from backend.common.components.storage.disk import DiskBackend
 from backend.common.components.storage.memory import MemoryStorageBackend
 from backend.common.components.util import NetworkAddress, NetworkEntry
@@ -26,7 +27,8 @@ class KeyInfraNode(RawNode):
         self,
         entry: NetworkEntry,
         peers: List[NetworkEntry],
-        operation_routes: List[Tuple[str, Callable[..., Any]]]
+        operation_routes: List[Tuple[str, Callable[..., Any]]],
+        backend: StorageBackend
     ):
         super().__init__(entry.name, entry.address.to_tuple())
         self.peers = [ peer for peer in peers if peer.name != self.get_network_name() ]
@@ -45,7 +47,7 @@ class KeyInfraNode(RawNode):
         self.replication_plugin = self.register_plugin(ReplicationPlugin(
             host=self,
             name=self.get_network_name(),
-            backend=DiskBackend(self.get_network_name()),
+            backend=backend,
             replicas=[ r.name for r in self.peers ],
             routes=operation_routes
         ))

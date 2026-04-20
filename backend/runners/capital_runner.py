@@ -7,6 +7,7 @@ import time
 
 from colorama import Fore
 
+from backend.common.components.storage.memory import MemoryStorageBackend
 from backend.common.components.util import NetworkAddress, NetworkEntry
 from backend.implementation.capital.server import CapitalNode
 
@@ -35,6 +36,7 @@ def load_config() -> dict:
 
 def main():
     print('NEW VERSION')
+    backend = MemoryStorageBackend()
     while True:
         cfg = load_config()
         print(f'Starting capital with config {cfg}')
@@ -46,6 +48,7 @@ def main():
             capital_name=cfg["capital_name"],
             entry=entry,
             peers=peers,
+            backend=backend
         )
 
         print(f'Capital Entry: {entry}')
