@@ -43,6 +43,9 @@ class ReplicationPlugin(Plugin):
 
         self.__register_routes(routes)
 
+    def is_leader(self) -> bool:
+        return self.__core.is_leader()
+
     def get_seq_num(self) -> int:
         return self.__core.replication_log.get_sequence_pos()
 

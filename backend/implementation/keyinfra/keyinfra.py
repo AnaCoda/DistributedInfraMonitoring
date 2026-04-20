@@ -125,6 +125,8 @@ class KeyInfraNode(RawNode):
     @node_handler(on_connect=NodeConnectionType.INBOUND)
     def handle_inbound_conn(self, name: str):
         print(f'{Fore.YELLOW}[CONNECTION]{Fore.RESET} Connected to {name} (type=INBOUND)')
+        if name in [ peer.name for peer in self.peers ]:
+            self.__run_challenge()
 
 
     @node_handler(on_disconnect=NodeConnectionType.OUTBOUND)
@@ -136,11 +138,10 @@ class KeyInfraNode(RawNode):
         print(f'{Fore.YELLOW}[DISCONNECTION]{Fore.RESET} Disconnected from {name} (type=INBOUND)')
 
 
-    def __on_elect(
-        self,
-        target: str
+    def __run_challenge(
+        self
     ):
-        if target == self.get_network_name():
+        if self.replication_plugin.is_leader():
             version_dict = {}
             for peer in self.peers:
                 if self.has_connection(peer.name):
@@ -153,6 +154,11 @@ class KeyInfraNode(RawNode):
             versions.sort(key=lambda x : x[1], reverse=True)
             print(f'ON ELECT PEER DICT: {versions}')
 
+    def __on_elect(
+        self,
+        target: str
+    ):
+        self.__run_challenge()
 
         self.replication_plugin.set_leader(target)
 
