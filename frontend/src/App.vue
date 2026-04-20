@@ -283,32 +283,31 @@ const leader = ref("");
 const capital = ref("");
 const connectedEndpoints = ref([]);
 const activeSocket = ref(null);
+const viewMode = ref("grid");
 
 let reconnectTimer = null;
 
 const expanded = reactive({});
 const wsStatus = ref("disconnected");
+const hasEverLoaded = ref(false);
 
 const wsCandidates = (() => {
   const raw = (import.meta.env.VITE_WS_ENDPOINTS || "").trim();
-  const liveCapitalDefaults = [
+  const defaults = [
     "wss://rm-1.warsys.click",
     "wss://rm-2.warsys.click",
     "wss://rm-3.warsys.click",
-    "wss://carstairs-r1.warsys.click",
-    "wss://carstairs-r2.warsys.click",
-    "wss://carstairs-r3.warsys.click",
-    "wss://hospital-1.warsys.click",
   ];
+
   const parsed = raw
     ? raw.split(",").map(v => v.trim()).filter(Boolean)
     : defaults;
 
-  return [...new Set(parsed.filter(url => /^ws:\/\/localhost:4\d{3}$/i.test(url)))];
+  return [...new Set(parsed)];
 })();
 
-/** Deployed capitals use `query.capital`. Override with VITE_WS_REFRESH_ROUTE if needed. */
-const refreshRoute = (import.meta.env.VITE_WS_REFRESH_ROUTE || "query.capital").trim();
+/** Deployed capitals use this route now. */
+const refreshRoute = (import.meta.env.VITE_WS_REFRESH_ROUTE || "api.national_infrastructure").trim();
 
 function toggleSites(name) {
   expanded[name] = !expanded[name];
@@ -336,8 +335,8 @@ function normalizeRegion(name, raw, hb) {
 
   const lastSeenText =
     age === null ? "no heartbeat" :
-      age < 1 ? "just now" :
-        `${age.toFixed(1)}s ago`;
+    age < 1 ? "just now" :
+    `${age.toFixed(1)}s ago`;
 
   const isCapital = capital.value === name;
 
@@ -395,105 +394,15 @@ const endpointLabel = computed(() => {
 
 // ---- State update handler ----
 
-function typeMatches(resourceType, needles) {
-  const t = (resourceType ?? "").toLowerCase();
-  return needles.some(n => t.includes(n.toLowerCase()));
-}
-
-function inferStringMetric(sites, typeNeedles) {
-  const s = sites.find(x => typeMatches(x.resource_type, typeNeedles));
-  if (!s) return "unknown";
-  const v = s.resource_value;
-  return typeof v === "string" && v.length ? v : "unknown";
-}
-
-function maxNumericByNeedles(sites, typeNeedles) {
-  let best = null;
-  for (const s of sites) {
-    if (!typeMatches(s.resource_type, typeNeedles)) continue;
-    const n = Number(s.resource_value);
-    if (!Number.isNaN(n)) best = best === null ? n : Math.max(best, n);
-  }
-  return best;
-}
-
-/**
- * Maps live `query.capital` body (regions → infrastructure → sites) into the dashboard shape.
- */
-function applyCapitalQuery(body) {
-  const regions = body?.regions;
-  if (!regions || typeof regions !== "object") return;
-
-  const capitalName = body.name ?? "";
-  const nextState = {};
-  const nextHb = {};
-
-  for (const [regionKey, regRaw] of Object.entries(regions)) {
-    const rname = regRaw?.name ?? regionKey;
-    const infra = regRaw?.infrastructure ?? {};
-    const sites = [];
-
-    for (const [siteKey, siteRaw] of Object.entries(infra)) {
-      const n = siteRaw?.name ?? siteKey;
-      const rt = siteRaw?.resource_type ?? "Unknown";
-      const rv = siteRaw?.value ?? siteRaw?.resource_value ?? null;
-      sites.push({ name: n, resource_type: rt, resource_value: rv });
-    }
-
-    const medical = maxNumericByNeedles(sites, ["hospital"]);
-    const water = maxNumericByNeedles(sites, ["water"]);
-    const fuel = maxNumericByNeedles(sites, ["fuel", "depot"]);
-
-    nextState[rname] = {
-      state: {
-        power: inferStringMetric(sites, ["powerplant", "power"]),
-        transport: inferStringMetric(sites, ["railroad", "rail", "transport"]),
-        medical_capacity: medical ?? 0,
-        water_capacity: water ?? 0,
-        fuel_storage: fuel ?? 0,
-      },
-      meta: {
-        region_type: "StandardRegionNode",
-        sites,
-      },
-    };
-
-    // Key by region name so normalizeRegion() finds hb[name].
-    nextHb[rname] = {
-      name: rname,
-      last_contact: new Date().toISOString(),
-      is_leader: true,
-    };
-  }
-
-  data.value = nextState;
-  heartbeats.value = nextHb;
-  leader.value = capitalName;
-  capital.value = capitalName;
-  lastFetch.value = Date.now();
-  loading.value = false;
-  error.value = "";
-}
-
 function applyStateUpdate(body) {
-  console.log("applyStateUpdate raw body", body);
-
-  const root = body.__state ?? body ?? {};
-  const nextData = root.state ?? body.state ?? {};
-  const nextHeartbeats = root.heartbeat ?? body.heartbeats ?? {};
-
-  console.log("applyStateUpdate parsed", {
-    root,
-    nextData,
-    nextHeartbeats,
-    leader: body.leader ?? "",
-    capital: body.capital ?? body.leader ?? "",
-  });
+  const root = body?.__state ?? body ?? {};
+  const nextData = root?.state ?? body?.state ?? {};
+  const nextHeartbeats = root?.heartbeat ?? body?.heartbeats ?? {};
 
   data.value = nextData;
   heartbeats.value = nextHeartbeats;
-  leader.value = body.leader ?? "";
-  capital.value = body.capital ?? body.leader ?? "";
+  leader.value = body?.leader ?? "";
+  capital.value = body?.capital ?? body?.leader ?? "";
   lastFetch.value = Date.now();
   loading.value = false;
   hasEverLoaded.value = true;
@@ -502,88 +411,139 @@ function applyStateUpdate(body) {
 
 // ---- WebSocket ----
 
-async function tryConnect(endpoint) {
-  if (sockets.has(endpoint)) return;
-
-  let ws = null;
-  try {
-    console.info(WS_LOG, "connecting", endpoint);
-    ws = new WebSocket(endpoint);
-
-    await Promise.race([
-      new Promise((resolve, reject) => {
-        ws.addEventListener("error", reject, { once: true });
-        ws.addEventListener("open", resolve, { once: true });
-      }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Connection timed out")), 1000))
-    ]);
-
-    ws.send(JSON.stringify({ name: `Frontend-${crypto.randomUUID()}` }));
-    const handshake = await new Promise(resolve => {
-      ws.addEventListener("message", e => resolve(JSON.parse(e.data)), { once: true });
-    });
-
-    if (handshake.status !== "success") {
+function cleanupSocket() {
+  const ws = activeSocket.value;
+  activeSocket.value = null;
+  if (ws) {
+    try {
       ws.close();
-      return null;
+    } catch {
+      // ignore
     }
-
-    sockets.set(endpoint, ws);
-    wsStatus.value = "connected";
-    connectedEndpoint.value = endpoint;
-    error.value = "";
-
-    connected.value = connected.value.filter(x => x !== endpoint);
-    connected.value.push(endpoint);
-
-    refreshNow(ws);
-
-    ws.addEventListener("close", () => {
-      sockets.delete(endpoint);
-      connected.value = connected.value.filter(x => x !== endpoint);
-
-      if (connected.value.length === 0) {
-        wsStatus.value = "disconnected";
-        connectedEndpoint.value = "";
-      }
-    });
-
-    ws.addEventListener("error", (event) => {
-      console.log("WS error", endpoint, event);
-    });
-
-    ws.addEventListener("message", (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.route === "push.state_update" || msg.route === "push.replica_state_update") {
-        applyStateUpdate(msg.body ?? {});
-      } else if (msg.route === "__response") {
-        applyStateUpdate(msg.body ?? {});
-      }
-    });
-  } catch (_e) {
-    if (ws) {
-      try {
-        ws.close();
-      } catch {
-        // ignore
-      }
-    }
-    return null;
   }
 }
 
-async function connectWs() {
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
+function scheduleReconnect(delay = 2000) {
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(connectWs, delay);
+}
 
+function refreshNow(ws = activeSocket.value) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+  ws.send(JSON.stringify({
+    route: refreshRoute,
+    rid: crypto.randomUUID(),
+    fireforget: false,
+    body: {}
+  }));
+}
+
+function refreshNowAll() {
+  refreshNow(activeSocket.value);
+}
+
+async function tryConnect(endpoint) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const ws = new WebSocket(endpoint);
+
+    const fail = (msg = "") => {
+      if (settled) return;
+      settled = true;
+      try { ws.close(); } catch {}
+      resolve(null);
+    };
+
+    const timeout = setTimeout(() => fail("timeout"), 3000);
+
+    ws.addEventListener("open", () => {
+      try {
+        ws.send(JSON.stringify({ name: `Frontend-${crypto.randomUUID()}` }));
+      } catch {
+        clearTimeout(timeout);
+        fail("handshake-send-failed");
+      }
+    });
+
+    ws.addEventListener("message", (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+
+        // Handshake response
+        if (!settled && msg?.status) {
+          if (msg.status !== "success") {
+            clearTimeout(timeout);
+            fail("handshake-failed");
+            return;
+          }
+
+          settled = true;
+          clearTimeout(timeout);
+
+          activeSocket.value = ws;
+          wsStatus.value = "connected";
+          connectedEndpoint.value = endpoint;
+          connectedEndpoints.value = [endpoint];
+          error.value = "";
+
+          refreshNow(ws);
+
+          resolve(ws);
+          return;
+        }
+
+        // Normal routed response
+        if (msg?.route === "__response") {
+          applyStateUpdate(msg.body ?? {});
+          return;
+        }
+
+        if (msg?.route === "push.state_update" || msg?.route === "push.replica_state_update") {
+          applyStateUpdate(msg.body ?? {});
+        }
+      } catch {
+        // ignore malformed messages
+      }
+    });
+
+    ws.addEventListener("close", () => {
+      if (!settled) {
+        clearTimeout(timeout);
+        fail("closed-before-handshake");
+        return;
+      }
+
+      if (activeSocket.value === ws) {
+        activeSocket.value = null;
+        connectedEndpoints.value = [];
+        connectedEndpoint.value = "";
+        wsStatus.value = "disconnected";
+
+        if (hasEverLoaded.value) {
+          error.value = "Connection lost. Reconnecting…";
+        }
+
+        scheduleReconnect(2000);
+      }
+    });
+
+    ws.addEventListener("error", () => {
+      if (!settled) {
+        clearTimeout(timeout);
+        fail("ws-error");
+      }
+    });
+  });
+}
+
+async function connectWs() {
   if (activeSocket.value && activeSocket.value.readyState === WebSocket.OPEN) {
     return;
   }
 
   if (!wsCandidates.length) {
-    error.value = "No WebSocket endpoints configured (check VITE_WS_ENDPOINTS).";
+    error.value = "No WebSocket endpoints configured.";
     wsStatus.value = "disconnected";
     loading.value = false;
     scheduleReconnect(5000);
@@ -593,51 +553,30 @@ async function connectWs() {
   wsStatus.value = "connecting";
 
   for (const endpoint of wsCandidates) {
-    for (const ep of endpointsToTry(endpoint)) {
-      const ws = await tryOpenCapitalSocket(ep);
-      if (ws) return;
+    const ws = await tryConnect(endpoint);
+    if (ws) {
+      return;
     }
   }
 
-  await Promise.allSettled(attempts);
-
-  if (connected.value.length === 0 && sockets.size === 0) {
+  if (!hasEverLoaded.value) {
     error.value = "WebSocket error: no replica reachable";
-    wsStatus.value = "disconnected";
-    connectedEndpoint.value = "";
+    loading.value = false;
+  } else {
+    error.value = "All replicas unreachable. Reconnecting…";
   }
 
-  reconnectTimer = setTimeout(connectWs, 2000);
+  wsStatus.value = "disconnected";
+  scheduleReconnect(2000);
 }
 
-function refreshNow(ws) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({
-    route: "api.national_infrastructure",
-    rid: crypto.randomUUID(),
-    body: {}
-  }));
-}
+onMounted(() => {
+  connectWs();
+});
 
-function refreshNowAll() {
-  refreshNow(activeSocket.value);
-}
-
-onMounted(() => connectWs());
 onUnmounted(() => {
   if (reconnectTimer) clearTimeout(reconnectTimer);
   reconnectTimer = null;
-  const ws = activeSocket.value;
-  activeSocket.value = null;
-  if (import.meta.env.DEV) {
-    delete window.__infraMonitorWS;
-  }
-  if (ws) {
-    try {
-      ws.close();
-    } catch {
-      // ignore
-    }
-  }
+  cleanupSocket();
 });
 </script>
