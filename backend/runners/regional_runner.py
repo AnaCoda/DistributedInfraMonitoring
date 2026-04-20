@@ -35,6 +35,7 @@ def load_config() -> dict:
 
 
 def main():
+    backend = MemoryStorageBackend()
     while True:
         cfg = load_config()
 
@@ -47,7 +48,7 @@ def main():
             entry=entry,
             capital_addresses=capitals,
             peers=peers,
-            backend=MemoryStorageBackend()
+            backend=backend
         )
 
         stop_event = threading.Event()

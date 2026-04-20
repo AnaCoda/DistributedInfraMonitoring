@@ -124,14 +124,14 @@ class ReplicationPlugin(Plugin):
         kwargs = operation.operation['kwargs']
         key = operation.operation['key']
 
-        self.__op_map[key](*args, **kwargs)
+        output = self.__op_map[key](*args, **kwargs)
 
         # Now we commit the operation.
         # print(f'[AO] commiting w/ {operation.sequence_number}')
         o = self.__core.receive(ReplicationMsg.from_op(ReplicationOp.COMMIT, { 'sequence': operation.sequence_number }))    
         # print(f'[AO] [{self.get_network_name()}] {o}')
         # return { 'ping': 1 }
-        return o
+        return output
     
     def load_state(self):
         with self.__core_lock:
