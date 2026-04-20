@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Local registry.
+backend/runners/local_registry.json
+backend/runners/local_registry.lock
 
 disk_cache/
 

@@ -13,4 +13,4 @@ RUN uv sync --frozen --no-editable
 
 COPY . .
 
-CMD ["/app/.venv/bin/python", "-u", "app.py"]
+CMD ["/app/.venv/bin/python", "-u", "runner.py"]

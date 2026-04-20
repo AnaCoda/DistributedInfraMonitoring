@@ -1,5 +1,5 @@
 
-from typing import Literal, Union
+from typing import List, Literal, Union
 
 from pydantic import BaseModel
 from enum import Enum
@@ -9,6 +9,7 @@ class RunnerClass(str, Enum):
 
 class CapitalSpecificConfig(BaseModel):
     capital_name: str
+    peers: List[str]
     
 class CapitalRunnerConfig(BaseModel):
     name: str

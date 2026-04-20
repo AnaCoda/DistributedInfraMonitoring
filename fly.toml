@@ -10,7 +10,7 @@ kill_signal = "SIGTERM"
   min_machines_running = 1
 
   [[services.http_checks]]
-    path = "/healthz"
+    path = "/health"
     interval = "10s"
     timeout = "2s"
     method = "get"

@@ -2,11 +2,11 @@ import time
 
 from colorama import Fore
 
-from backend.common.components.util import NetworkAddress
+from backend.common.components.util import NetworkAddress, NetworkEntry
 
 from ..plugin import Plugin
 
-from typing import Optional
+from typing import List, Optional
 
 from .bully_state_machine import (
     BullyElectionHook,
@@ -50,8 +50,8 @@ class BullyPlugin(Plugin):
     def __init__(
         self,
         host,
-        node: BullyPeer,
-        peers: dict[BullyPeer, tuple[str, str, int]],
+        node: NetworkEntry,
+        peers: List[NetworkEntry],
         heartbeat_interval_ms: int = 4000,
         leader_timeout_ms: int = 3000,
         verbose: bool = True
@@ -77,16 +77,17 @@ class BullyPlugin(Plugin):
     def init_bully_election(
         self,
         node: BullyPeer,
-        peer_names: dict[BullyPeer, tuple[str, str, int]],
+        peer_names: List[NetworkEntry],
         heartbeat_interval_ms: int = 4000,
         leader_timeout_ms: int = 3000,
         verbose: bool = True
     ):
-        self.peer_translator = peer_names
+        self.peer_map = { entry.name: entry for entry in peer_names }
+        self.peers = peer_names
         print(f'INitialized bully elec w/ {node}, peer_names = {peer_names}')
         self.node = BullyElectionNode(
             node=node,
-            peer_list=peer_names.keys(),
+            peer_list=[ BullyPeer(peer.name, peer.name.split('-')[1], 1) for peer in peer_names ],
             hb_timeout=heartbeat_interval_ms / 1000.0,
             timeout=leader_timeout_ms / 1000.0,
             verbose=verbose
@@ -124,20 +125,21 @@ class BullyPlugin(Plugin):
         self.host.on_become_leader()
 
     def __translate_and_ensure_connect(self, destination: BullyPeer) -> Optional[str]:
-        target, ip, port = self.peer_translator[destination]
+        # target, ip, port = self.peer_translator[destination]
+        entry = self.peer_map[destination.name]
 
 
         # for i in range(10):
-        if target == self.get_network_name():
-            return target
+        if entry.name == self.get_network_name():
+            return entry.name
 
-        if not self.has_connection(target):
-            if not self._try_connect(NetworkAddress(ip=ip, port=port)):
-                raise ConnectionError(f'Failed to connect to destination {target}')
+        if not self.has_connection(entry.name):
+            if not self._try_connect(entry.address):
+                raise ConnectionError(f'Failed to connect to destination {entry.name}')
                 # time.sleep(0.75)
                 # continue
             # self.connect((ip, port))
-        return target
+        return entry.name
         # raise RuntimeError(f'Failed to ensure connection with target={target}')
 
     def __handle_bully_message(self, message: BullyPacket):

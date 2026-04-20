@@ -6,7 +6,7 @@ import json
 
 from colorama import Fore, Style
 
-from backend.common.components.util import NetworkAddress
+from backend.common.components.util import NetworkAddress, NetworkUrl
 from backend.common.layers.simlayer.sim import SimulationLayer
 from .connection_map import ConnectionMap, ConnectionRegistry
 from ...components.events.event import NodeEvent
@@ -465,9 +465,13 @@ class NetLayer(SimulationLayer):
         self.connection_map.deregister(name)
         # self._net_disconnect(name)
 
-    def _try_connect(self, address: NetworkAddress):
+    def _try_connect(self, address: NetworkAddress | NetworkUrl):
         try:
-            self._net_connect(address.to_tuple())
+            if isinstance(address, NetworkAddress):
+                self._net_connect(address.to_tuple())
+            if isinstance(address, NetworkUrl):
+                self._net_connect(f'wss://{address.url}')
+            # self._net_connect(address.to_tuple())
             return True
         except (
             ConnectionRefusedError,
@@ -488,11 +492,15 @@ class NetLayer(SimulationLayer):
             )
             return False
 
-    def _net_connect(self, address: tuple[str, int]):
+    def _net_connect(self, address: tuple[str, int] | str):
         # print(f'Started Conn: {address}')
+
+        if isinstance(address, tuple):
+            address = f'ws://{address[0]}:{address[1]}'
+
         connection = ThreadSafeSocket(
             ws_connect(
-                f'ws://{address[0]}:{address[1]}',
+                address,
                 ping_interval=None
             )
         )

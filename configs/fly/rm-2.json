@@ -1,9 +1,9 @@
 {
-    "name": "rm-1",
+    "name": "rm-2",
     "variant": "capital",
-    "uri": "rm-1.fly.dev",
+    "uri": "rm-2.fly.dev",
     "capital": {
         "capital_name": "rm",
-        "peers": [ "rm-2" ]
+        "peers": [ "rm-1" ]
     }
 }
