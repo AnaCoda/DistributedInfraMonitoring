@@ -52,11 +52,14 @@ class RegionalNode(KeyInfraNode):
         self,
         target: str
     ):
-        current_state: dict = self.get_state().model_dump()
+        try:
+            current_state: dict = self.get_state().model_dump()
 
-        print(f'SENDING UPDATE')
-        self.send_message(target, 'region.update', current_state)
-        self.__dirty = False
+            print(f'SENDING UPDATE')
+            self.send_message(target, 'region.update', current_state)
+            self.__dirty = False
+        except Exception as e:
+            print(f'[{self.get_network_name()}] Failed to send region update to target: {target} with exception={e}')
 
     @node_handler(internal_ms=500)
     def periodical(self):
