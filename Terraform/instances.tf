@@ -35,7 +35,6 @@ resource "aws_instance" "capital" {
     repo_ref     = var.app_repo_ref
     app_dir      = var.app_dir
     app_user     = var.app_user
-    dns_name     = var.domain_name == null ? "" : "${lower(each.key)}.${var.domain_name}"
   })
 
   tags = {
@@ -67,7 +66,6 @@ resource "aws_instance" "regional" {
     repo_ref      = var.app_repo_ref
     app_dir       = var.app_dir
     app_user      = var.app_user
-    dns_name      = var.domain_name == null ? "" : "${lower(each.key)}.${var.domain_name}"
   })
 
   tags = {
@@ -96,9 +94,6 @@ resource "aws_instance" "infra" {
     repo_ref     = var.app_repo_ref
     app_dir      = var.app_dir
     app_user     = var.app_user
-    node_ip      = each.value.private_ip
-    node_port    = 4000
-    dns_name     = var.domain_name == null ? "" : "${lower(each.key)}.${var.domain_name}"
   })
 
   tags = {
