@@ -11,8 +11,12 @@ resource "aws_route53_record" "capital" {
   zone_id = data.aws_route53_zone.main[0].zone_id
   name    = "${each.key}.${var.domain_name}"
   type    = "A"
-  ttl     = 60
-  records = [each.value.public_ip]
+
+  alias {
+    name                   = aws_lb.public_ws[0].dns_name
+    zone_id                = aws_lb.public_ws[0].zone_id
+    evaluate_target_health = true
+  }
 }
 
 resource "aws_route53_record" "regional" {
@@ -21,8 +25,12 @@ resource "aws_route53_record" "regional" {
   zone_id = data.aws_route53_zone.main[0].zone_id
   name    = "${lower(each.key)}.${var.domain_name}"
   type    = "A"
-  ttl     = 60
-  records = [each.value.public_ip]
+
+  alias {
+    name                   = aws_lb.public_ws[0].dns_name
+    zone_id                = aws_lb.public_ws[0].zone_id
+    evaluate_target_health = true
+  }
 }
 
 resource "aws_route53_record" "infra" {
@@ -31,6 +39,10 @@ resource "aws_route53_record" "infra" {
   zone_id = data.aws_route53_zone.main[0].zone_id
   name    = "${lower(each.key)}.${var.domain_name}"
   type    = "A"
-  ttl     = 60
-  records = [each.value.public_ip]
+
+  alias {
+    name                   = aws_lb.public_ws[0].dns_name
+    zone_id                = aws_lb.public_ws[0].zone_id
+    evaluate_target_health = true
+  }
 }

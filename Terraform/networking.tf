@@ -31,6 +31,17 @@ resource "aws_subnet" "app" {
   }
 }
 
+resource "aws_subnet" "alb" {
+  vpc_id                  = aws_vpc.this.id
+  cidr_block              = var.alb_subnet_cidr
+  availability_zone       = data.aws_availability_zones.available.names[1]
+  map_public_ip_on_launch = var.assign_public_ip
+
+  tags = {
+    Name = "${var.project_name}-alb-subnet"
+  }
+}
+
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.this.id
 
@@ -46,5 +57,10 @@ resource "aws_route_table" "public" {
 
 resource "aws_route_table_association" "app" {
   subnet_id      = aws_subnet.app.id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_route_table_association" "alb" {
+  subnet_id      = aws_subnet.alb.id
   route_table_id = aws_route_table.public.id
 }

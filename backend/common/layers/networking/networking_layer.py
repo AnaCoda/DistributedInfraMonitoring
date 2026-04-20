@@ -596,11 +596,18 @@ class NetLayer(SimulationLayer):
         def connection_handler(connection):
             # Wrap the connection in a thread safe socket and proceed.
             self.__handle_recv_conn(ThreadSafeSocket(connection))
+
+        def process_request(connection, request):
+            if request.path == '/health':
+                return connection.respond(200, "ok\n")
+            return None
+        
         with serve(
             connection_handler,
             address[0],
             address[1],
-            ping_interval=None
+            ping_interval=None,
+            process_request=process_request
         ) as server:
             self.server = server
             self.address = (address[0], server.socket.getsockname()[1])

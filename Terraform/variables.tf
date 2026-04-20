@@ -28,6 +28,12 @@ variable "subnet_cidr" {
   default     = "10.42.1.0/24"
 }
 
+variable "alb_subnet_cidr" {
+  description = "CIDR block for the second public subnet required by the ALB."
+  type        = string
+  default     = "10.42.2.0/24"
+}
+
 variable "availability_zone" {
   description = "Optional availability zone for the subnet."
   type        = string
