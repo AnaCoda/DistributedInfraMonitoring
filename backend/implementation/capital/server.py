@@ -19,6 +19,7 @@ class CapitalNode(KeyInfraNode):
         self.capital_name = capital_name
         super().__init__(entry, peers, [
             ('region.update', self.region_update)
+            ('query.capital', self.query_capital)
         ])
 
         # We are ready.
@@ -34,7 +35,7 @@ class CapitalNode(KeyInfraNode):
 
         self._print_digest('capital')
 
-    @node_handler(name='query.capital')
+    # @node_handler(name='query.capital')
     def query_capital(self, body: dict, source: str):
         # pass
         return self.get_state().model_dump()
