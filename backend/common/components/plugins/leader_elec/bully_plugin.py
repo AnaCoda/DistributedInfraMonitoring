@@ -133,7 +133,7 @@ class BullyPlugin(Plugin):
 
         if not self.has_connection(target):
             if not self._try_connect(NetworkAddress(ip=ip, port=port)):
-                raise None
+                raise ConnectionError(f'Failed to connect to destination {target}')
                 # time.sleep(0.75)
                 # continue
             # self.connect((ip, port))
@@ -149,8 +149,9 @@ class BullyPlugin(Plugin):
                     return
                 target = self.__translate_and_ensure_connect(message.destination)
                 if target is None:
+                    time.sleep(0.5)
                     continue
-                self.send_message_no_wait(
+                self.send_message(
                     target=target,
                     method="handle.bully.msg",
                     body=_serialize_bully_packet(message)
@@ -162,7 +163,7 @@ class BullyPlugin(Plugin):
                     f"dest={getattr(message.destination, 'name', 'unknown')} "
                     f"err={type(e).__name__}: {e} (RETRYING, tries={tries}){Fore.RESET}"
                 )
-                
+                time.sleep(0.5)
                 
         
 
