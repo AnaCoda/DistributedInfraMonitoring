@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from backend.common.components.util import NetworkAddress, NetworkEntry, NetworkUrl
 from backend.common.layers.networking.connection_map import ConnectionMap, ConnectionRegistry
+from backend.common.layers.networking.named_lock import NamedLock
 from backend.common.layers.networking.threadsafesocket import ThreadSafeSocket
 
 
@@ -18,7 +19,6 @@ class BetterConnectionMap:
         self.__lock = Lock()
         self.__preallocations: Dict[str, NetworkEntry] = {}
         self.__cm = ConnectionMap()
-        # self.__cm
 
     def preallocate(self, entry: NetworkEntry) -> bool:
         with self.__lock:
@@ -34,7 +34,7 @@ class BetterConnectionMap:
     def register(self, name, entry: ConnectionRegistry):
         return self.__cm.register(name, entry)
 
-    def dereigster(self, target: str):
+    def deregister(self, target: str):
         return self.__cm.deregister(target)
     
     def has_connection(self, name: str):

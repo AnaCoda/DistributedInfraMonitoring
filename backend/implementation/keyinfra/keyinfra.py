@@ -8,6 +8,7 @@ from colorama import Fore, Style
 from pydantic import BaseModel
 
 from backend.common.components.events.connect import NodeConnectionType
+from backend.common.components.events.event import NodeEvent
 from backend.common.components.plugins.leader_elec.bully_plugin import BullyPlugin
 from backend.common.components.plugins.leader_elec.bully_state_machine import BullyPeer
 from backend.common.components.plugins.replication.replication_plugin import ReplicationPlugin
@@ -115,24 +116,28 @@ class KeyInfraNode(RawNode):
         print(f'GOT A GET ELECTION STATE CALL')
         return self.election_state().model_dump(mode='json')
 
-    @node_handler(on_connect=NodeConnectionType.OUTBOUND)
+    @node_handler(event=NodeEvent.ON_CONNECT)
     def handle_outbound_conn(self, name: str):
         print(f'{Fore.YELLOW}[CONNECTION]{Fore.RESET} Connected to {name} (type=OUTBOUND)')
 
-    @node_handler(on_connect=NodeConnectionType.INBOUND)
-    def handle_inbound_conn(self, name: str):
-        print(f'{Fore.YELLOW}[CONNECTION]{Fore.RESET} Connected to {name} (type=INBOUND)')
-        if name in [ peer.name for peer in self.peers ]:
-            self.__run_challenge()
+    @node_handler(event=NodeEvent.ON_DISCONNECT)
+    def handle_outbound_disconnect(self, name: str):
+        print(f'DISCONNECTED FROM {name}')
+
+    # @node_handler(on_connect=NodeConnectionType.INBOUND)
+    # def handle_inbound_conn(self, name: str):
+    #     print(f'{Fore.YELLOW}[CONNECTION]{Fore.RESET} Connected to {name} (type=INBOUND)')
+    #     if name in [ peer.name for peer in self.peers ]:
+    #         self.__run_challenge()
 
 
-    @node_handler(on_disconnect=NodeConnectionType.OUTBOUND)
-    def handle_outbound_dconn(self, name: str):
-        print(f'{Fore.YELLOW}[DISCONNECTION]{Fore.RESET} Disconnected from {name} (type=OUTBOUND)')
+    # @node_handler(on_disconnect=NodeConnectionType.OUTBOUND)
+    # def handle_outbound_dconn(self, name: str):
+    #     print(f'{Fore.YELLOW}[DISCONNECTION]{Fore.RESET} Disconnected from {name} (type=OUTBOUND)')
 
-    @node_handler(on_disconnect=NodeConnectionType.INBOUND)
-    def handle_inbound_dconn(self, name: str):
-        print(f'{Fore.YELLOW}[DISCONNECTION]{Fore.RESET} Disconnected from {name} (type=INBOUND)')
+    # @node_handler(on_disconnect=NodeConnectionType.INBOUND)
+    # def handle_inbound_dconn(self, name: str):
+    #     print(f'{Fore.YELLOW}[DISCONNECTION]{Fore.RESET} Disconnected from {name} (type=INBOUND)')
 
     @node_handler(name='handle.catchup')
     def handle_catchup(self, body: dict):

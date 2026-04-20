@@ -3,7 +3,7 @@ from textwrap import wrap
 from ...components.template import NodeTemplate
 import traceback
 
-from typing import Callable, Any
+from typing import Callable, Any, Optional
 import inspect
 from ...components.events.event import NodeEvent, Event
 from ...components.events.connect import NodeConnectionType, EventOnConnectRegistry, EventOnDisconnectRegistry
@@ -154,19 +154,26 @@ class RoutingLayer(FunctionalLayer):
                     functor=bound_fn
                 ))
 
-            elif 'on_connect' in annotations:
+            elif 'event_rl' in annotations:
                 bound_fn = getattr(obj, class_fn.__name__)
-                self.event_maps[NodeEvent.ON_CONNECT].append(EventOnConnectRegistry(
-                    functor=bound_fn,
-                    method=annotations['on_connect']
+                # print(f'OUT: {annotations["event_rl"]}')
+                self.event_maps[annotations['event_rl']].append(EventOnConnectRegistry(
+                    functor=bound_fn
                 ))
 
-            elif 'on_dc' in annotations:
-                bound_fn = getattr(obj, class_fn.__name__)
-                self.event_maps[NodeEvent.ON_DISCONNECT].append(EventOnDisconnectRegistry(
-                    functor=bound_fn,
-                    method=annotations['on_dc']
-                ))
+            # elif 'on_connect' in annotations:
+            #     bound_fn = getattr(obj, class_fn.__name__)
+            #     self.event_maps[NodeEvent.ON_CONNECT].append(EventOnConnectRegistry(
+            #         functor=bound_fn,
+            #         method=annotations['on_connect']
+            #     ))
+
+            # elif 'on_dc' in annotations:
+            #     bound_fn = getattr(obj, class_fn.__name__)
+            #     self.event_maps[NodeEvent.ON_DISCONNECT].append(EventOnDisconnectRegistry(
+            #         functor=bound_fn,
+            #         method=annotations['on_dc']
+            #     ))
 
     def register_plugin(self, plugin):
         self.plugins.append(plugin)
@@ -182,7 +189,7 @@ class RoutingLayer(FunctionalLayer):
         return super().shutdown()
 
 
-def node_handler(name: str = None, internal_ms: int = None, on_connect: "NodeConnectionType" = None, on_disconnect: "NodeConnectionType" = None):
+def node_handler(name: str = None, internal_ms: int = None, event: Optional[NodeEvent] = None):
     if name is not None and internal_ms is not None:
         raise RuntimeError("Both 'name' and 'internal_ms' cannot be set.")
     if name is not None:
@@ -201,15 +208,10 @@ def node_handler(name: str = None, internal_ms: int = None, on_connect: "NodeCon
             }
             return fn
         return decorator
-    elif on_connect is not None:
+    elif event is not None:
         def decorator(fn):
-            fn.__annotations__['on_connect'] = on_connect
+            fn.__annotations__['event_rl'] = event
             return fn
-        return decorator
-    elif on_disconnect is not None:
-        def decorator(fn):
-            fn.__annotations__['on_dc'] = on_disconnect
-            return fn
-        return decorator
+        return decorator 
     else:
         raise RuntimeError("You must specify at least one mode of operation.")

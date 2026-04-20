@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import Callable
-from enum import Enum
+from enum import Enum, IntEnum
 from abc import ABC, abstractmethod
 
 from ..template import NodeTemplate

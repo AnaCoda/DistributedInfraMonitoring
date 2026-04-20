@@ -24,7 +24,7 @@ class EventOnConnectRegistry(Event):
         client.
     """
     functor: Callable[..., None]
-    method: NodeConnectionType
+    # method: NodeConnectionType
 
     def invoke(self, node: NodeTemplate, *args, **kwargs):
         return self.functor(*args, **kwargs)
