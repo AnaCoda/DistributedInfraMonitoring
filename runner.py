@@ -21,7 +21,7 @@ def setup_logging():
     """
     logging.basicConfig(
         level=logging.INFO,
-        format=f" {Fore.YELLOW}(%(levelname)s){Fore.RESET} %(message)s",
+        format=f" {Fore.YELLOW}(%(levelname)s) {Fore.LIGHTBLACK_EX}[%(name)s]{Fore.RESET} %(message)s",
         handlers=[
             logging.StreamHandler()
         ]

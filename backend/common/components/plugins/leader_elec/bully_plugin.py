@@ -1,3 +1,4 @@
+import logging
 import time
 
 from colorama import Fore
@@ -44,6 +45,7 @@ def _deser_bully_packet(packet: dict) -> BullyPacket:
         type=packet['type']
     )
 
+LOGGER = logging.getLogger("BULLY_PLUGIN")
 
 class BullyPlugin(Plugin):
 
@@ -162,7 +164,7 @@ class BullyPlugin(Plugin):
                     return
                 target = self.__translate_and_ensure_connect(message.destination)
                 if target is None:
-                    time.sleep(0.5)
+                    time.sleep(1.0)
                     continue
                 self.send_message(
                     target=target,
@@ -171,13 +173,13 @@ class BullyPlugin(Plugin):
                 )
                 return
             except Exception as e:
-                print(
-                    f"{Fore.RED}[BULLY][{self.get_network_name()}] "
+                LOGGER.error(
+                    f"{Fore.RED}[{self.get_network_name()}] "
                     f"send failed type={message.type} "
                     f"dest={getattr(message.destination, 'name', 'unknown')} "
                     f"err={type(e).__name__}: {e} (RETRYING, tries={tries}){Fore.RESET}"
                 )
-                time.sleep(0.5)
+                time.sleep(1.0)
         raise Exception(f'Failed to send a bully message {message}')
                 
         

@@ -9,7 +9,7 @@ from .layers.networking.networking_layer import NetLayer
 from .layers.routing.routing_layer import RoutingLayer, node_handler
 from .layers.dns.dns_layer import NameServiceLayer
 
-class RawNode(NameServiceLayer):
+class RawNode(NetLayer):
 
     def __init__(
         self,

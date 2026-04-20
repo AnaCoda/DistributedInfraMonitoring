@@ -1,10 +1,12 @@
+from enum import Enum
 from threading import Event, Thread
 from dataclasses import dataclass
-from typing import List, Optional, Callable
+from typing import List, Literal, LiteralString, Optional, Callable, Union
 
 import json
 
 from colorama import Fore, Style
+from pydantic import BaseModel
 
 from backend.common.components.util import NetworkAddress, NetworkUrl
 from backend.common.layers.simlayer.sim import SimulationLayer
@@ -30,6 +32,8 @@ def _send_raw(connection: ThreadSafeSocket, body: dict):
         body (dict): The actual message that should be sent over
         the socket.
     """
+    if isinstance(body, BaseModel):
+        body = body.model_dump(mode='json')
     stringified: str = json.dumps(body, default=lambda x : str(x))
     connection.sendall(stringified)
     
@@ -69,11 +73,21 @@ class EndpointResponse:
     reason: Optional[str]
     body: dict
 
-def _create_error(reason: str) -> dict:
-    return {
-        'status': 'fail',
-        'reason': reason
-    }
+class NetworkErrorCode(str, Enum):
+    EXISTING_CONNECTION = 'existing_connection'
+    OTHER = 'other'
+
+class NetworkResponse(BaseModel):
+    status: Union[Literal['fail'], Literal['success']]
+    error: Optional[NetworkErrorCode]
+    reason: str
+
+def _create_error(reason: str, error: NetworkErrorCode = NetworkErrorCode.OTHER) -> NetworkResponse:
+    return NetworkResponse(
+        status='fail',
+        error=error,
+        reason=reason
+    )
 
 def _unpack_response(body: dict) -> EndpointResponse:
     """
@@ -238,7 +252,7 @@ class NetLayer(SimulationLayer):
                 # block will remove the original connection.
                 should_cleanup = False
                 print(f'[{self.get_network_name()}] We already have a connection for {name}, so denying the incoming connection.')
-                _send_raw(socket, _create_error(f'connection already exists for {name}'))
+                _send_raw(socket, _create_error(f'connection already exists for {name}', error=NetworkErrorCode.EXISTING_CONNECTION))
                 socket.close()
                 return
             
@@ -498,8 +512,7 @@ class NetLayer(SimulationLayer):
         if isinstance(address, tuple):
             address = f'ws://{address[0]}:{address[1]}'
 
-        print(f'Connecting 2 {address}')
-
+     
         connection = ThreadSafeSocket(
             ws_connect(
                 address,

@@ -1,3 +1,4 @@
+import logging
 from typing import Iterable, Optional, Callable
 from threading import Lock
 from dataclasses import dataclass
@@ -48,6 +49,8 @@ class BullyElectionHook(Enum):
 
 
 from ..state_machine import StateMachine, BaseStateMachine
+
+LOGGER = logging.getLogger("BULLY_SM")
 
 class BullyElectionNode(BaseStateMachine):
 
@@ -216,8 +219,8 @@ class BullyElectionNode(BaseStateMachine):
     def __print(self, msg: str):
         if self.verbose:
             import colorama
-            print(f'{colorama.Fore.RED}[BULLY]{colorama.Fore.RESET} ', end='')
-            print(msg)
+            LOGGER.info(msg)
+            # print(msg)
 
     def __set_leader(self, leader_id: tuple[int, str]):
         self.current_leader = leader_id
