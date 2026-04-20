@@ -3,6 +3,7 @@ import time
 
 from colorama import Fore
 
+from backend.common.components.events.event import NodeEvent
 from backend.common.components.util import NetworkEntry
 
 from ..plugin import Plugin
@@ -158,38 +159,38 @@ class BullyPlugin(Plugin):
         # raise RuntimeError(f'Failed to ensure connection with target={target}')
 
     def __handle_bully_message(self, message: BullyPacket):
-        tries = 0
-        while not self.is_shutting_down():
-            tries += 1
-            if tries > 1:
-                break
-            try:
-                if message.destination.name == self.get_network_name():
-                    return
-                # print(f'Trying to send {message.destination.name}')
-                if not self.has_connection(message.destination.name):
-                    # print(f'  BLOCKED!')
-                    return
-                # print(f'Trying to send {message.destination.name}')
-                target = self.__translate_and_ensure_connect(message.destination)
-                if target is None:
-                    time.sleep(1.0)
-                    continue
-                self.send_message(
-                    target=target,
-                    method="handle.bully.msg",
-                    body=_serialize_bully_packet(message)
-                )
+        # tries = 0
+        # while not self.is_shutting_down():
+            # tries += 1
+            # if tries > 1:
+            #     break
+        try:
+            if message.destination.name == self.get_network_name():
                 return
-            except Exception as e:
-                LOGGER.error(
-                    f"{Fore.RED}[{self.get_network_name()}] "
-                    f"send failed type={message.type} "
-                    f"dest={getattr(message.destination, 'name', 'unknown')} "
-                    f"err={type(e).__name__}: {e} (RETRYING, tries={tries}){Fore.RESET}"
-                )
-                time.sleep(1.0)
-        raise Exception(f'Failed to send a bully message {message}')
+            # print(f'Trying to send {message.destination.name}')
+            if not self.has_connection(message.destination.name):
+                # print(f'  BLOCKED!')
+                return
+            # print(f'Trying to send {message.destination.name}')
+            target = self.__translate_and_ensure_connect(message.destination)
+            if target is None:
+                return
+            self.send_message(
+                target=target,
+                method="handle.bully.msg",
+                body=_serialize_bully_packet(message)
+            )
+            return
+        except Exception as e:
+            LOGGER.error(
+                f"{Fore.RED}[{self.get_network_name()}] "
+                f"send failed type={message.type} "
+                f"dest={getattr(message.destination, 'name', 'unknown')} "
+                f"err={type(e).__name__}: {e} (RETRYING){Fore.RESET}"
+            )
+            time.sleep(1.0)
+            LOGGER.error("Failed to send a bully message.")
+        # raise Exception(f'Failed to send a bully message {message}')
                 
         
 
@@ -215,6 +216,12 @@ class BullyPlugin(Plugin):
             if item.unique_id == unique_id:
                 return item
         return None
+    
+    @node_handler(event=NodeEvent.ON_CONNECT)
+    def on_connect_bully(self, name: str):
+        if self.node.current_leader() is None:
+            # We do not currently have a leader.
+            print(f'CONNECTING LEADERLESS')
 
     @node_handler(internal_ms=50)
     def poll_internal_node(self):

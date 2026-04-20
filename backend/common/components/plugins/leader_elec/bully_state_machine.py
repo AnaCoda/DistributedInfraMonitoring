@@ -187,7 +187,7 @@ class BullyElectionNode(BaseStateMachine):
         self.state = state
         self.last_state_change = self.get_time()
 
-    def __start_election(self):
+    def start_election(self):
         with self.election_lock:
             if self.election_in_progress:
                 return
@@ -267,7 +267,7 @@ class BullyElectionNode(BaseStateMachine):
                     self.current_leader = None
                     self.election_in_progress = False
                     self.__set_state(_BullyState.IDLE)
-                    self.__start_election()
+                    self.start_election()
                 else:
                     state.state = HBMsgState.DEAD
                     self.__print(
@@ -299,7 +299,7 @@ class BullyElectionNode(BaseStateMachine):
             and self.state == _BullyState.WAITING_FOR_LEADER
             and self.__time_since_last_state_change() > self.timeout
         ):
-            self.__start_election()
+            self.start_election()
 
         if packet is not None:
             if packet.type == 'LEADER':
@@ -324,7 +324,7 @@ class BullyElectionNode(BaseStateMachine):
                     if self.current_leader == self.node_id and not self.election_in_progress:
                         self.outbox.append(BullyPacket('LEADER', packet.source))
                     elif not self.election_in_progress:
-                        self.__start_election()
+                        self.start_election()
 
             elif packet.type == 'BULLY':
                 if self.state == _BullyState.WAIT_ELECTION:
@@ -344,7 +344,7 @@ class BullyElectionNode(BaseStateMachine):
                 )
         else:
             if self.current_leader is None and not self.election_in_progress:
-                self.__start_election()
+                self.start_election()
 
         self.__manage_heartbeats()
 

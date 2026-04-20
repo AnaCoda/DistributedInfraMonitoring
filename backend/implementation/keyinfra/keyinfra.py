@@ -1,6 +1,7 @@
 
 from abc import abstractmethod
 from hashlib import sha256
+import logging
 import time
 from typing import Any, Callable, Dict, List, Tuple
 
@@ -89,7 +90,7 @@ class KeyInfraNode(RawNode):
     
     @node_handler(name='ping.re')
     def handle_pingre(self, body: dict):
-        return { 'name': self.get_network_name() }
+        return { 'name': self.get_network_name(), 'leader': self.leader_election.current_leader() }
     
     @node_handler(internal_ms=750)
     def pinger_int(self):
@@ -100,7 +101,8 @@ class KeyInfraNode(RawNode):
             # print(f'[PING] [{self.get_network_name()} -> {peer.name}] Starting ping...')
             try:
                 o = self.send_message(peer.name, 'ping.re', {})
-                print(f'[PING] [{self.get_network_name()} -> {peer.name}] Ping succeeded: {o}')
+                logging.info(f'[PING] [{self.get_network_name()} -> {peer.name}] Ping succeeded: {o} (local_leader={self.leader_election.current_leader()})')
+                logging.info(f'HEARTBEATS: {self.leader_election.node.heartbeat}')
             except Exception as e:
                 pass
                 # print(

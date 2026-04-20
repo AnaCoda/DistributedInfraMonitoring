@@ -384,7 +384,6 @@ class NetLayer(SimulationLayer):
         # TODO: Add a named lock herew.
         with self.__target_gate.gate(target):
             if not self.connection_map.has_connection(target):
-                print(f"keying in... {target}")
                 preallocation = self.connection_map.get_preallocation(target)
 
                 # Get the preallocation.
