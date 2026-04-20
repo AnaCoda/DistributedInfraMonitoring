@@ -313,8 +313,10 @@ class ReplicationPlugin(Plugin):
 
         with self.__core_lock:
             for op in operations:
-                self.__core.receive(ReplicationMsg.from_op(ReplicationOp.OPERATION, op))
-                self.__apply_operation(op)
-                self.__poll_unlocked()
+                if op.get_seq_num() <= self.__core.replication_log.get_sequence_pos():
+                    continue
 
+                self.__core.replication_log.add_log(op)
+                self.__apply_operation(op)
+            print(f'[{self.get_network_name()}] Catchup applied through seq={self.__core.replication_log.get_sequence_pos()}')
             self.__core._set_state(ReplicationStateMachineState.EXECUTING)
