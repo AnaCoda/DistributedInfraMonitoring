@@ -19,19 +19,10 @@ $ terraform destroy
 $ terraform apply
 ```
 4. **However in most cases we are simply interested in updating the codebase** and thus we can run the following command:
-```powershell
-.\scripts\redeploy-ec2.ps1 -KeyPath "C:\path\to\your-key.pem"
+```bash
+$ uv run python -m replication.redeploy --key "$HOME\.ssh\Homer-Sus2.pem"
 ```
 
-Redeploy only one node type:
-
-```powershell
-.\scripts\redeploy-ec2.ps1 -Role capital -KeyPath "C:\path\to\your-key.pem"
-.\scripts\redeploy-ec2.ps1 -Role regional -KeyPath "C:\path\to\your-key.pem"
-.\scripts\redeploy-ec2.ps1 -Role infra -KeyPath "C:\path\to\your-key.pem"
-```
-
-If your SSH agent or SSH config already knows the key, omit `-KeyPath`.
 
 Monitoring
 

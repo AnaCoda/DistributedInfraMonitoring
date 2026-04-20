@@ -14,7 +14,7 @@ class SimulationLayer(RoutingLayer):
 
     @node_handler(name='sim.version')
     def handle_sim_version(self, body: dict):
-        return { 'version': '1.0.0' }
+        return { 'version': '1.0.1' }
 
     @node_handler(name='sim.down')
     def handle_sim_down(self, body: dict):
