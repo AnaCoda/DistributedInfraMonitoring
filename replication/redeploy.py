@@ -74,6 +74,7 @@ if __name__ == '__main__':
     try:
         parser = argparse.ArgumentParser()
         parser.add_argument('--key', required=True)
+        parser.add_argument('--autocommit', action='store_true', default=False)
         args = parser.parse_args()
 
         if not os.path.exists('Terraform'):
@@ -82,10 +83,15 @@ if __name__ == '__main__':
             _error('Could not find directory relative to path: \'Terraform/\'')
             exit(1)
 
+        
+
         if not os.path.exists(args.key):
             # Let us make sure that the keyfile actually exists.
             _error(f'Could not find keyfile at path: {args.key}')
             exit(1)
+
+        # if args.autocommit:
+            # subprocess.run(['git', 'add . && git commit -m'])
 
         targets = get_terraform_files()
         for idx in range(len(targets)):

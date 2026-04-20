@@ -123,39 +123,47 @@ class BullyPlugin(Plugin):
     def on_become_leader(self):
         self.host.on_become_leader()
 
-    def __translate_and_ensure_connect(self, destination: BullyPeer) -> str:
+    def __translate_and_ensure_connect(self, destination: BullyPeer) -> Optional[str]:
         target, ip, port = self.peer_translator[destination]
 
 
-        for i in range(10):
-            if target == self.get_network_name():
-                return target
-
-            if not self.has_connection(target):
-                if not self._try_connect(NetworkAddress(ip=ip, port=port)):
-                    time.sleep(0.75)
-                    continue
-                # self.connect((ip, port))
+        # for i in range(10):
+        if target == self.get_network_name():
             return target
-        raise RuntimeError(f'Failed to ensure connection with target={target}')
+
+        if not self.has_connection(target):
+            if not self._try_connect(NetworkAddress(ip=ip, port=port)):
+                raise None
+                # time.sleep(0.75)
+                # continue
+            # self.connect((ip, port))
+        return target
+        # raise RuntimeError(f'Failed to ensure connection with target={target}')
 
     def __handle_bully_message(self, message: BullyPacket):
-        try:
-            if message.destination.name == self.get_network_name():
-                return
-            target = self.__translate_and_ensure_connect(message.destination)
-            self.send_message_no_wait(
-                target=target,
-                method="handle.bully.msg",
-                body=_serialize_bully_packet(message)
-            )
-        except Exception as e:
-            print(
-                f"{Fore.RED}[BULLY][{self.get_network_name()}] "
-                f"send failed type={message.type} "
-                f"dest={getattr(message.destination, 'name', 'unknown')} "
-                f"err={type(e).__name__}: {e}{Fore.RESET}"
-            )
+        tries = 0
+        while True:
+            tries += 1
+            try:
+                if message.destination.name == self.get_network_name():
+                    return
+                target = self.__translate_and_ensure_connect(message.destination)
+                if target is None:
+                    continue
+                self.send_message_no_wait(
+                    target=target,
+                    method="handle.bully.msg",
+                    body=_serialize_bully_packet(message)
+                )
+            except Exception as e:
+                print(
+                    f"{Fore.RED}[BULLY][{self.get_network_name()}] "
+                    f"send failed type={message.type} "
+                    f"dest={getattr(message.destination, 'name', 'unknown')} "
+                    f"err={type(e).__name__}: {e} (RETRYING, tries={tries}){Fore.RESET}"
+                )
+                
+                
         
 
     def __handle_bully_messages(self, messages: list[BullyPacket]):
