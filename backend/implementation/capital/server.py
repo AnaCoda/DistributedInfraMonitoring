@@ -217,8 +217,7 @@ class CapitalNode(RawNode):
         self.replica_ready_signal.ready()
 
 
-    @node_handler(name="api.national_infrastructure")
-    def get_national_status(self, _m):
+    def _national_infrastructure_snapshot(self) -> dict:
         self.replica_ready_signal.barrier()
 
         while not self.replica_state.is_consistent():
@@ -230,6 +229,14 @@ class CapitalNode(RawNode):
             "leader": self.current_leader,
             "capital": self.current_capital,
         }
+
+    @node_handler(name="query.capital")
+    def query_capital(self, _m):
+        return self._national_infrastructure_snapshot()
+
+    @node_handler(name="api.national_infrastructure")
+    def get_national_status(self, _m):
+        return self._national_infrastructure_snapshot()
 
     @node_handler(name="api.get_region_state")
     def get_region_state(self, body: dict, _sender: str):

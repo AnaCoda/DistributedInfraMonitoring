@@ -59,7 +59,7 @@
     <div class="pb-6 flex flex-row gap-3 flex-wrap">
       <div
         class="p-1 pl-2 border-gray-500 border rounded-full flex justify-center items-center gap-2 flex-row"
-        v-for="value in connected"
+        v-for="value in connectedEndpoints"
         :key="value"
       >
         <div class="w-4 h-4 border bg-green-400 rounded-full"></div>
@@ -75,10 +75,7 @@
       v-else-if="regions.length === 0"
       class="p-4 border border-dashed border-gray-300 rounded-lg text-sm text-gray-600"
     >
-      No regions reporting yet. Start nodes like:
-      <pre
-        class="mt-2 bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto"
-      >{{ exampleCommands }}</pre>
+      No regions reporting yet.
     </div>
 
     <div v-else>
@@ -276,61 +273,16 @@ import MapView from "./components/MapView.vue";
 
 // ---- State ----
 
-const data = ref({
-  "Capital": {
-    state: { power: "stable", transport: "operational", medical_capacity: 100, water_capacity: 100, fuel_storage: 100 },
-    meta: { region_type: "CapitalNode", sites: [] }
-  },
-  "Alberta": {
-    state: { power: "stable", transport: "operational", medical_capacity: 85, water_capacity: 92, fuel_storage: 95 },
-    meta: { 
-      region_type: "StandardRegionNode", 
-      sites: [
-        { name: "pp-1", resource_type: "Powerplant", resource_value: "stable" },
-        { name: "h-1", resource_type: "Hospital", resource_value: 85 },
-        { name: "rr-1", resource_type: "Railroad", resource_value: "operational" },
-        { name: "wtp-1", resource_type: "Water Treatment Plant", resource_value: 92 },
-        { name: "fd-1", resource_type: "Fuel Depot", resource_value: 95 }
-      ] 
-    }
-  },
-  "British Columbia": {
-    state: { power: "stable", transport: "operational", medical_capacity: 95, water_capacity: 100, fuel_storage: 80 },
-    meta: { 
-      region_type: "UrbanRegionNode", 
-      sites: [
-        { name: "pp-1", resource_type: "Powerplant", resource_value: "stable" },
-        { name: "h-1", resource_type: "Hospital", resource_value: 95 }
-      ] 
-    }
-  },
-  "Quebec": {
-    state: { power: "unstable", transport: "down", medical_capacity: 15, water_capacity: 40, fuel_storage: 10 },
-    meta: { 
-      region_type: "StandardRegionNode", 
-      sites: [
-        { name: "pp-1", resource_type: "Powerplant", resource_value: "unstable" },
-        { name: "h-1", resource_type: "Hospital", resource_value: 15 }
-      ] 
-    }
-  }
-});
-const heartbeats = ref({
-  "rm-1": { name: "Capital", last_contact: new Date().toISOString(), is_leader: true },
-  "rm-2": { name: "Capital", last_contact: new Date().toISOString(), is_leader: false },
-  "reg-1": { name: "Alberta", last_contact: new Date().toISOString(), is_leader: true },
-  "reg-2": { name: "Alberta", last_contact: new Date().toISOString(), is_leader: false },
-  "bc-1": { name: "British Columbia", last_contact: new Date().toISOString(), is_leader: true },
-  "qc-1": { name: "Quebec", last_contact: new Date(Date.now() - 10000).toISOString(), is_leader: true }
-});
-const loading = ref(false);
+const data = ref({});
+const heartbeats = ref({});
+const loading = ref(true);
 const error = ref("");
 const lastFetch = ref(null);
 const connectedEndpoint = ref("");
-const leader = ref("rm-1");
-const capital = ref("rm-1");
-const connected = ref([]);
-const sockets = new Map();
+const leader = ref("");
+const capital = ref("");
+const connectedEndpoints = ref([]);
+const activeSocket = ref(null);
 
 let reconnectTimer = null;
 
@@ -338,25 +290,35 @@ const expanded = reactive({});
 const wsStatus = ref("disconnected");
 const viewMode = ref("grid");
 
+function isValidWsUrl(url) {
+  try {
+    const u = new URL(url);
+    return (u.protocol === "ws:" || u.protocol === "wss:") && Boolean(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** Default: live capital replicas (TLS). Override with VITE_WS_ENDPOINTS. */
 const wsCandidates = (() => {
   const raw = (import.meta.env.VITE_WS_ENDPOINTS || "").trim();
-  const defaults = [
-    "ws://localhost:4001",
-    "ws://localhost:4002",
-    "ws://localhost:4003",
-    "ws://localhost:4004",
+  const liveCapitalDefaults = [
+    "wss://rm-1.warsys.click",
+    "wss://rm-2.warsys.click",
+    "wss://rm-3.warsys.click",
+    "wss://carstairs-r1.warsys.click",
+    "wss://carstairs-r2.warsys.click",
+    "wss://carstairs-r3.warsys.click",
+    "wss://hospital-1.warsys.click",
   ];
-
   const parsed = raw
     ? raw.split(",").map(v => v.trim()).filter(Boolean)
-    : defaults;
-
-  return [...new Set(parsed.filter(url => /^ws:\/\/localhost:4\d{3}$/i.test(url)))];
+    : liveCapitalDefaults;
+  return [...new Set(parsed.filter(isValidWsUrl))];
 })();
 
-const exampleCommands = [
-  "python -m replication.failover_demo",
-].join("\n");
+/** Deployed capitals use `query.capital`. Override with VITE_WS_REFRESH_ROUTE if needed. */
+const refreshRoute = (import.meta.env.VITE_WS_REFRESH_ROUTE || "query.capital").trim();
 
 function toggleSites(name) {
   expanded[name] = !expanded[name];
@@ -438,10 +400,90 @@ const lastFetchText = computed(() => {
 
 const endpointLabel = computed(() => {
   if (!connectedEndpoint.value) return "";
-  return connectedEndpoint.value.replace(/^ws:\/\//, "");
+  return connectedEndpoint.value.replace(/^wss?:\/\//, "");
 });
 
 // ---- State update handler ----
+
+function typeMatches(resourceType, needles) {
+  const t = (resourceType ?? "").toLowerCase();
+  return needles.some(n => t.includes(n.toLowerCase()));
+}
+
+function inferStringMetric(sites, typeNeedles) {
+  const s = sites.find(x => typeMatches(x.resource_type, typeNeedles));
+  if (!s) return "unknown";
+  const v = s.resource_value;
+  return typeof v === "string" && v.length ? v : "unknown";
+}
+
+function maxNumericByNeedles(sites, typeNeedles) {
+  let best = null;
+  for (const s of sites) {
+    if (!typeMatches(s.resource_type, typeNeedles)) continue;
+    const n = Number(s.resource_value);
+    if (!Number.isNaN(n)) best = best === null ? n : Math.max(best, n);
+  }
+  return best;
+}
+
+/**
+ * Maps live `query.capital` body (regions → infrastructure → sites) into the dashboard shape.
+ */
+function applyCapitalQuery(body) {
+  const regions = body?.regions;
+  if (!regions || typeof regions !== "object") return;
+
+  const capitalName = body.name ?? "";
+  const nextState = {};
+  const nextHb = {};
+
+  for (const [regionKey, regRaw] of Object.entries(regions)) {
+    const rname = regRaw?.name ?? regionKey;
+    const infra = regRaw?.infrastructure ?? {};
+    const sites = [];
+
+    for (const [siteKey, siteRaw] of Object.entries(infra)) {
+      const n = siteRaw?.name ?? siteKey;
+      const rt = siteRaw?.resource_type ?? "Unknown";
+      const rv = siteRaw?.value ?? siteRaw?.resource_value ?? null;
+      sites.push({ name: n, resource_type: rt, resource_value: rv });
+    }
+
+    const medical = maxNumericByNeedles(sites, ["hospital"]);
+    const water = maxNumericByNeedles(sites, ["water"]);
+    const fuel = maxNumericByNeedles(sites, ["fuel", "depot"]);
+
+    nextState[rname] = {
+      state: {
+        power: inferStringMetric(sites, ["powerplant", "power"]),
+        transport: inferStringMetric(sites, ["railroad", "rail", "transport"]),
+        medical_capacity: medical ?? 0,
+        water_capacity: water ?? 0,
+        fuel_storage: fuel ?? 0,
+      },
+      meta: {
+        region_type: "StandardRegionNode",
+        sites,
+      },
+    };
+
+    // Key by region name so normalizeRegion() finds hb[name].
+    nextHb[rname] = {
+      name: rname,
+      last_contact: new Date().toISOString(),
+      is_leader: true,
+    };
+  }
+
+  data.value = nextState;
+  heartbeats.value = nextHb;
+  leader.value = capitalName;
+  capital.value = capitalName;
+  lastFetch.value = Date.now();
+  loading.value = false;
+  error.value = "";
+}
 
 function applyStateUpdate(body) {
   const root = body.__state ?? body ?? {};
@@ -454,62 +496,195 @@ function applyStateUpdate(body) {
   error.value = "";
 }
 
-// ---- WebSocket ----
+const WS_LOG = "[InfraMonitor WS]";
 
-async function tryConnect(endpoint) {
-  if (sockets.has(endpoint)) return;
+/** Shapes `query.capital` bodies for console (full sites per region, not only region names). */
+function summarizeCapitalResponseBody(body) {
+  const regions = body?.regions;
+  if (!regions || typeof regions !== "object" || Array.isArray(regions)) return body;
+  const out = {};
+  for (const [regionKey, reg] of Object.entries(regions)) {
+    const infra = reg?.infrastructure ?? {};
+    out[regionKey] = {
+      name: reg?.name ?? regionKey,
+      sites: Object.entries(infra).map(([siteKey, site]) => ({
+        name: site?.name ?? siteKey,
+        resource_type: site?.resource_type,
+        value: site?.value ?? site?.resource_value,
+      })),
+    };
+  }
+  return { name: body.name, regions: out };
+}
 
-  let ws = null;
+function handleWsMessage(raw) {
+  let msg;
   try {
-    ws = new WebSocket(endpoint);
+    msg = JSON.parse(raw);
+  } catch {
+    console.warn(WS_LOG, "non-JSON message", raw?.slice?.(0, 200) ?? raw);
+    return;
+  }
+  const body = msg.body;
+  const preview =
+    body && typeof body === "object" && body.regions && typeof body.regions === "object" && !Array.isArray(body.regions)
+      ? summarizeCapitalResponseBody(body)
+      : body;
+  console.info(WS_LOG, "←", msg.route, msg.rid ? `(rid ${String(msg.rid).slice(0, 8)}…)` : "", preview);
+  if (msg.route === "push.state_update" || msg.route === "push.replica_state_update") {
+    applyStateUpdate(msg.body ?? {});
+    return;
+  }
+  if (msg.route === "__response") {
+    const b = msg.body ?? {};
+    if (b.regions && typeof b.regions === "object" && !Array.isArray(b.regions)) {
+      applyCapitalQuery(b);
+    } else {
+      applyStateUpdate(b);
+    }
+  }
+}
 
-    await Promise.race([
-      new Promise((resolve, reject) => {
-        ws.addEventListener("error", reject, { once: true });
-        ws.addEventListener("open", resolve, { once: true });
-      }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Connection timed out")), 1000))
-    ]);
+function packRpc(route, body = {}) {
+  return {
+    route,
+    rid: crypto.randomUUID(),
+    fireforget: false,
+    body,
+  };
+}
 
-    ws.send(JSON.stringify({ name: `Frontend-${crypto.randomUUID()}` }));
-    const handshake = await new Promise(resolve => {
-      ws.addEventListener("message", e => resolve(JSON.parse(e.data)), { once: true });
-    });
+const WS_OPEN_TIMEOUT_MS = 8000;
 
-    if (handshake.status !== "success") {
-      ws.close();
+/** If "1"/"true", each candidate is tried again as wss://same-host-and-path (TLS). */
+const tryWssAlternate =
+  import.meta.env.VITE_WS_TRY_WSS === "1" || import.meta.env.VITE_WS_TRY_WSS === "true";
+
+const lastConnectDiag = ref("");
+
+function scheduleReconnect(ms) {
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(connectWs, ms);
+}
+
+function alternateTlsUrl(endpoint) {
+  try {
+    const u = new URL(endpoint);
+    const host = u.host;
+    const path = `${u.pathname}${u.search}`;
+    return u.protocol === "ws:" ? `wss://${host}${path}` : `ws://${host}${path}`;
+  } catch {
+    return null;
+  }
+}
+
+function endpointsToTry(primary) {
+  const list = [primary];
+  if (tryWssAlternate) {
+    const alt = alternateTlsUrl(primary);
+    if (alt && alt !== primary) list.push(alt);
+  }
+  return list;
+}
+
+/**
+ * Wait until open, or fail with close code / timeout (browser "error" gives no details).
+ */
+function waitUntilOpen(ws, ms) {
+  return new Promise((resolve, reject) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      resolve();
       return;
     }
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`open timed out after ${ms}ms`));
+    }, ms);
+    const onOpen = () => {
+      cleanup();
+      resolve();
+    };
+    const onClose = ev => {
+      cleanup();
+      const detail = `closed before open (code ${ev.code}${ev.reason ? ` ${ev.reason}` : ""})`;
+      reject(new Error(detail));
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error("error event (often TCP blocked, wrong port, or TLS mismatch — see UI hint)"));
+    };
+    function cleanup() {
+      clearTimeout(timer);
+      ws.removeEventListener("open", onOpen);
+      ws.removeEventListener("close", onClose);
+      ws.removeEventListener("error", onError);
+    }
+    ws.addEventListener("open", onOpen, { once: true });
+    ws.addEventListener("close", onClose, { once: true });
+    ws.addEventListener("error", onError, { once: true });
+  });
+}
 
-    sockets.set(endpoint, ws);
-    wsStatus.value = "connected";
+async function tryOpenCapitalSocket(endpoint) {
+  let ws = null;
+  try {
+    console.info(WS_LOG, "connecting", endpoint);
+    ws = new WebSocket(endpoint);
+    await waitUntilOpen(ws, WS_OPEN_TIMEOUT_MS);
+    console.info(WS_LOG, "socket open", { url: ws.url, readyState: ws.readyState });
+
+    ws.send(JSON.stringify({ name: `Frontend-${crypto.randomUUID()}` }));
+    const handshake = await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error("Handshake timed out")), WS_OPEN_TIMEOUT_MS);
+      ws.addEventListener(
+        "message",
+        e => {
+          clearTimeout(t);
+          resolve(JSON.parse(e.data));
+        },
+        { once: true }
+      );
+    });
+    console.info(WS_LOG, "handshake", handshake);
+
+    if (handshake.status !== "success") {
+      console.warn(WS_LOG, "handshake rejected", handshake);
+      ws.close();
+      return null;
+    }
+
+    ws.addEventListener("message", event => handleWsMessage(event.data));
+
+    ws.addEventListener("close", ev => {
+      console.info(WS_LOG, "close", { code: ev.code, reason: ev.reason || "(none)", wasClean: ev.wasClean });
+      if (import.meta.env.DEV) {
+        delete window.__infraMonitorWS;
+      }
+      if (activeSocket.value === ws) {
+        activeSocket.value = null;
+        connectedEndpoint.value = "";
+        connectedEndpoints.value = [];
+        wsStatus.value = "disconnected";
+        scheduleReconnect(2500);
+      }
+    });
+
+    activeSocket.value = ws;
     connectedEndpoint.value = endpoint;
+    connectedEndpoints.value = [endpoint.replace(/^wss?:\/\//, "")];
+    wsStatus.value = "connected";
     error.value = "";
 
-    connected.value = connected.value.filter(x => x !== endpoint);
-    connected.value.push(endpoint);
+    if (import.meta.env.DEV) {
+      window.__infraMonitorWS = ws;
+      console.info(WS_LOG, "live socket on window.__infraMonitorWS (dev only)", ws);
+    }
 
     refreshNow(ws);
-
-    ws.addEventListener("close", () => {
-      sockets.delete(endpoint);
-      connected.value = connected.value.filter(x => x !== endpoint);
-
-      if (connected.value.length === 0) {
-        wsStatus.value = "disconnected";
-        connectedEndpoint.value = "";
-      }
-    });
-
-    ws.addEventListener("message", (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.route === "push.state_update" || msg.route === "push.replica_state_update") {
-        applyStateUpdate(msg.body ?? {});
-      } else if (msg.route === "__response") {
-        applyStateUpdate(msg.body ?? {});
-      }
-    });
-  } catch (_e) {
+    return ws;
+  } catch (e) {
+    console.warn(WS_LOG, "connect failed", endpoint, e?.message || e);
+    lastConnectDiag.value = `${endpoint}: ${e?.message || e}`;
     if (ws) {
       try {
         ws.close();
@@ -517,62 +692,72 @@ async function tryConnect(endpoint) {
         // ignore
       }
     }
+    return null;
   }
 }
 
 async function connectWs() {
-  if (connected.value.length === 0) {
-    wsStatus.value = "connecting";
-  }
-
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
 
-  const attempts = [];
+  if (activeSocket.value && activeSocket.value.readyState === WebSocket.OPEN) {
+    return;
+  }
+
+  if (!wsCandidates.length) {
+    error.value = "No WebSocket endpoints configured (check VITE_WS_ENDPOINTS).";
+    wsStatus.value = "disconnected";
+    loading.value = false;
+    scheduleReconnect(5000);
+    return;
+  }
+
+  wsStatus.value = "connecting";
+
   for (const endpoint of wsCandidates) {
-    if (!connected.value.includes(endpoint) && !sockets.has(endpoint)) {
-      attempts.push(tryConnect(endpoint));
+    for (const ep of endpointsToTry(endpoint)) {
+      const ws = await tryOpenCapitalSocket(ep);
+      if (ws) return;
     }
   }
 
-  await Promise.allSettled(attempts);
-
-  if (connected.value.length === 0 && sockets.size === 0) {
-    error.value = "WebSocket error: no replica reachable";
-    wsStatus.value = "disconnected";
-    connectedEndpoint.value = "";
-  }
-
-  reconnectTimer = setTimeout(connectWs, 2000);
+  const hint =
+    "No endpoint accepted the connection. Confirm DNS, TLS (wss), and that WebSockets are allowed from this network. " +
+    "For local capital without TLS, set VITE_WS_ENDPOINTS to ws://127.0.0.1:… (see example below).";
+  error.value = `WebSocket: no capital reachable. ${hint} Last: ${lastConnectDiag.value || "unknown"}`;
+  wsStatus.value = "disconnected";
+  loading.value = false;
+  scheduleReconnect(3000);
 }
 
 function refreshNow(ws) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({
-    route: "api.national_infrastructure",
-    rid: crypto.randomUUID(),
-    body: {}
-  }));
+  const payload = packRpc(refreshRoute, {});
+  console.info(WS_LOG, "→", payload.route, `(rid ${String(payload.rid).slice(0, 8)}…)`);
+  ws.send(JSON.stringify(payload));
 }
 
 function refreshNowAll() {
-  for (const ws of sockets.values()) {
-    refreshNow(ws);
-  }
+  refreshNow(activeSocket.value);
 }
 
 onMounted(() => connectWs());
 onUnmounted(() => {
   if (reconnectTimer) clearTimeout(reconnectTimer);
-  for (const ws of sockets.values()) {
+  reconnectTimer = null;
+  const ws = activeSocket.value;
+  activeSocket.value = null;
+  if (import.meta.env.DEV) {
+    delete window.__infraMonitorWS;
+  }
+  if (ws) {
     try {
       ws.close();
     } catch {
       // ignore
     }
   }
-  sockets.clear();
 });
 </script>
