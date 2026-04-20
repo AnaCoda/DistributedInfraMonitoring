@@ -1,4 +1,5 @@
 from __future__ import annotations
+from textwrap import wrap
 from ...components.template import NodeTemplate
 import traceback
 
@@ -7,7 +8,7 @@ import inspect
 from ...components.events.event import NodeEvent, Event
 from ...components.events.connect import NodeConnectionType, EventOnConnectRegistry, EventOnDisconnectRegistry
 from dataclasses import dataclass
-from threading import Event
+from threading import Event, Thread
 from concurrent.futures import ThreadPoolExecutor
 from ...components.sync.signal import HoldSignal
 import time
@@ -75,9 +76,11 @@ class RoutingLayer(FunctionalLayer):
         if self.is_shutting_down():
             return
         if function_args is None:
-            self.executor.submit(wrapped)
+            Thread(target=wrapped, daemon=True).start()
+            # self.executor.submit(wrapped)
         else:
-            self.executor.submit(wrapped, *function_args)
+            Thread(target=wrapped, args=function_args, daemon=True).start()
+            # self.executor.submit(wrapped, *function_args)
 
     def launch_interval_functor(
         self,
