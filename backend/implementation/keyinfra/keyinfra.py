@@ -141,6 +141,15 @@ class KeyInfraNode(RawNode):
         target: str
     ):
         
+        version_dict = {}
+        for peer in self.peers:
+            if self.has_connection(peer.name):
+                try:
+                    o = self.send_message(peer.name, 'replication.version', {})['version']
+                    version_dict[peer.name] = o
+                except Exception:
+                    pass
+        print(f'ON ELECT PEER DICT: {version_dict}')
 
 
         self.replication_plugin.set_leader(target)
