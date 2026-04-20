@@ -300,3 +300,21 @@ class ReplicationPlugin(Plugin):
         with self.__core_lock:
             # print(f'Polling: {self.get_network_name()}')
             self.__poll_unlocked()
+
+    def apply_catchup_payload(self, payload: Dict[str, Any]):
+        logs = payload.get('logs', [])
+        if not logs:
+            with self.__core_lock:
+                self.__core._set_state(ReplicationStateMachineState.EXECUTING)
+            return
+
+        operations = [Operation(**op) for op in logs]
+        operations.sort(key=lambda op: op.get_seq_num())
+
+        with self.__core_lock:
+            for op in operations:
+                self.__core.receive(ReplicationMsg.from_op(ReplicationOp.OPERATION, op))
+                self.__apply_operation(op)
+                self.__poll_unlocked()
+
+            self.__core._set_state(ReplicationStateMachineState.EXECUTING)

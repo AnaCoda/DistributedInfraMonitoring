@@ -121,7 +121,35 @@ class ReplicationStateMachine(BaseStateMachine):
                 # We ignore all other packets.
                 return
         elif self.get_state() == ReplicationStateMachineState.LEADER_SYNC:
-            pass
+            if packet is None:
+                return False
+
+            if packet.op == ReplicationOp.REQUEST_MISSING:
+                return self.__handle_leader_async(packet)
+
+            if packet.op == ReplicationOp.SYNC_REQUEST:
+                return self.__handle_leader_async(packet)
+
+            # While leader is syncing, do not accept new operations yet.
+            if packet.op == ReplicationOp.OPERATION:
+                return False
+
+            if packet.op == ReplicationOp.RESEND:
+                ops: list[Operation] = [Operation(**op) for op in packet.body['logs']]
+                ops.sort(key=lambda k: k.get_seq_num())
+                for op in ops:
+                    self.replication_log.add_log(op)
+                self._set_state(ReplicationStateMachineState.EXECUTING)
+                return True
+
+            if packet.op == ReplicationOp.SYNC_RESPONSE:
+                logs = packet.body['logs']
+                for log in logs:
+                    self.replication_log.add_log(Operation(**log))
+                self._set_state(ReplicationStateMachineState.EXECUTING)
+                return True
+
+            return False
         elif self.get_state() == ReplicationStateMachineState.EXECUTING:
             if packet.op == ReplicationOp.OPERATION:
                 operation = Operation(**packet.body)

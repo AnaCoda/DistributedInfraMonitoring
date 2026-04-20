@@ -147,29 +147,49 @@ class KeyInfraNode(RawNode):
 
     
 
-    def __run_challenge(
-        self
-    ):
-        if self.replication_plugin.is_leader():
-            version_dict = {}
-            for peer in self.peers:
-                if self.has_connection(peer.name):
-                    try:
-                        o = self.send_message(peer.name, 'replication.version', {})['version']
-                        version_dict[peer.name] = o
-                    except Exception:
-                        pass
-            versions = list(version_dict.items())
-            versions.sort(key=lambda x : x[1], reverse=True)
-            print(f'[{self.get_network_name()}] Peer challenge versions: {versions}')
+    def __run_challenge(self):
+        if not self.replication_plugin.is_leader():
+            return
 
-            if versions[0][1] > self.replication_plugin.get_seq_num():
-                print(f'[{self.get_network_name()}] Will require a fast forward to {versions[0][0]}.')
-                self.replication_plugin.leader_hold()
-                o = self.send_message(versions[0][0], 'handle.catchup', {
-                    'sequences': list(range(self.replication_plugin.get_seq_num() + 1, versions[0][1] + 1))
-                })
-                print(f'[{self.get_network_name()}] CATCHUP RESULT: {o}')
+        version_dict = {}
+        for peer in self.peers:
+            if peer.name == self.get_network_name():
+                continue
+            if self.has_connection(peer.name):
+                try:
+                    o = self.send_message(peer.name, 'replication.version', {})['version']
+                    version_dict[peer.name] = o
+                except Exception as e:
+                    print(f'[{self.get_network_name()}] Failed version check for {peer.name}: {type(e).__name__}: {e}')
+
+        versions = list(version_dict.items())
+        versions.sort(key=lambda x: x[1], reverse=True)
+        print(f'[{self.get_network_name()}] Peer challenge versions: {versions}')
+
+        if not versions:
+            print(f'[{self.get_network_name()}] No reachable peers responded to version challenge.')
+            return
+
+        top_peer, top_version = versions[0]
+        local_version = self.replication_plugin.get_seq_num()
+
+        if top_version <= local_version:
+            print(f'[{self.get_network_name()}] No fast-forward needed. local={local_version}, top={top_version}')
+            return
+
+        print(f'[{self.get_network_name()}] Leader is behind. local={local_version}, peer={top_peer}, peer_version={top_version}')
+        self.replication_plugin.leader_hold()
+
+        try:
+            o = self.send_message(top_peer, 'handle.catchup', {
+                'sequences': list(range(local_version + 1, top_version + 1))
+            })
+            print(f'[{self.get_network_name()}] CATCHUP RESULT: {o}')
+            self.replication_plugin.apply_catchup_payload(o)
+            print(f'[{self.get_network_name()}] Fast-forward complete. New version={self.replication_plugin.get_seq_num()}')
+        except Exception as e:
+            print(f'[{self.get_network_name()}] Fast-forward failed: {type(e).__name__}: {e}')
+            raise
             # print(f'ON ELECT PEER DICT: {versions}')
 
     def __on_elect(
