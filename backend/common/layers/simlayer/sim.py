@@ -16,7 +16,7 @@ class SimulationLayer(RoutingLayer):
         self.down = None
         self.delays = False
         
-    def with_simulated_delays(self) -> bool:
+    def __should_do_simulated_delays(self) -> bool:
         return self.delays
     
     def enable_simulated_delays(self):
@@ -24,7 +24,7 @@ class SimulationLayer(RoutingLayer):
         logging.warning("ENABLING SIMULATED DELAYS")
 
     def sim_delay(self) -> bool:
-        if self.with_simulated_delays():
+        if self.__should_do_simulated_delays():
             time.sleep(random.uniform(0.0, 1.0))
 
     @node_handler(name='sim.version')

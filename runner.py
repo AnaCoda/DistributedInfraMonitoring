@@ -13,7 +13,7 @@ from backend.common.raw import RawNode
 from backend.implementation.capital.server import CapitalNode
 from backend.implementation.infrastructure.common import InfrastructureNode
 from backend.implementation.regional.base import RegionalNode
-from backend.runners.config import CapitalSpecificConfig, RunnerConfig
+from backend.runners.config import CapitalSpecificConfig, RegionSpecificConfig, RunnerConfig, parse_runner_config
 from backend.runners.registry import ServiceRegistry
 def setup_logging():
     """
@@ -43,7 +43,7 @@ def load_config(name: str) -> RunnerConfig:
     """
     full_path: str = os.path.join('configs/fly', f'{name}.json')
     with open(full_path, 'r') as fi:
-        return RunnerConfig.model_validate(load(fi))
+        return parse_runner_config(load(fi))
 
 def resolve_peers(
         peer_names: List[str],
@@ -85,6 +85,15 @@ def get_application_node(
             backend=MemoryStorageBackend(),
             entry=NetworkEntry(name=config.name, address=address),
             peers=resolve_peers(capital_spec.peers, service)
+        )
+    elif config.variant == 'region':
+        region_spec: RegionSpecificConfig = config.region
+        return RegionalNode(
+            region_name=region_spec.region_name,
+            capital_addresses=resolve_peers(region_spec.capitals, service),
+            backend=MemoryStorageBackend(),
+            entry=NetworkEntry(name=config.name, address=address),
+            peers=resolve_peers(region_spec.peers, service)
         )
 
 def launch_application(

@@ -250,12 +250,15 @@ class NetLayer(SimulationLayer):
         socket: ThreadSafeSocket,
         message: dict | BaseModel
     ):
+        self.sim_delay()
         _send_raw(socket, message)
 
     def __sock_recv(
         self,
         socket: ThreadSafeSocket
     ) -> dict:
+    
+        self.sim_delay()
         return _recv_raw(socket)
         
     def __handle_recv_conn(
