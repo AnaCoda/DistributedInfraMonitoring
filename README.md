@@ -1,8 +1,10 @@
-# DistributedInfraMonitoring
-CPSC 559 - Group 9 Final Project
+# Distributed Wartime Monitoring Infrastructure
+> **By:** Group 9
+> **Class:** CPSC5529
 
-## Terraform
-1. Configure your AWS CLI with the Access Key + Secret Key from Fam
+## Configuration
+1. You must first configure your AWS CLI with the Access Key + Secret Key. Fam Ghaly has this.
+2. You must make a `terraform.tfvars` file in the `Terraform/` directory. It should have the following file contents:
 ```tf
 aws_region = "us-west-2"
 
@@ -11,10 +13,12 @@ allowed_frontend_cidr_blocks = ["<YOUR_IP>/32"]
 
 key_name = "<KEYPAIR_NAME>"
 ```
-
-### Redeploy app code without recreating EC2
-After pushing code to GitHub, redeploy in place from your local machine:
-
+3. If you wish to re-deploy infrastructure, then you can use the Hashicorp Terraform teardown-and-redeploy:
+```bash
+$ terraform destroy
+$ terraform apply
+```
+4. **However in most cases we are simply interested in updating the codebase** and thus we can run the following command:
 ```powershell
 .\scripts\redeploy-ec2.ps1 -KeyPath "C:\path\to\your-key.pem"
 ```
