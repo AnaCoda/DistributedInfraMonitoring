@@ -35,6 +35,7 @@ class ReplicationStateMachineState(Enum):
     IN_OPERATION = 3
     REQUESTING_CATCHUP = 4
     WAITING_CATCHUP = 5
+    LEADER_SYNCING = 6
 
 class ReplicationSMResponseCode(Enum):
     FAILED = 0
@@ -65,6 +66,14 @@ class ReplicationStateMachine(BaseStateMachine):
 
     def get_leader(self) -> Optional[str]:
         return self.leader
+
+    def begin_leader_sync(self):
+        if self.is_leader():
+            self._set_state(ReplicationStateMachineState.LEADER_SYNCING)
+
+    def complete_leader_sync(self):
+        if self.is_leader():
+            self._set_state(ReplicationStateMachineState.EXECUTING)
     
     def modify_outbound(self, msg: ReplicationMsg):
         super().modify_outbound(msg)
@@ -76,7 +85,9 @@ class ReplicationStateMachine(BaseStateMachine):
     def _on_poll(self):
         if self.get_state() == ReplicationStateMachineState.INIT and self.get_leader() is not None:
             if self.is_leader():
-                # If we are the leader we can start right up.
+                # Standalone state-machine users can execute immediately.
+                # The replication plugin explicitly calls begin_leader_sync()
+                # before accepting writes during leader failover.
                 self._set_state(ReplicationStateMachineState.EXECUTING)
             else:
                 self._enqueue(ReplicationMsg.from_op(ReplicationOp.SYNC_REQUEST, { 'sequence': self.replication_log.get_sequence_pos() }))
@@ -116,6 +127,10 @@ class ReplicationStateMachine(BaseStateMachine):
             else:
                 # We ignore all other packets.
                 return
+        elif self.get_state() == ReplicationStateMachineState.LEADER_SYNCING:
+            if self.is_leader():
+                return self.__handle_leader_async(packet)
+            return False
         elif self.get_state() == ReplicationStateMachineState.EXECUTING:
             if packet.op == ReplicationOp.OPERATION:
                 operation = Operation(**packet.body)
