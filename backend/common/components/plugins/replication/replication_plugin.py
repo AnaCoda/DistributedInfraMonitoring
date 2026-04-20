@@ -130,7 +130,8 @@ class ReplicationPlugin(Plugin):
         # print(f'[AO] commiting w/ {operation.sequence_number}')
         o = self.__core.receive(ReplicationMsg.from_op(ReplicationOp.COMMIT, { 'sequence': operation.sequence_number }))    
         # print(f'[AO] [{self.get_network_name()}] {o}')
-        return { 'ping': 1 }
+        # return { 'ping': 1 }
+        return o
     
     def load_state(self):
         with self.__core_lock:
