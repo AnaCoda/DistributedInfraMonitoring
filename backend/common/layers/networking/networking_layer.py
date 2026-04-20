@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from backend.common.components.util import NetworkAddress, NetworkEntry, NetworkUrl
 from backend.common.layers.networking.conn_map import BetterConnectionMap
+from backend.common.layers.networking.named_lock import NamedLock
 from backend.common.layers.simlayer.sim import SimulationLayer
 from .connection_map import ConnectionMap, ConnectionRegistry
 from ...components.events.event import NodeEvent
@@ -186,6 +187,8 @@ class NetLayer(SimulationLayer):
 
         self.response_registrar = ResponseRegistrar()
 
+        self.__target_gate = NamedLock()
+
         self.launch_background_thread(self.listener, function_args=(address,))
         self._start_routing_layer()
 
@@ -338,16 +341,17 @@ class NetLayer(SimulationLayer):
         
         
         # TODO: Add a named lock herew.
-        if not self.connection_map.has_connection(target):
-            print(f"keying in... {target}")
-            preallocation = self.connection_map.get_preallocation(target)
+        with self.__target_gate.gate(target):
+            if not self.connection_map.has_connection(target):
+                print(f"keying in... {target}")
+                preallocation = self.connection_map.get_preallocation(target)
 
-            # Get the preallocation.
-            if preallocation is None:
-                raise ConnectionError(f'Found no registered connection for target "{target}" and thus could not attempt a connection.')
+                # Get the preallocation.
+                if preallocation is None:
+                    raise ConnectionError(f'Found no registered connection for target "{target}" and thus could not attempt a connection.')
 
-            # print(f'Starting net connect...')
-            self.__net_connect(preallocation.address)
+                # print(f'Starting net connect...')
+                self.__net_connect(preallocation.address)
 
 
         try:
