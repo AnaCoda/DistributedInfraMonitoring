@@ -10,6 +10,12 @@ variable "aws_region" {
   default     = "us-west-2"
 }
 
+variable "domain_name" {
+  description = "Route 53 domain name."
+  type        = string
+  default     = "warsys.click"
+}
+
 variable "vpc_cidr" {
   description = "CIDR block for the deployment VPC."
   type        = string

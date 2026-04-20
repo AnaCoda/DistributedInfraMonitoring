@@ -2,7 +2,7 @@
 set -euo pipefail
 
 dnf update -y
-dnf install -y git unzip
+dnf install -y git unzip curl
 curl -LsSf https://astral.sh/uv/install.sh | sh
 install -m 0755 /root/.local/bin/uv /usr/local/bin/uv
 if [ -f /root/.local/bin/uvx ]; then
@@ -56,3 +56,46 @@ EOF
 systemctl daemon-reload
 systemctl enable distinfra-infra.service
 systemctl restart distinfra-infra.service
+if [ -n "${dns_name}" ]; then
+  set +e
+  curl -fsSL "https://caddyserver.com/api/download?os=linux&arch=amd64" -o /usr/local/bin/caddy
+  caddy_download_status=$?
+  set -e
+
+  if [ "$caddy_download_status" -eq 0 ]; then
+    chmod 0755 /usr/local/bin/caddy
+    mkdir -p /etc/caddy /var/lib/caddy
+
+    cat >/etc/caddy/Caddyfile <<EOF
+${dns_name} {
+    reverse_proxy ${node_ip}:${node_port}
+}
+EOF
+
+    cat >/etc/systemd/system/caddy.service <<EOF
+[Unit]
+Description=Caddy Web Server
+After=network-online.target distinfra-infra.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=XDG_DATA_HOME=/var/lib/caddy
+Environment=XDG_CONFIG_HOME=/etc/caddy
+ExecStart=/usr/local/bin/caddy run --environ --config /etc/caddy/Caddyfile
+ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/Caddyfile --force
+Restart=on-failure
+TimeoutStopSec=5s
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable caddy.service
+    systemctl restart caddy.service
+  else
+    echo "Caddy download failed; distinfra service is still running without WSS proxy" >&2
+  fi
+fi

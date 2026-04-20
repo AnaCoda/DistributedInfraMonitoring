@@ -1,6 +1,6 @@
 locals {
 
-  
+
 
 
   capital_nodes = {
