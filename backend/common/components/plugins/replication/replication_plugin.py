@@ -180,6 +180,7 @@ class ReplicationPlugin(Plugin):
                 except Exception as e:
                     print(f'{Fore.RED}[{self.get_network_name()}] Failed to send to {replica} with error={e}{Fore.RESET}')
                     pass
+                print(f'[{self.get_network_name()}] Succesfully replicated option to {body}')
                     # print(f'excepted {type(e)}')
             return output
         else:
