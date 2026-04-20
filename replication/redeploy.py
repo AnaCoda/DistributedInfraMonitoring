@@ -3,6 +3,7 @@ from ast import arg
 from dataclasses import dataclass
 from json import load, loads
 import os
+import time
 from typing import List, Optional, Tuple
 import paramiko
 
@@ -54,8 +55,14 @@ def redeploy_sequence(
         client.connect(
             hostname=hostname,
             username=username,
-            key_filename=keyfile
+            key_filename=keyfile,
+            port=22,
+            banner_timeout=30,
+            auth_timeout=30,
+            look_for_keys=False,
+            allow_agent=False
         )
+        print(f'connected')
         
         run_command(client, 'git fetch origin', app_dir)
         run_command(client, f'git checkout {git_branch}', app_dir)
@@ -67,6 +74,7 @@ def redeploy_sequence(
         raise
     finally:
         client.close()
+        # time.sleep(10)
 
 
 
@@ -95,7 +103,7 @@ if __name__ == '__main__':
 
         targets = get_terraform_files()
         for idx in range(len(targets)):
-            print(f'{Fore.CYAN}({idx + 1}/{len(targets)}) Starting @ {targets[idx].name}')
+            print(f'{Fore.CYAN}({idx + 1}/{len(targets)}) Starting @ {targets[idx].name} (ip={targets[idx].hostname})')
             redeploy_sequence(
                 hostname=targets[idx].hostname,
                 app_dir='/opt/DistributedInfraMonitoring',

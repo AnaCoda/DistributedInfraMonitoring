@@ -14,13 +14,19 @@ locals {
       private_ip  = "10.42.1.20"
       port        = 4000
       region_name = "Carstairs"
-      replica_set = ["Carstairs-r1", "Carstairs-r2"]
+      replica_set = ["Carstairs-r1", "Carstairs-r2", "Carstairs-r3"]
     }
     "Carstairs-r2" = {
       private_ip  = "10.42.1.21"
       port        = 4000
       region_name = "Carstairs"
-      replica_set = ["Carstairs-r1", "Carstairs-r2"]
+      replica_set = ["Carstairs-r1", "Carstairs-r2", "Carstairs-r3"]
+    }
+    "Carstairs-r3" = {
+      private_ip  = "10.42.1.22"
+      port        = 4000
+      region_name = "Carstairs"
+      replica_set = ["Carstairs-r1", "Carstairs-r2", "Carstairs-r3"]
     }
 
     # "Airdrie-r1" = {
