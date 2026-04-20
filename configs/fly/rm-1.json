@@ -1,0 +1,8 @@
+{
+    "name": "rm-1",
+    "variant": "capital",
+    "uri": "rm-1.fly.dev",
+    "capital": {
+        "capital_name": "rm"
+    }
+}

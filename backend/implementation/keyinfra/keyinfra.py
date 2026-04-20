@@ -150,27 +150,28 @@ class KeyInfraNode(RawNode):
     def __run_challenge(
         self
     ):
-        if self.replication_plugin.is_leader():
-            version_dict = {}
-            for peer in self.peers:
-                if self.has_connection(peer.name):
-                    try:
-                        o = self.send_message(peer.name, 'replication.version', {})['version']
-                        version_dict[peer.name] = o
-                    except Exception:
-                        pass
-            versions = list(version_dict.items())
-            versions.sort(key=lambda x : x[1], reverse=True)
-            print(f'[{self.get_network_name()}] Peer challenge versions: {versions}')
+        pass
+        # if self.replication_plugin.is_leader():
+        #     version_dict = {}
+        #     for peer in self.peers:
+        #         if self.has_connection(peer.name):
+        #             try:
+        #                 o = self.send_message(peer.name, 'replication.version', {})['version']
+        #                 version_dict[peer.name] = o
+        #             except Exception:
+        #                 pass
+        #     versions = list(version_dict.items())
+        #     versions.sort(key=lambda x : x[1], reverse=True)
+        #     print(f'[{self.get_network_name()}] Peer challenge versions: {versions}')
 
-            if versions[0][1] > self.replication_plugin.get_seq_num():
-                print(f'[{self.get_network_name()}] Will require a fast forward to {versions[0][0]}.')
-                self.replication_plugin.leader_hold()
-                o = self.send_message(versions[0][0], 'handle.catchup', {
-                    'sequences': list(range(self.replication_plugin.get_seq_num() + 1, versions[0][1] + 1))
-                })
-                print(f'[{self.get_network_name()}] CATCHUP RESULT: {o}')
-            # print(f'ON ELECT PEER DICT: {versions}')
+        #     if versions[0][1] > self.replication_plugin.get_seq_num():
+        #         print(f'[{self.get_network_name()}] Will require a fast forward to {versions[0][0]}.')
+        #         self.replication_plugin.leader_hold()
+        #         o = self.send_message(versions[0][0], 'handle.catchup', {
+        #             'sequences': list(range(self.replication_plugin.get_seq_num() + 1, versions[0][1] + 1))
+        #         })
+        #         print(f'[{self.get_network_name()}] CATCHUP RESULT: {o}')
+        #     # print(f'ON ELECT PEER DICT: {versions}')
 
     def __on_elect(
         self,
