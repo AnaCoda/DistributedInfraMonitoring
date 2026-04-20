@@ -2,7 +2,7 @@
 
 
 from threading import Lock
-from typing import Dict
+from typing import Dict, Optional
 
 from pydantic import BaseModel
 
@@ -26,6 +26,10 @@ class BetterConnectionMap:
                 return False
             self.__preallocations[entry.name] = entry
             return True
+    
+    def get_preallocation(self, name: str) -> Optional[NetworkEntry]:
+        with self.__lock:
+            return self.__preallocations[name]
         
     def register(self, name, entry: ConnectionRegistry):
         return self.__cm.register(name, entry)

@@ -70,7 +70,7 @@ class RegionalNode(KeyInfraNode):
         # not already connected.
         for region in self.capitals:
             if not self.has_connection(region.name):
-                self._try_connect(region.address)
+                self._try_connect(region)
         
         
 

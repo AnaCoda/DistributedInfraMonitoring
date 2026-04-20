@@ -83,7 +83,7 @@ class InfrastructureNode(RawNode):
         # not already connected.
         for region in self.regions:
             if not self.has_connection(region.name):
-                self._try_connect(region.address)
+                self._try_connect(region)
         
         with self.__region_notify_lock:
             # Check if we need to send any updates.

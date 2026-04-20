@@ -143,13 +143,17 @@ class BullyPlugin(Plugin):
         # for i in range(10):
         if entry.name == self.get_network_name():
             return entry.name
+        
 
-        if not self.has_connection(entry.name):
-            if not self._try_connect(entry.address):
-                raise ConnectionError(f'Failed to connect to destination {entry.name}')
-                # time.sleep(0.75)
-                # continue
-            # self.connect((ip, port))
+        self._try_connect(entry)
+        
+
+        # if not self.has_connection(entry.name):
+        #     if not self._try_connect(entry):
+        #         raise ConnectionError(f'Failed to connect to destination {entry.name}')
+        #         # time.sleep(0.75)
+        #         # continue
+        #     # self.connect((ip, port))
         return entry.name
         # raise RuntimeError(f'Failed to ensure connection with target={target}')
 

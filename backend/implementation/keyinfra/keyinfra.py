@@ -97,7 +97,7 @@ class KeyInfraNode(RawNode):
                 continue
             if not self.has_connection(peer.name):
                 try:
-                    self._try_connect(peer.address)
+                    self._try_connect(peer)
                 except Exception:
                     pass
             if self.has_connection(peer.name):

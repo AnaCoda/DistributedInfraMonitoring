@@ -8,7 +8,7 @@ import json
 from colorama import Fore, Style
 from pydantic import BaseModel
 
-from backend.common.components.util import NetworkAddress, NetworkUrl
+from backend.common.components.util import NetworkAddress, NetworkEntry, NetworkUrl
 from backend.common.layers.networking.conn_map import BetterConnectionMap
 from backend.common.layers.simlayer.sim import SimulationLayer
 from .connection_map import ConnectionMap, ConnectionRegistry
@@ -78,13 +78,13 @@ class NetworkErrorCode(str, Enum):
     EXISTING_CONNECTION = 'existing_connection'
     OTHER = 'other'
 
-class NetworkResponse(BaseModel):
-    status: Union[Literal['fail'], Literal['success']]
-    error: Optional[NetworkErrorCode]
+class NetworkFailResponse(BaseModel):
+    status: Literal['fail']
+    error: NetworkErrorCode
     reason: str
 
-def _create_error(reason: str, error: NetworkErrorCode = NetworkErrorCode.OTHER) -> NetworkResponse:
-    return NetworkResponse(
+def _create_error(reason: str, error: NetworkErrorCode = NetworkErrorCode.OTHER) -> NetworkFailResponse:
+    return NetworkFailResponse(
         status='fail',
         error=error,
         reason=reason
@@ -183,7 +183,6 @@ class NetLayer(SimulationLayer):
 
         # self.address = address
         self.connection_map = BetterConnectionMap()
-        self.dispatch_hook: Optional[Callable[..., ...]] = None
 
         self.response_registrar = ResponseRegistrar()
 
@@ -336,6 +335,21 @@ class NetLayer(SimulationLayer):
         # }
         # print(f'[{self.network_name}] -> {target}')
         # conn: ConnectionRegistry = self.outbound_connections[target]
+        
+        
+        # TODO: Add a named lock herew.
+        if not self.connection_map.has_connection(target):
+            print(f"keying in... {target}")
+            preallocation = self.connection_map.get_preallocation(target)
+
+            # Get the preallocation.
+            if preallocation is None:
+                raise ConnectionError(f'Found no registered connection for target "{target}" and thus could not attempt a connection.')
+
+            # print(f'Starting net connect...')
+            self.__net_connect(preallocation.address)
+
+
         try:
             conn = self.connection_map.get_connection(target)
         except KeyError as exc:
@@ -480,38 +494,47 @@ class NetLayer(SimulationLayer):
         self.connection_map.deregister(name)
         # self._net_disconnect(name)
 
-    def _try_connect(self, address: NetworkAddress | NetworkUrl):
-        try:
-            if isinstance(address, NetworkAddress):
-                self._net_connect(address.to_tuple())
-            if isinstance(address, NetworkUrl):
-                self._net_connect(f'wss://{address.url}')
-            # self._net_connect(address.to_tuple())
-            return True
-        except (
-            ConnectionRefusedError,
-            TimeoutError,
-            ConnectionAbortedError,
-            ConnectionResetError,
-            BrokenPipeError,
-            OSError,
-            websockets.exceptions.ConnectionClosed,
-            websockets.exceptions.InvalidURI,
-            websockets.exceptions.InvalidHandshake,
-            websockets.exceptions.NegotiationError,
-            websockets.exceptions.WebSocketException,
-        ) as e:
-            print(
-                f"[{self.network_name}] _try_connect failed for "
-                f"{address.ip}:{address.port}: {type(e).__name__}: {e}"
-            )
-            return False
+    def _try_connect(self, entry: NetworkEntry):
+        if not isinstance(entry, NetworkEntry):
+            raise RuntimeError(f'try_connect expects a valid NetworkEntry but got {type(entry)}')
+            # self.__net_connect(address)
+        self.connection_map.preallocate(entry)
+        # self._net_connect(address.to_tuple())
+        return True
+        
+        # try:
+            
+        # except (
+        #     ConnectionRefusedError,
+        #     TimeoutError,
+        #     ConnectionAbortedError,
+        #     ConnectionResetError,
+        #     BrokenPipeError,
+        #     OSError,
+        #     websockets.exceptions.ConnectionClosed,
+        #     websockets.exceptions.InvalidURI,
+        #     websockets.exceptions.InvalidHandshake,
+        #     websockets.exceptions.NegotiationError,
+        #     websockets.exceptions.WebSocketException,
+        # ) as e:
+        #     print(
+        #         f"[{self.network_name}] _try_connect failed for "
+        #         f"{address.ip}:{address.port}: {type(e).__name__}: {e}"
+        #     )
+        #     return False
 
-    def _net_connect(self, address: tuple[str, int] | str):
+    def __net_connect(
+        self,
+        address: NetworkAddress | NetworkUrl
+    ) -> bool:
         # print(f'Started Conn: {address}')
 
-        if isinstance(address, tuple):
-            address = f'ws://{address[0]}:{address[1]}'
+        if isinstance(address, NetworkAddress):
+            address = f'ws://{address.ip}:{address.port}'
+        elif isinstance(address, NetworkUrl):
+            address = f'wss://{address.url}'
+        else:
+            raise RuntimeError(f'Expected NetworkAddress or NetworkUrl but got {type(address)}')
 
      
         connection = ThreadSafeSocket(
@@ -520,11 +543,21 @@ class NetLayer(SimulationLayer):
                 ping_interval=None
             )
         )
-        # print(f'Yeyey')
+        
+        # Send a name request to initiate the handshake.
         _send_raw(connection, { 'name': self.network_name })
-        # print("SENT")
+
         
         body: dict = _recv_raw(connection)
+
+        if 'status' in body and body['status'] == 'fail':
+            error_msg = NetworkFailResponse.model_validate(body)
+            if error_msg.error == NetworkErrorCode.EXISTING_CONNECTION:
+                connection.close()
+                # We already have a connection.
+                return True
+
+
         response: EndpointResponse = _unpack_response(body)
         if 'name' not in response.body:
             raise RuntimeError("No 'name' key in the response body.")
@@ -548,6 +581,7 @@ class NetLayer(SimulationLayer):
 
         self.launch_background_thread(con_handle, function_args=(connection,))
         self._net_on_connect_evt(target_name)
+        return True
 
     def __handle_registered_connection(
         self,
