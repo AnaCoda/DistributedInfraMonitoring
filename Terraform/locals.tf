@@ -10,24 +10,24 @@ locals {
   }
 
   regional_nodes = {
-    # "Carstairs-r1" = {
-    #   private_ip  = "10.42.1.20"
-    #   port        = 4000
-    #   region_name = "Carstairs"
-    #   replica_set = ["Carstairs-r1", "Carstairs-r2", "Carstairs-r3"]
-    # }
-    # "Carstairs-r2" = {
-    #   private_ip  = "10.42.1.21"
-    #   port        = 4000
-    #   region_name = "Carstairs"
-    #   replica_set = ["Carstairs-r1", "Carstairs-r2", "Carstairs-r3"]
-    # }
-    # "Carstairs-r3" = {
-    #   private_ip  = "10.42.1.22"
-    #   port        = 4000
-    #   region_name = "Carstairs"
-    #   replica_set = ["Carstairs-r1", "Carstairs-r2", "Carstairs-r3"]
-    # }
+    "Carstairs-r1" = {
+      private_ip  = "10.42.1.20"
+      port        = 4000
+      region_name = "Carstairs"
+      replica_set = ["Carstairs-r1", "Carstairs-r2", "Carstairs-r3"]
+    }
+    "Carstairs-r2" = {
+      private_ip  = "10.42.1.21"
+      port        = 4000
+      region_name = "Carstairs"
+      replica_set = ["Carstairs-r1", "Carstairs-r2", "Carstairs-r3"]
+    }
+    "Carstairs-r3" = {
+      private_ip  = "10.42.1.22"
+      port        = 4000
+      region_name = "Carstairs"
+      replica_set = ["Carstairs-r1", "Carstairs-r2", "Carstairs-r3"]
+    }
 
     # "Airdrie-r1" = {
     #   private_ip  = "10.42.1.30"
@@ -57,12 +57,12 @@ locals {
   }
 
   infra_nodes = {
-    # "Hospital-1" = {
-    #   private_ip  = "10.42.1.50"
-    #   node_type   = "hospital"
-    #   region_name = "Carstairs"
-    #   regions     = ["Carstairs-r1", "Carstairs-r2"]
-    # }
+    "Hospital-1" = {
+      private_ip  = "10.42.1.50"
+      node_type   = "hospital"
+      region_name = "Carstairs"
+      regions     = ["Carstairs-r1", "Carstairs-r2"]
+    }
     # "Powerplant-1" = {
     #   private_ip  = "10.42.1.51"
     #   node_type   = "powerplant"
