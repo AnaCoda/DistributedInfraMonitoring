@@ -149,7 +149,7 @@ class KeyInfraNode(RawNode):
                         version_dict[peer.name] = o
                     except Exception:
                         pass
-        print(f'ON ELECT PEER DICT: {version_dict}')
+            print(f'ON ELECT PEER DICT: {version_dict}')
 
 
         self.replication_plugin.set_leader(target)
