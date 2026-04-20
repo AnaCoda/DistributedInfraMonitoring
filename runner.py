@@ -77,7 +77,6 @@ def get_application_node(
         address = NetworkAddress(ip='0.0.0.0', port=8080)
 
     logging.info(f'Assigned network details: {address}')
-    # print(f'Address: {address}')
     if config.variant == 'capital':
         capital_spec: CapitalSpecificConfig = config.capital
         return CapitalNode(

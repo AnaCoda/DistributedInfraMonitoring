@@ -21,7 +21,6 @@ class ConnectionMap:
         self.outbound_connections: dict[str, ConnectionRegistry] = {}
 
     def register(self, name, entry: ConnectionRegistry):
-        print(f'Registering connection for {name}')
         with self.lock:
             # self.inbound_connections[name] = entry
             # old = self.outbound_connections.get(name)
@@ -37,7 +36,6 @@ class ConnectionMap:
             return True
 
     def deregister(self, target: str):
-        print(f'Deregistering connection for {target}')
         with self.lock:
             if target in self.outbound_connections:
                 try:
@@ -78,6 +76,7 @@ class ConnectionMap:
     
     def has_connection(self, name: str):
         with self.lock:
+            # print(self.outbound_connections, name in self.outbound_connections)
             return (name in self.outbound_connections)
 
     def shutdown(self):

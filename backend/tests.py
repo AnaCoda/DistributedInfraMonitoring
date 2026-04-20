@@ -20,7 +20,6 @@ class LeaderTests(unittest.TestCase):
         for i in range(100):
             tick_pool(outboxes, pool)
             clock.advance(1)
-        # print(f'pool: {pool[0].get_leader()}')
         self.assertEqual(pool[0].get_leader().unique_id, 2)
         self.assertEqual(pool[1].get_leader().unique_id, 2)
         self.assertEqual(pool[2].get_leader().unique_id, 2)

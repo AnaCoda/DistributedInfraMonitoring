@@ -1,4 +1,5 @@
 from enum import Enum
+import logging
 from threading import Event, Thread
 from dataclasses import dataclass
 from typing import List, Literal, LiteralString, Optional, Callable, Union
@@ -183,6 +184,8 @@ class MessagePackingResult:
 
 from .response_registry import ResponseRegistryEntry, ResponseRegistrar
 
+LOGGER = logging.getLogger('layer:net')
+
 class NetLayer(SimulationLayer):
 
     def __init__(self, network_name: str, address: tuple[str, int]):
@@ -269,24 +272,30 @@ class NetLayer(SimulationLayer):
         should_cleanup = True
         try:
             registry: dict = self.__sock_recv(socket)
-            print(f"recevied registry: {socket.raw_socket.remote_address}")
             if 'name' not in registry:
                 self.__sock_send(socket, _create_error('no registry name present'))
                 socket.close()
                 return
             
             name: str = registry['name']
-
+           
             if self.connection_map.has_connection(name):
                 # We want to prevent cleanup here, else the finally
                 # block will remove the original connection.
                 should_cleanup = False
-                print(f'[{self.get_network_name()}] We already have a connection for {name}, so denying the incoming connection.')
+                LOGGER.info(f'[{self.get_network_name()}] We already have a connection for {name}, so denying the incoming connection.')
                 self.__sock_send(socket, _create_error(f'connection already exists for {name}', error=NetworkErrorCode.EXISTING_CONNECTION))
-                socket.close()
-                return
-            
-            # Register the connection internally to keep track.
+                
+                msg = self.__sock_recv(socket)
+                if msg['status'] == 'challenge':
+                    LOGGER.info(f'[{self.get_network_name()}] Duplicate connection challenged. Deregistering.')
+                    self.connection_map.deregister(name)
+                    # print('GOT A REPLY!!!')
+                    
+                    # socket.close()
+                    # return
+            # with self.__target_gate.gate(name):
+                # Register the connection internally to keep track.
             o = self.connection_map.register(
                 name=name,
                 entry=ConnectionRegistry(
@@ -347,8 +356,9 @@ class NetLayer(SimulationLayer):
         except websockets.exceptions.ConnectionClosed as e:
             raise ConnectionAbortedError("websocket closed during send") from e
         except Exception as e:
-            print(f'{type(e)}')
-            print(f'ERROR: {e}, {method}, {body}')
+            LOGGER.error(f'Failure during __send_message_raw while trying to send method={method}, error={e}')
+            # print(f'{type(e)}')
+            # print(f'ERROR: {e}, {method}, {body}')
             raise
         return packed
 
@@ -359,7 +369,7 @@ class NetLayer(SimulationLayer):
         body: dict,
         rid: Optional[str] = None,
         fire_and_forget: bool = False,
-        timeout: Optional[float] = 2.0
+        timeout: Optional[float] = 5.0
     ):        # rid: str = str(uuid.uuid4()) if rid is None else rid
         # print(f'[{self.network_name}] (stage=TARGETED, method={method}, body={body})')
         # payload: dict = {
@@ -382,7 +392,7 @@ class NetLayer(SimulationLayer):
                     raise ConnectionError(f'Found no registered connection for target "{target}" and thus could not attempt a connection.')
 
                 # print(f'Starting net connect...')
-                self.__net_connect(preallocation.address)
+                self.__net_connect(preallocation.name, preallocation.address)
 
 
         try:
@@ -410,7 +420,8 @@ class NetLayer(SimulationLayer):
             ConnectionResetError,
             BrokenPipeError,
             websockets.exceptions.ConnectionClosed,
-        ):
+        ) as e:
+            LOGGER.error(f'Failed to __send_message_targeted to target={target} with error={e}')
             try:
                 self.connection_map.deregister(target)
             except Exception:
@@ -428,15 +439,15 @@ class NetLayer(SimulationLayer):
             success = ev.wait(timeout=timeout)
             # print(f'SuccesS: {success}')
             if not success:
-                self.response_registrar.pop_registry(packed.rid)
-                try:
-                    self.connection_map.deregister(target)
-                except Exception:
-                    pass
-                try:
-                    self._net_on_disconnect_evt(target)
-                except Exception:
-                    pass
+                # self.response_registrar.pop_registry(packed.rid)
+                # try:
+                #     self.connection_map.deregister(target)
+                # except Exception:
+                #     pass
+                # try:
+                #     self._net_on_disconnect_evt(target)
+                # except Exception:
+                #     pass
                 # if packed.rid in self.response_registrar:
                     # del self.response_registrar[packed.rid]
                 raise TimeoutError(f"Timed out waiting for response from {target} on route {method}")
@@ -457,7 +468,7 @@ class NetLayer(SimulationLayer):
             timeout=0
         )
 
-    def send_message(self, target, method, body, timeout = 2):
+    def send_message(self, target, method, body, timeout = 5):
         return self.__send_message_targeted(target, method, body, rid=None, timeout=timeout)
         # return super().send_message(target, method, body, timeout)
             
@@ -560,6 +571,7 @@ class NetLayer(SimulationLayer):
 
     def __net_connect(
         self,
+        name: str,
         address: NetworkAddress | NetworkUrl
     ) -> bool:
         # print(f'Started Conn: {address}')
@@ -588,9 +600,21 @@ class NetLayer(SimulationLayer):
         if 'status' in body and body['status'] == 'fail':
             error_msg = NetworkFailResponse.model_validate(body)
             if error_msg.error == NetworkErrorCode.EXISTING_CONNECTION:
-                connection.close()
-                # We already have a connection.
-                return True
+                print(f'DO WE REALLY HAVE EXISTING?: {self.has_connection(name)}')
+
+                if self.has_connection(name):
+                    connection.close()
+                    # We already have a connection.
+                    return True
+                else:
+                    print(f'CHALLENGING')
+                    self.__sock_send(connection, { 'status': 'challenge' })
+
+                    print(f'WAITING ON CHALLENGE RESPONSE')
+                    ch_re = self.__sock_recv(connection)
+
+                # connection.close()
+                
 
 
         response: EndpointResponse = _unpack_response(body)
@@ -623,6 +647,7 @@ class NetLayer(SimulationLayer):
         name: str,
         connection: ThreadSafeSocket
     ):
+        already_closed = False
         
         try:
             while not self.is_shutting_down():
@@ -652,14 +677,11 @@ class NetLayer(SimulationLayer):
                         self.__handle_routed_message,
                         function_args=(name, route, rid, fireforget, message['body'], connection)
                     )
-        except (
-            ConnectionAbortedError,
-            ConnectionResetError,
-            BrokenPipeError,
-            websockets.exceptions.ConnectionClosed,
-            json.JSONDecodeError,
-        ):
-            pass
+        except ConnectionAbortedError as e:
+            print(f'Connect abort.')
+            already_closed = True
+            o = self.connection_map.deregister_if_same(name, connection)
+            print(f'Conn Abort: {o}')
         except Exception as e:
             print(f"[{self.network_name}] registered connection crash for {name}: {type(e).__name__}: {e}")
         finally:
@@ -668,16 +690,18 @@ class NetLayer(SimulationLayer):
             except Exception:
                 pass
 
-            removed = False
-            try:
-                removed = self.connection_map.deregister_if_same(name, connection)
-            except Exception as e:
-                print(f"[{self.network_name}] registered cleanup error for {name}: {type(e).__name__}: {e}")
-            if removed:
+            if not already_closed:
+                removed = False
                 try:
-                    self._net_on_disconnect_evt(name)
+                    print(f'DEREGISTER CLEANUP')
+                    removed = self.connection_map.deregister_if_same(name, connection)
                 except Exception as e:
-                    print(f"[{self.network_name}] disconnect event error for {name}: {type(e).__name__}: {e}")
+                    print(f"[{self.network_name}] registered cleanup error for {name}: {type(e).__name__}: {e}")
+                if removed:
+                    try:
+                        self._net_on_disconnect_evt(name)
+                    except Exception as e:
+                        print(f"[{self.network_name}] disconnect event error for {name}: {type(e).__name__}: {e}")
             # self.connection_map.deregister(name)
             
             # except NodeRpcError as nre:

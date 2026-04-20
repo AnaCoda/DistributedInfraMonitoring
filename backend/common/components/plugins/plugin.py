@@ -24,7 +24,7 @@ class Plugin(NodeTemplate):
     def has_connection(self, target):
         return self.host.has_connection(target)
 
-    def send_message(self, target, method, body, timeout=2):
+    def send_message(self, target, method, body, timeout=5):
         return self.host.send_message(target, method, body, timeout)
 
     def send_message_no_wait(self, target, method, body):

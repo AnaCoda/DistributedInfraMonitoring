@@ -3,7 +3,7 @@ import time
 
 from colorama import Fore
 
-from backend.common.components.util import NetworkAddress, NetworkEntry
+from backend.common.components.util import NetworkEntry
 
 from ..plugin import Plugin
 
@@ -93,9 +93,9 @@ class BullyPlugin(Plugin):
             priority=1
         )
 
-        print(f'INitialized bully elec w/ {node}, peer_names = {peer_names}')
+        LOGGER.info(f'Initialized bully plugin with self={node} and peers={peer_names}')
+        # print(f'INitialized bully elec w/ {node}, peer_names = {peer_names}')
         bully_peers  =[ BullyPeer(peer.name, int(peer.name.split('-')[1]), 1) for peer in peer_names ]
-        print(f'ylyl = {bully_peers}')
         self.node = BullyElectionNode(
             node=node,
             peer_list=bully_peers,
@@ -106,10 +106,10 @@ class BullyPlugin(Plugin):
         self.node.register_hook(BullyElectionHook.ON_ELECT_OTHER, self.__on_elect_other)
         self.node.register_hook(BullyElectionHook.ON_BECOME_LEADER, self.on_become_leader)
         self.node.register_hook(BullyElectionHook.ON_ELECTION_START, self.on_start_election)
-        print("INITTED")
+        # print("INITTED")
 
     def __on_elect_other(self):
-        print(f'[{self.get_network_name()}] Hi! Another person has been elected. {self.node.get_leader_id()}')
+        # print(f'[{self.get_network_name()}] Hi! Another person has been elected. {self.node.get_leader_id()}')
         leader = self.node.get_leader()
         if leader is None:
             return
@@ -161,11 +161,16 @@ class BullyPlugin(Plugin):
         tries = 0
         while not self.is_shutting_down():
             tries += 1
-            if tries > 5:
+            if tries > 1:
                 break
             try:
                 if message.destination.name == self.get_network_name():
                     return
+                # print(f'Trying to send {message.destination.name}')
+                if not self.has_connection(message.destination.name):
+                    # print(f'  BLOCKED!')
+                    return
+                # print(f'Trying to send {message.destination.name}')
                 target = self.__translate_and_ensure_connect(message.destination)
                 if target is None:
                     time.sleep(1.0)
