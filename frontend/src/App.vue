@@ -611,7 +611,7 @@ function waitUntilOpen(ws, ms) {
     };
     const onError = () => {
       cleanup();
-      reject(new Error("error event (often TCP blocked, wrong port, or TLS mismatch — see UI hint)"));
+      reject(new Error("connection error (network/TLS/port)"));
     };
     function cleanup() {
       clearTimeout(timer);
@@ -723,10 +723,7 @@ async function connectWs() {
     }
   }
 
-  const hint =
-    "No endpoint accepted the connection. Confirm DNS, TLS (wss), and that WebSockets are allowed from this network. " +
-    "For local capital without TLS, set VITE_WS_ENDPOINTS to ws://127.0.0.1:… (see example below).";
-  error.value = `WebSocket: no capital reachable. ${hint} Last: ${lastConnectDiag.value || "unknown"}`;
+  error.value = `WebSocket: no capital reachable.${lastConnectDiag.value ? ` Last error: ${lastConnectDiag.value}` : ""}`;
   wsStatus.value = "disconnected";
   loading.value = false;
   scheduleReconnect(3000);
