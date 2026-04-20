@@ -156,6 +156,7 @@ class BullyPlugin(Plugin):
                     method="handle.bully.msg",
                     body=_serialize_bully_packet(message)
                 )
+                return
             except Exception as e:
                 print(
                     f"{Fore.RED}[BULLY][{self.get_network_name()}] "
