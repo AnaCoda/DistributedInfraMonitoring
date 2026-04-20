@@ -9,6 +9,7 @@ from colorama import Fore, Style
 from pydantic import BaseModel
 
 from backend.common.components.util import NetworkAddress, NetworkUrl
+from backend.common.layers.networking.conn_map import BetterConnectionMap
 from backend.common.layers.simlayer.sim import SimulationLayer
 from .connection_map import ConnectionMap, ConnectionRegistry
 from ...components.events.event import NodeEvent
@@ -181,7 +182,7 @@ class NetLayer(SimulationLayer):
         self.__address_evt = Event()
 
         # self.address = address
-        self.connection_map = ConnectionMap()
+        self.connection_map = BetterConnectionMap()
         self.dispatch_hook: Optional[Callable[..., ...]] = None
 
         self.response_registrar = ResponseRegistrar()
@@ -239,7 +240,7 @@ class NetLayer(SimulationLayer):
         should_cleanup = True
         try:
             registry: dict = _recv_raw(socket)
-            # print(f"recevied registry: {registry}")
+            print(f"recevied registry: {socket.raw_socket.remote_address}")
             if 'name' not in registry:
                 _send_raw(socket, _create_error('no registry name present'))
                 socket.close()

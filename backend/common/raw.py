@@ -7,7 +7,7 @@ from websockets.sync.server import ServerConnection
 
 from .layers.networking.networking_layer import NetLayer
 from .layers.routing.routing_layer import RoutingLayer, node_handler
-from .layers.dns.dns_layer import NameServiceLayer
+# from .layers.dns.dns_layer import NameServiceLayer
 
 class RawNode(NetLayer):
 
