@@ -317,6 +317,8 @@ class ReplicationPlugin(Plugin):
                     continue
 
                 self.__core.replication_log.add_log(op)
+                print(f'[{self.get_network_name()}] added catchup op seq={op.get_seq_num()} -> log_pos={self.__core.replication_log.get_sequence_pos()}')
                 self.__apply_operation(op)
             print(f'[{self.get_network_name()}] Catchup applied through seq={self.__core.replication_log.get_sequence_pos()}')
             self.__core._set_state(ReplicationStateMachineState.EXECUTING)
+        print(f'[{self.get_network_name()}] final catchup log_pos={self.__core.replication_log.get_sequence_pos()}')
