@@ -24,10 +24,18 @@ $ uv run python -m replication.redeploy --key "$HOME\.ssh\Homer-Sus2.pem"
 ```
 
 
+## Monitoring
+You can use the following command to watch infrastructure:
+```bash
+$ uv run python -m replication.watch --service Hospital-1 --key "$HOME\.ssh\Homer-Sus2.pem"
+```
+
+
 Monitoring
 
 ```
 sudo journalctl -u distinfra-capital.service -n 4000 -f -o cat
+sudo journalctl -u distinfra-infra.service -n 4000 -f -o cat
 ```
 
 ## Backend

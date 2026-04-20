@@ -5,6 +5,8 @@
 
 from random import randint
 
+from colorama import Fore
+
 from backend.common.components.events.connect import NodeConnectionType
 
 from ...common.raw import RawNode, node_handler
@@ -59,6 +61,7 @@ class InfrastructureNode(RawNode):
         self,
         target: str
     ):
+        print(f'{Fore.YELLOW}[{self.get_network_name()}] Pushing update of infrastructure to the regional node. Current state: {self.__state.model_dump()}{Fore.RESET}')
         with self.__state_lock:
             current_state: dict = self.__state.model_dump()
 
