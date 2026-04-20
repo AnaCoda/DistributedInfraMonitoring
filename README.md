@@ -71,3 +71,13 @@ cd frontend
 npm install
 npm run dev   # http://localhost:5173
 ```
+
+
+# FLY.IO DEPLOYMENT
+The actual deployment logic for a replica named `rm-1` is as follows:
+```bash
+$ fly secrets set INSTANCE_NAME=rm-1 -a rm-1 
+$ fly deploy -a rm-1 --ha=False
+$ fly scale count 1 -a rm-1
+```
+Although we will abstract this away into a builder script.
