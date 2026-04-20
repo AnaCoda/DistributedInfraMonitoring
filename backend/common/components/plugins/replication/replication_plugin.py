@@ -4,7 +4,7 @@ from ..plugin import Plugin
 from ...template import NodeTemplate
 from ...storage.backend import StorageBackend
 
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .rep_state_machine import (
     ReplicationStateMachineState,
@@ -42,6 +42,17 @@ class ReplicationPlugin(Plugin):
         self.__op_map: dict[str, Callable[..., Any]] = {}
 
         self.__register_routes(routes)
+
+    def serve_state_request(self, sequences: list[int]) -> Dict[str, Any]:
+        with self.__core_lock:
+            ol = self.__core.replication_log.retrieve_at_idxs(sequences)
+            ol = [ asdict(o) for o in ol ]
+
+            state = self.__core.replication_log.log_state
+            return {
+                'state': state,
+                'logs': ol
+            }
 
     def is_leader(self) -> bool:
         return self.__core.is_leader()

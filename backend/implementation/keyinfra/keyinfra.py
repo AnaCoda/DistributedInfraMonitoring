@@ -32,6 +32,7 @@ class KeyInfraNode(RawNode):
     ):
         super().__init__(entry.name, entry.address.to_tuple())
         self.peers = [ peer for peer in peers if peer.name != self.get_network_name() ]
+       
 
         self.leader_election = self.register_plugin(BullyPlugin(
             host=self,
@@ -137,6 +138,14 @@ class KeyInfraNode(RawNode):
     def handle_inbound_dconn(self, name: str):
         print(f'{Fore.YELLOW}[DISCONNECTION]{Fore.RESET} Disconnected from {name} (type=INBOUND)')
 
+    @node_handler(name='handle.catchup')
+    def handle_catchup(self, body: dict):
+        sequences = body['sequences']
+
+        return self.replication_plugin.serve_state_request(sequences)
+
+
+    
 
     def __run_challenge(
         self
@@ -157,6 +166,10 @@ class KeyInfraNode(RawNode):
             if versions[0][1] > self.replication_plugin.get_seq_num():
                 print(f'[{self.get_network_name()}] Will require a fast forward to {versions[0][0]}.')
                 self.replication_plugin.leader_hold()
+                o = self.send_message(versions[0][0], 'handle.catchup', {
+                    'sequences': list(range(self.replication_plugin.get_seq_num() + 1, versions[0][1] + 1))
+                })
+                print(f'[{self.get_network_name()}] CATCHUP RESULT: {o}')
             # print(f'ON ELECT PEER DICT: {versions}')
 
     def __on_elect(
