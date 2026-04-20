@@ -1,4 +1,7 @@
 
+import logging
+import random
+import time
 from typing import Optional
 
 from colorama import Fore
@@ -11,6 +14,18 @@ class SimulationLayer(RoutingLayer):
     def __init__(self):
         super().__init__()
         self.down = None
+        self.delays = False
+        
+    def with_simulated_delays(self) -> bool:
+        return self.delays
+    
+    def enable_simulated_delays(self):
+        self.delays = True
+        logging.warning("ENABLING SIMULATED DELAYS")
+
+    def sim_delay(self) -> bool:
+        if self.with_simulated_delays():
+            time.sleep(random.uniform(0.0, 1.0))
 
     @node_handler(name='sim.version')
     def handle_sim_version(self, body: dict):

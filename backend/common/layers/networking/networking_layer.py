@@ -66,6 +66,7 @@ def _recv_raw(connection: ThreadSafeSocket) -> dict:
     return json.loads(body)
     
 
+
 @dataclass
 class EndpointResponse:
     """
@@ -78,6 +79,16 @@ class EndpointResponse:
 class NetworkErrorCode(str, Enum):
     EXISTING_CONNECTION = 'existing_connection'
     OTHER = 'other'
+
+
+class NetworkHandshakeRecv(BaseModel):
+    """
+    This packet is reported by the node that
+    is being connected to.
+    """
+    status: Literal['success']
+    name: str
+
 
 class NetworkFailResponse(BaseModel):
     status: Literal['fail']
@@ -234,6 +245,19 @@ class NetLayer(SimulationLayer):
         return self.connection_map.has_connection(target)
         # return super().has_connection(target)
 
+    def __sock_send(
+        self,
+        socket: ThreadSafeSocket,
+        message: dict | BaseModel
+    ):
+        _send_raw(socket, message)
+
+    def __sock_recv(
+        self,
+        socket: ThreadSafeSocket
+    ) -> dict:
+        return _recv_raw(socket)
+        
     def __handle_recv_conn(
         self,
         socket: ThreadSafeSocket
@@ -241,10 +265,10 @@ class NetLayer(SimulationLayer):
         name = None
         should_cleanup = True
         try:
-            registry: dict = _recv_raw(socket)
+            registry: dict = self.__sock_recv(socket)
             print(f"recevied registry: {socket.raw_socket.remote_address}")
             if 'name' not in registry:
-                _send_raw(socket, _create_error('no registry name present'))
+                self.__sock_send(socket, _create_error('no registry name present'))
                 socket.close()
                 return
             
@@ -255,7 +279,7 @@ class NetLayer(SimulationLayer):
                 # block will remove the original connection.
                 should_cleanup = False
                 print(f'[{self.get_network_name()}] We already have a connection for {name}, so denying the incoming connection.')
-                _send_raw(socket, _create_error(f'connection already exists for {name}', error=NetworkErrorCode.EXISTING_CONNECTION))
+                self.__sock_send(socket, _create_error(f'connection already exists for {name}', error=NetworkErrorCode.EXISTING_CONNECTION))
                 socket.close()
                 return
             
@@ -268,14 +292,18 @@ class NetLayer(SimulationLayer):
                 )
             )
             if not o:
-                _send_raw(socket, _create_error(f'connection already exists for {name}'))
+                self.__sock_send(socket, _create_error(f'connection already exists for {name}'))
                 socket.close()
                 return
             
             # print("HANDLE RECEIVE")
             self._net_on_connect_evt(name)
 
-            _send_raw(socket, { 'status': 'success', 'name': self.network_name })
+            self.__sock_send(socket, NetworkHandshakeRecv(
+                status='success',
+                name=self.get_network_name()
+            ))
+            # _send_raw(socket, { 'status': 'success', 'name': self.network_name })
             # print("DONE")
             self.__handle_registered_connection(name, socket)
         except (
@@ -312,7 +340,7 @@ class NetLayer(SimulationLayer):
         packed = MessagePackingResult.pack_msg(method, body, fireforget, set_rid=rid)
         try:
             # print(f'Sending {packed.message}')
-            _send_raw(connection, packed.message)
+            self.__sock_send(connection, packed.message)
         except websockets.exceptions.ConnectionClosed as e:
             raise ConnectionAbortedError("websocket closed during send") from e
         except Exception as e:
@@ -549,10 +577,10 @@ class NetLayer(SimulationLayer):
         )
         
         # Send a name request to initiate the handshake.
-        _send_raw(connection, { 'name': self.network_name })
+        self.__sock_send(connection, { 'name': self.network_name })
 
         
-        body: dict = _recv_raw(connection)
+        body: dict = self.__sock_recv(connection)
 
         if 'status' in body and body['status'] == 'fail':
             error_msg = NetworkFailResponse.model_validate(body)
@@ -595,7 +623,7 @@ class NetLayer(SimulationLayer):
         
         try:
             while not self.is_shutting_down():
-                message = _recv_raw(connection)
+                message = self.__sock_recv(connection)
                 # print(f'Recv\'d Message: {message}')
 
                 if 'route' not in message:

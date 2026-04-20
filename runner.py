@@ -103,6 +103,8 @@ def launch_application(
     try:
         # Launch the node.
         node: RawNode = get_application_node(config, service)
+        if service.service_is_local():
+            node.enable_simulated_delays()
 
         LOGGER.info(f'Started node.')
 

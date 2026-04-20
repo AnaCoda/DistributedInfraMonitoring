@@ -15,12 +15,18 @@ async def client():
     parser.add_argument('--name', help='The name to use for connection.', required=True)
     parser.add_argument('--route', help='The route to connect to.', required=True)
     parser.add_argument('--body', help='JSON payload', default='{}')
+    parser.add_argument('--local', action='store_true')
+
 
     # parser.add_argument()
     args = parser.parse_args()
 
-    # uri = f"ws://{args.ip}"
-    uri = f'wss://{args.ip}.warsys.click'
+    if args.local:
+        uri = f"ws://{args.ip}"
+    else:
+        uri = f'wss://{args.ip}'
+    # uri = f'wss://{args.ip}.warsys.click'
+    print(f'Connecting to URI... {uri}')
 
     async with websockets.connect(uri) as websocket:
         await websocket.send(dumps({ "name": args.name }))
@@ -47,7 +53,7 @@ async def client():
         response = dumps(loads(await websocket.recv()), indent=4)
 
         print(f'Response:{Fore.CYAN}\n{response}{Fore.RESET}')
-
+        await websocket.close()
 
         # print(f'Response: {Fore.LIGHTBLACK_EX}{await websocket.recv()}{Fore.}')
 
