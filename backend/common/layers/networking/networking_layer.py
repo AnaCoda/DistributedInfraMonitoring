@@ -365,6 +365,14 @@ class NetLayer(SimulationLayer):
             # print(f'SuccesS: {success}')
             if not success:
                 self.response_registrar.pop_registry(packed.rid)
+                try:
+                    self.connection_map.deregister(target)
+                except Exception:
+                    pass
+                try:
+                    self._net_on_disconnect_evt(target)
+                except Exception:
+                    pass
                 # if packed.rid in self.response_registrar:
                     # del self.response_registrar[packed.rid]
                 raise TimeoutError(f"Timed out waiting for response from {target} on route {method}")

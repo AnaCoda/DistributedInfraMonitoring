@@ -144,6 +144,8 @@ class BullyPlugin(Plugin):
         tries = 0
         while True:
             tries += 1
+            if tries > 5:
+                break
             try:
                 if message.destination.name == self.get_network_name():
                     return
@@ -165,6 +167,7 @@ class BullyPlugin(Plugin):
                     f"err={type(e).__name__}: {e} (RETRYING, tries={tries}){Fore.RESET}"
                 )
                 time.sleep(0.5)
+        raise Exception(f'Failed to send a bully message {message}')
                 
         
 
