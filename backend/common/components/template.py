@@ -28,6 +28,10 @@ class NodeTemplate(ABC):
         pass
 
     @abstractmethod
+    def is_shutting_down(self) -> bool:
+        pass
+
+    @abstractmethod
     def shutdown(self):
         pass
 

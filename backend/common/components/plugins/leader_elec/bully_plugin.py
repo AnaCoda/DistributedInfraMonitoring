@@ -142,7 +142,7 @@ class BullyPlugin(Plugin):
 
     def __handle_bully_message(self, message: BullyPacket):
         tries = 0
-        while True:
+        while not self.is_shutting_down():
             tries += 1
             if tries > 5:
                 break
