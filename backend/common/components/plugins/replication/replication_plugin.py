@@ -46,17 +46,6 @@ class ReplicationPlugin(Plugin):
     def get_seq_num(self) -> int:
         return self.__core.replication_log.get_sequence_pos()
 
-    def prepare_new_leader(self):
-        with self.__core_lock:
-            self.__leader_evt.set()
-            self.__core.set_leader(self.get_network_name())
-            self.__core.begin_leader_sync()
-
-        self.__sync_from_most_updated_peer()
-
-        with self.__core_lock:
-            self.__core.complete_leader_sync()
-
     def __register_routes(self, op_routes):
         for key, fn in op_routes:
             def make_bound(route_key):
@@ -80,69 +69,6 @@ class ReplicationPlugin(Plugin):
             else:
                 self.__leader_evt.set()
             self.__core.set_leader(name)
-
-    def __sync_from_most_updated_peer(self):
-        local_sequence = self.get_seq_num()
-        best_peer = None
-        best_sequence = local_sequence
-
-        for replica in self.__replicas:
-            if not self.has_connection(replica):
-                continue
-
-            try:
-                response = self.send_message(
-                    replica,
-                    'plugin.replication.version',
-                    {},
-                    timeout=2
-                )
-                sequence = int(response.get('sequence', 0))
-                if sequence > best_sequence:
-                    best_sequence = sequence
-                    best_peer = replica
-            except Exception as e:
-                print(
-                    f'{Fore.RED}[{self.get_network_name()}] '
-                    f'Failed to get replication version from {replica}: {e}{Fore.RESET}'
-                )
-
-        if best_peer is None:
-            return
-
-        try:
-            response = self.send_message(
-                best_peer,
-                'plugin.replication.dump_logs',
-                {'start': local_sequence + 1},
-                timeout=5
-            )
-        except Exception as e:
-            print(
-                f'{Fore.RED}[{self.get_network_name()}] '
-                f'Failed to fetch leader catch-up logs from {best_peer}: {e}{Fore.RESET}'
-            )
-            return
-
-        logs = [Operation(**log) for log in response.get('logs', [])]
-        logs.sort(key=lambda op: op.sequence_number)
-
-        with self.__core_lock:
-            for op in logs:
-                expected = self.__core.replication_log.get_sequence_pos() + 1
-                if op.sequence_number != expected:
-                    print(
-                        f'{Fore.RED}[{self.get_network_name()}] '
-                        f'Stopping leader catch-up at op={op.sequence_number}; '
-                        f'expected={expected}{Fore.RESET}'
-                    )
-                    break
-
-                accepted = self.__core.receive(
-                    ReplicationMsg.from_op(ReplicationOp.OPERATION, op)
-                )
-                if accepted:
-                    self.__apply_operation(op)
 
     def __wait_leader(self):
         while not self.__leader_evt.is_set():
@@ -275,39 +201,7 @@ class ReplicationPlugin(Plugin):
             }
         return self.__handle_operation(body)
 
-    @node_handler(name='plugin.replication.version')
-    def handle_replication_version(self, body: dict, source: str):
-        if source not in self.__replicas:
-            return {
-                'status': 'fail',
-                'message': 'unauthorized request, only for internal use of replicas.'
-            }
 
-        with self.__core_lock:
-            return {
-                'status': 'success',
-                'sequence': self.__core.replication_log.get_sequence_pos()
-            }
-
-    @node_handler(name='plugin.replication.dump_logs')
-    def handle_replication_dump_logs(self, body: dict, source: str):
-        if source not in self.__replicas:
-            return {
-                'status': 'fail',
-                'message': 'unauthorized request, only for internal use of replicas.'
-            }
-
-        start = int(body.get('start', 1))
-
-        with self.__core_lock:
-            logs = self.__core.replication_log.retrieve_logs(start, None)
-
-        return {
-            'status': 'success',
-            'logs': [asdict(log) for log in logs]
-        }
-        
-    
     def get_version_locked(self):
         # if self.__core_lock.
         return self.__core.replication_log.get_sequence_pos()

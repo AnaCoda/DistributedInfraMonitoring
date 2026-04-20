@@ -159,7 +159,7 @@ class KeyInfraNode(RawNode):
         self.replication_plugin.set_leader(None)
 
     def on_become_leader(self):
-        self.replication_plugin.prepare_new_leader()
+        self.__on_elect(self.get_network_name())
 
     def on_elect_leader(self, _l, _p, target):
 
