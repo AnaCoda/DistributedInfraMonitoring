@@ -18,7 +18,7 @@ class CapitalNode(KeyInfraNode):
     ):
         self.capital_name = capital_name
         super().__init__(entry, peers, [
-            ('region.update', self.region_update)
+            ('region.update', self.region_update),
             ('query.capital', self.query_capital)
         ])
 
