@@ -69,6 +69,7 @@ class InfrastructureNode(RawNode):
         self.send_message_no_wait(target, 'infra.update', current_state)
         with self.__region_notify_lock:
             self.__notified_region = True
+        print(f'{Fore.GREEN}[{self.get_network_name()}] Succesfully notified the regional nodes of a change.')
 
 
     @node_handler(name='infra.random')
