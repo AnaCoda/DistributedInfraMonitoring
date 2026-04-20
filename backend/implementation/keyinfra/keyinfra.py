@@ -73,6 +73,7 @@ class KeyInfraNode(RawNode):
     def election_state(self):
         return ElectionState(
             name=self.get_network_name(),
+            version=self.replication_plugin.get_seq_num(),
             leader=self.leader_election.current_leader(),
             heartbeat={
                 bully.name: HeartBeatState(

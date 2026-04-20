@@ -1,3 +1,5 @@
+from colorama import Fore
+
 from ..plugin import Plugin
 from ...template import NodeTemplate
 from ...storage.backend import StorageBackend
@@ -176,6 +178,7 @@ class ReplicationPlugin(Plugin):
                 try:
                     self.send_message_no_wait(replica, 'plugin.replication', asdict(operation))
                 except Exception as e:
+                    print(f'{Fore.RED}[{self.get_network_name()}] Failed to send to {replica} with error={e}{Fore.RESET}')
                     pass
                     # print(f'excepted {type(e)}')
             return output

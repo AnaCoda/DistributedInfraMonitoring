@@ -30,4 +30,5 @@ class HeartBeatState(BaseModel):
 class ElectionState(BaseModel):
     name: str
     leader: Optional[str]
+    version: int
     heartbeat: Dict[str, HeartBeatState]
