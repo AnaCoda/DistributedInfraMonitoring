@@ -67,11 +67,6 @@ def redeploy_sequence(
         run_command(client, 'git fetch origin', app_dir)
         run_command(client, f'git checkout {git_branch}', app_dir)
         run_command(client, 'git pull --ff-only', app_dir)
-        run_command(
-            client,
-            'source /root/.cargo/env && cargo build --release && sudo install -m 0755 target/release/backend2 /usr/local/bin/distinfra-backend2',
-            f'{app_dir}/backend2'
-        )
         run_command(client, f"sudo systemctl restart '{target_service}'")
         run_command(client, f"sudo systemctl --no-pager --full status '{target_service}' | head -n 20", show_output=True)
     except Exception as e:

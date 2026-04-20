@@ -20,7 +20,7 @@ async fn main() {
         .unwrap();
 }
 
-async fn ws_handler(ws: WebSocketUpgrade) -> impl IntoResponse {
+async fn ws_handler(ws: WebSocketUpgrade) -> axum::response::Response {
     ws.on_upgrade(handle_socket)
 }
 
