@@ -70,6 +70,11 @@ class KeyInfraNode(RawNode):
     def get_state(self) -> BaseModel:
         return self.__state
     
+    @node_handler(name='replication.version')
+    def handle_replication_version(self, body):
+        return { 'version': self.replication_plugin.get_seq_num() }
+    
+    
     def election_state(self):
         return ElectionState(
             name=self.get_network_name(),
@@ -131,15 +136,27 @@ class KeyInfraNode(RawNode):
         print(f'{Fore.YELLOW}[DISCONNECTION]{Fore.RESET} Disconnected from {name} (type=INBOUND)')
 
 
+    def __on_elect(
+        self,
+        target: str
+    ):
+        
+
+
+        self.replication_plugin.set_leader(target)
+
 
     def on_start_election(self):
         self.replication_plugin.set_leader(None)
 
     def on_become_leader(self):
-        self.replication_plugin.set_leader(self.get_network_name())
+        self.__on_elect(self.get_network_name())
+        # self.replication_plugin.set_leader(self.get_network_name())
 
     def on_elect_leader(self, _l, _p, target):
-        self.replication_plugin.set_leader(target)
+
+        self.__on_elect(target)
+        # self.replication_plugin.set_leader(target)
         
     @abstractmethod
     def _default_state(self) -> BaseModel:

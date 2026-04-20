@@ -43,6 +43,9 @@ class CapitalNode(KeyInfraNode):
         # pass
         return self.get_state().model_dump()
 
+    @node_handler(name='query.capital.local')
+    def query_capital_local(self, body, source):
+        return self.get_state().model_dump()
 
     def _default_state(self) -> CapitalState:
         return CapitalState(
