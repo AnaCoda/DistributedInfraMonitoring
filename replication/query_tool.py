@@ -19,7 +19,8 @@ async def client():
     # parser.add_argument()
     args = parser.parse_args()
 
-    uri = f"ws://{args.ip}"
+    # uri = f"ws://{args.ip}"
+    uri = f'wss://{args.ip}.warsys.click'
 
     async with websockets.connect(uri) as websocket:
         await websocket.send(dumps({ "name": args.name }))
