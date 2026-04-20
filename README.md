@@ -76,8 +76,20 @@ npm install
 npm run dev   # http://localhost:5173
 ```
 
+# Running
+## Locally
+It is extremely trivial to run the nodes locally. You can simply run this commmand:
+```bash
+$ $Env:LOCAL = "TRUE"; $Env:CONFIG_NAME = "rm-1"; uv run python -m runner
+```
+
 # Specifying nodes
 If you go to `runners/config.py` we have several `pydantic` models that describe how configuration files should look. The actual configuration is stored in `configs/fly/...`. The fly nodes will determine their state depending on the `CONFIG_NAME` secret, which is passed to the `runner.py` script as an environment variable.
+
+## Connection Registries
+We have two cases for node resolution:
+- **LOCAL:** If we are local then we can allocate a random port on a block from the OS, we keep track and manage these automatically when a node is started with the runner and the `LOCAL` environment variable is set to a string of non-zero length.
+- **REMOTE:** In the case of remote, all nodes start on `0.0.0.0:8080`. Their connections with other nodes are specified with a name to url mapping in `backend/runners/remote_registry.json`.
 
 # FLY.IO DEPLOYMENT
 The actual deployment logic for a replica named `rm-1` is as follows:

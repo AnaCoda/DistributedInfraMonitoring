@@ -498,6 +498,8 @@ class NetLayer(SimulationLayer):
         if isinstance(address, tuple):
             address = f'ws://{address[0]}:{address[1]}'
 
+        print(f'Connecting 2 {address}')
+
         connection = ThreadSafeSocket(
             ws_connect(
                 address,

@@ -52,7 +52,7 @@ class ServiceRegistry:
         
     def get_address(self, name: str) -> NetworkAddress | NetworkUrl:
         if self.is_local:
-            return NetworkAddress(ip='0.0.0.0', port=self.get_port(name))
+            return NetworkAddress(ip='127.0.0.1', port=self.get_port(name))
         else:
             with open(self.__remote_registry_path(), 'r') as fi:
                 data = load(fi)

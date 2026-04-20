@@ -76,7 +76,7 @@ class BullyPlugin(Plugin):
 
     def init_bully_election(
         self,
-        node: BullyPeer,
+        node: NetworkEntry,
         peer_names: List[NetworkEntry],
         heartbeat_interval_ms: int = 4000,
         leader_timeout_ms: int = 3000,
@@ -84,10 +84,19 @@ class BullyPlugin(Plugin):
     ):
         self.peer_map = { entry.name: entry for entry in peer_names }
         self.peers = peer_names
+
+        node = BullyPeer(
+            name=node.name,
+            unique_id=int(node.name.split('-')[1]),
+            priority=1
+        )
+
         print(f'INitialized bully elec w/ {node}, peer_names = {peer_names}')
+        bully_peers  =[ BullyPeer(peer.name, int(peer.name.split('-')[1]), 1) for peer in peer_names ]
+        print(f'ylyl = {bully_peers}')
         self.node = BullyElectionNode(
             node=node,
-            peer_list=[ BullyPeer(peer.name, peer.name.split('-')[1], 1) for peer in peer_names ],
+            peer_list=bully_peers,
             hb_timeout=heartbeat_interval_ms / 1000.0,
             timeout=leader_timeout_ms / 1000.0,
             verbose=verbose

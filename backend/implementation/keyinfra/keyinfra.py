@@ -36,7 +36,7 @@ class KeyInfraNode(RawNode):
 
         self.leader_election = self.register_plugin(BullyPlugin(
             host=self,
-            node=BullyPeer(self.get_network_name(), self.get_network_name(), 1),
+            node=entry,
             peers=self.peers,
             heartbeat_interval_ms=8_000
         ))
