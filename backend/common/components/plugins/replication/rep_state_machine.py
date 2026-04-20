@@ -128,6 +128,13 @@ class ReplicationStateMachine(BaseStateMachine):
                 # We ignore all other packets.
                 return
         elif self.get_state() == ReplicationStateMachineState.LEADER_SYNCING:
+            if packet.op == ReplicationOp.OPERATION:
+                operation = Operation(**packet.body)
+                if operation.sequence_number == self.replication_log.get_sequence_pos() + 1:
+                    self._set_state(ReplicationStateMachineState.IN_OPERATION)
+                    self.current_op = operation
+                    return True
+                return False
             if self.is_leader():
                 return self.__handle_leader_async(packet)
             return False

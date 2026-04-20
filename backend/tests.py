@@ -306,7 +306,6 @@ class DictUtils(unittest.TestCase):
         self.assertEqual(len(sm.poll()), 1)
         self.assertEqual(sm.get_state(), ReplicationStateMachineState.STARTED)
 
-
     def test_replication_log(self):
         backend = MemoryStorageBackend()
         log = ReplicationLog(backend)
