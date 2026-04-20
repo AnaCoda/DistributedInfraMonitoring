@@ -75,7 +75,7 @@ class BaseStateMachine(StateMachine):
     def _set_state(self, state):
         if self.__state == state:
             return
-        print(f'[SM] [{self.get_name()}] {self.__state} -> {state}')
+        # print(f'[SM] [{self.get_name()}] {self.__state} -> {state}')
         self.__state = state
         with self.__condition:
             self.__condition.notify_all()

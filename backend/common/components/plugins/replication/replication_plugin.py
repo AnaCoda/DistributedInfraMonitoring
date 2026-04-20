@@ -73,6 +73,7 @@ class ReplicationPlugin(Plugin):
     def __wait_leader(self):
         while not self.__leader_evt.is_set():
             self.__leader_evt.wait()
+
         with self.__core_lock:
             # If we are the leader there is an edge case
             # whereby we are not yet initialized.
@@ -152,11 +153,14 @@ class ReplicationPlugin(Plugin):
         # External operations must wait for the leader.
         self.__wait_leader()
 
+
+
         # The following requires manual locking and unlocking
         # of the core lock so we do not accidentally enter into
         # a deadlocked scenario.
         with self.__core_lock:
             is_leader = self.__core.is_leader()
+
 
         self.__core.wait_for_state(ReplicationStateMachineState.EXECUTING)
 

@@ -72,6 +72,9 @@ class ReplicationStateMachine(BaseStateMachine):
             msg.target = self.get_leader()
         
     
+    def report_competitor(self, name: str, version: int):
+        if self.is_leader():
+            pass
 
     def _on_poll(self):
         if self.get_state() == ReplicationStateMachineState.INIT and self.get_leader() is not None:

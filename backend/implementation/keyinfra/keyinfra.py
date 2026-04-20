@@ -149,7 +149,9 @@ class KeyInfraNode(RawNode):
                         version_dict[peer.name] = o
                     except Exception:
                         pass
-            print(f'ON ELECT PEER DICT: {version_dict}')
+            versions = list(version_dict.items())
+            versions.sort(key=lambda x : x[1], reverse=True)
+            print(f'ON ELECT PEER DICT: {versions}')
 
 
         self.replication_plugin.set_leader(target)
