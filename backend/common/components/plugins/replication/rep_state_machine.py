@@ -35,6 +35,7 @@ class ReplicationStateMachineState(Enum):
     IN_OPERATION = 3
     REQUESTING_CATCHUP = 4
     WAITING_CATCHUP = 5
+    LEADER_SYNC = 6
 
 class ReplicationSMResponseCode(Enum):
     FAILED = 0
@@ -119,6 +120,8 @@ class ReplicationStateMachine(BaseStateMachine):
             else:
                 # We ignore all other packets.
                 return
+        elif self.get_state() == ReplicationStateMachineState.LEADER_SYNC:
+            pass
         elif self.get_state() == ReplicationStateMachineState.EXECUTING:
             if packet.op == ReplicationOp.OPERATION:
                 operation = Operation(**packet.body)

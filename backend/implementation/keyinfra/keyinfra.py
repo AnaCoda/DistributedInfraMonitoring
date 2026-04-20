@@ -152,15 +152,21 @@ class KeyInfraNode(RawNode):
                         pass
             versions = list(version_dict.items())
             versions.sort(key=lambda x : x[1], reverse=True)
-            print(f'ON ELECT PEER DICT: {versions}')
+            print(f'[{self.get_network_name()}] Peer challenge versions: {versions}')
+
+            if versions[0][1] > self.replication_plugin.get_seq_num():
+                print(f'[{self.get_network_name()}] Will require a fast forward to {versions[0][0]}.')
+                self.replication_plugin.leader_hold()
+            # print(f'ON ELECT PEER DICT: {versions}')
 
     def __on_elect(
         self,
         target: str
     ):
-        self.__run_challenge()
+        
 
         self.replication_plugin.set_leader(target)
+        self.__run_challenge()
 
 
     def on_start_election(self):

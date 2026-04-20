@@ -45,6 +45,9 @@ class ReplicationPlugin(Plugin):
 
     def is_leader(self) -> bool:
         return self.__core.is_leader()
+    
+    def leader_hold(self):
+        return self.__core._set_state(ReplicationStateMachineState.LEADER_SYNC)
 
     def get_seq_num(self) -> int:
         return self.__core.replication_log.get_sequence_pos()
@@ -69,6 +72,8 @@ class ReplicationPlugin(Plugin):
         with self.__core_lock:
             if name is None:
                 self.__leader_evt.clear()
+                if self.__core.is_leader():
+                    self.__core._set_state(ReplicationStateMachineState.INIT)
             else:
                 self.__leader_evt.set()
             self.__core.set_leader(name)
