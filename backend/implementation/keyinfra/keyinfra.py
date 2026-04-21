@@ -98,7 +98,8 @@ class KeyInfraNode(RawNode):
             if peer.name == self.get_network_name():
                 continue
             self._try_connect(peer)
-            # print(f'[PING] [{self.get_network_name()} -> {peer.name}] Starting ping...')
+
+      # [{self.get_network_name()} -> {peer.name}] Starting ping...')
             try:
                 o = self.send_message(peer.name, 'ping.re', {})
                 logging.info(f'[PING] [{self.get_network_name()} -> {peer.name}] Ping succeeded: {o} (local_leader={self.leader_election.current_leader()})')

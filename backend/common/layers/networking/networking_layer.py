@@ -281,34 +281,44 @@ class NetLayer(SimulationLayer):
             
             name: str = registry['name']
            
+            # print(f'GATE A')
+            # with self.__target_gate.gate(name):
+            # print(f'GATE B')
             if self.connection_map.has_connection(name):
+                # print(f'GATE C')
                 # We want to prevent cleanup here, else the finally
                 # block will remove the original connection.
-                should_cleanup = False
+                # should_cleanup = False
                 LOGGER.info(f'[{self.get_network_name()}] We already have a connection for {name}, so denying the incoming connection.')
-                self.__sock_send(socket, _create_error(f'connection already exists for {name}', error=NetworkErrorCode.EXISTING_CONNECTION))
-                
-                msg = self.__sock_recv(socket)
-                if msg['status'] == 'challenge':
-                    LOGGER.info(f'[{self.get_network_name()}] Duplicate connection challenged. Deregistering.')
+                # self.__sock_send(socket, _create_error(f'connection already exists for {name}', error=NetworkErrorCode.EXISTING_CONNECTION))
+                # socket.close()
+                # return  
+                with self.__target_gate.gate(name):
                     self.connection_map.deregister(name)
-                    # print('GOT A REPLY!!!')
-                    
-                    # socket.close()
-                    # return
-            # with self.__target_gate.gate(name):
-                # Register the connection internally to keep track.
-            o = self.connection_map.register(
-                name=name,
-                entry=ConnectionRegistry(
-                    name,
-                    connection=socket
-                )
-            )
-            if not o:
-                self.__sock_send(socket, _create_error(f'connection already exists for {name}'))
-                socket.close()
-                return
+
+
+
+                    # msg = self.__sock_recv(socket)
+                    # if msg['status'] == 'challenge':
+                    #     LOGGER.info(f'[{self.get_network_name()}] Duplicate connection challenged. Deregistering.')
+                    #     self.connection_map.deregister(name)
+                    #     # print('GOT A REPLY!!!')
+                        
+                    #     # socket.close()
+                    #     # return
+                # with self.__target_gate.gate(name):
+                    # Register the connection internally to keep track.
+                    o = self.connection_map.register(
+                        name=name,
+                        entry=ConnectionRegistry(
+                            name,
+                            connection=socket
+                        )
+                    )
+                if not o:
+                    self.__sock_send(socket, _create_error(f'connection already exists for {name}'))
+                    socket.close()
+                    return
             
             # print("HANDLE RECEIVE")
             self._net_on_connect_evt(name)
@@ -604,18 +614,19 @@ class NetLayer(SimulationLayer):
             error_msg = NetworkFailResponse.model_validate(body)
             if error_msg.error == NetworkErrorCode.EXISTING_CONNECTION:
                 print(f'DO WE REALLY HAVE EXISTING?: {self.has_connection(name)}')
-
-                if self.has_connection(name):
-                    connection.close()
-                    # We already have a connection.
-                    return True
-                else:
-                    print(f'CHALLENGING')
-                    self.__sock_send(connection, { 'status': 'challenge' })
+                connection.close()
+                return True
+                # if self.has_connection(name):
+                #     connection.close()
+                #     # We already have a connection.
+                #     return True
+                # else:
+                #     print(f'CHALLENGING')
+                #     self.__sock_send(connection, { 'status': 'challenge' })
                     
-                    self.connection_map.deregister(name)
-                    connection.close()
-                    return True
+                #     self.connection_map.deregister(name)
+                #     connection.close()
+                #     return True
 
 
                     # print(f'WAITING ON CHALLENGE RESPONSE')
