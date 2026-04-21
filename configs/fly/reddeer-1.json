@@ -1,0 +1,10 @@
+{
+    "name": "reddeer-1",
+    "variant": "region",
+    "uri": "reddeer-1.fly.dev",
+    "region": {
+        "region_name": "reddeer",
+        "capitals": [ "rm-1", "rm-2" ],
+        "peers": [ "reddeer-2" ]
+    }
+}

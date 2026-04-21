@@ -38,18 +38,28 @@
         {{ wsStatus }}
       </span>
 
-      <span
-        v-if="hasEverLoaded && wsStatus !== 'connected'"
-        class="text-amber-600 text-xs"
-      >
-        showing last known state
-      </span>
+      <div class="flex items-center bg-gray-100 rounded-lg p-1 ml-2">
+        <button
+          @click="viewMode = 'grid'"
+          class="px-3 py-1 text-xs font-bold rounded-md transition-all"
+          :class="viewMode === 'grid' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'"
+        >
+          Grid
+        </button>
+        <button
+          @click="viewMode = 'map'"
+          class="px-3 py-1 text-xs font-bold rounded-md transition-all"
+          :class="viewMode === 'map' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'"
+        >
+          Map
+        </button>
+      </div>
     </div>
 
     <div class="pb-6 flex flex-row gap-3 flex-wrap">
       <div
         class="p-1 pl-2 border-gray-500 border rounded-full flex justify-center items-center gap-2 flex-row"
-        v-for="value in connected"
+        v-for="value in connectedEndpoints"
         :key="value"
       >
         <div class="w-4 h-4 border bg-green-400 rounded-full"></div>
@@ -65,10 +75,7 @@
       v-else-if="regions.length === 0"
       class="p-4 border border-dashed border-gray-300 rounded-lg text-sm text-gray-600"
     >
-      No regions reporting yet. Start nodes like:
-      <pre
-        class="mt-2 bg-gray-50 border border-gray-200 rounded p-3 text-xs overflow-x-auto"
-      >{{ exampleCommands }}</pre>
+      No regions reporting yet.
     </div>
 
     <div v-else>
@@ -122,130 +129,136 @@
         </div>
       </div>
 
-      <!-- Region cards -->
-      <div
-        class="grid gap-4 items-start"
-        style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));"
-      >
+      <!-- Region visualization -->
+      <div v-if="viewMode === 'grid'">
+        <!-- Region cards -->
         <div
-          v-for="r in regions"
-          :key="r.name"
-          class="border rounded-xl p-4 shadow-sm bg-white transition-colors"
-          :class="r.isCapital
-            ? 'border-slate-400 bg-slate-50 shadow-md'
-            : r.isStale
-              ? 'border-red-300 opacity-70'
-              : 'border-gray-200'"
+          class="grid gap-4 items-start"
+          style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));"
         >
-          <!-- Card header -->
-          <div class="flex items-start justify-between gap-3 mb-3">
-            <div>
-              <h2 class="text-base font-semibold leading-tight">{{ r.name }}</h2>
-              <div class="flex items-center gap-2 mt-1 flex-wrap">
-                <span
-                  class="text-[11px] px-1.5 py-0.5 rounded border font-medium uppercase tracking-wide"
-                  :class="r.regionType === 'urban'
-                    ? 'border-purple-300 text-purple-700 bg-purple-50'
-                    : r.regionType === 'standard'
-                      ? 'border-blue-300 text-blue-700 bg-blue-50'
-                      : r.isCapital
-                        ? 'border-slate-700 text-white bg-slate-700'
-                        : 'border-gray-300 text-gray-500'"
-                >
-                  {{ r.isCapital ? "capital" : (r.regionType || "unknown") }}
-                </span>
+          <div
+            v-for="r in regions"
+            :key="r.name"
+            class="border rounded-xl p-4 shadow-sm bg-white transition-colors"
+            :class="r.isCapital
+              ? 'border-slate-400 bg-slate-50 shadow-md'
+              : r.isStale
+                ? 'border-red-300 opacity-70'
+                : 'border-gray-200'"
+          >
+            <!-- Card header -->
+            <div class="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <h2 class="text-base font-semibold leading-tight">{{ r.name }}</h2>
+                <div class="flex items-center gap-2 mt-1 flex-wrap">
+                  <span
+                    class="text-[11px] px-1.5 py-0.5 rounded border font-medium uppercase tracking-wide"
+                    :class="r.regionType === 'urban'
+                      ? 'border-purple-300 text-purple-700 bg-purple-50'
+                      : r.regionType === 'standard'
+                        ? 'border-blue-300 text-blue-700 bg-blue-50'
+                        : r.isCapital
+                          ? 'border-slate-700 text-white bg-slate-700'
+                          : 'border-gray-300 text-gray-500'"
+                  >
+                    {{ r.isCapital ? "capital" : (r.regionType || "unknown") }}
+                  </span>
 
-                <span
-                  v-if="r.name === leader"
-                  class="text-[11px] px-1.5 py-0.5 rounded border border-green-300 text-green-700 bg-green-50 font-medium uppercase tracking-wide"
-                >
-                  leader
-                </span>
+                  <span
+                    v-if="r.name === leader"
+                    class="text-[11px] px-1.5 py-0.5 rounded border border-green-300 text-green-700 bg-green-50 font-medium uppercase tracking-wide"
+                  >
+                    leader
+                  </span>
 
-                <span v-if="r.sites" class="text-[11px] text-gray-400">{{ r.sites.length }} sites</span>
+                  <span v-if="r.sites" class="text-[11px] text-gray-400">{{ r.sites.length }} sites</span>
+                </div>
+              </div>
+
+              <div class="shrink-0 text-right text-xs">
+                <span
+                  v-if="r.isStale"
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-red-400 text-red-600 bg-red-50 font-semibold uppercase"
+                >
+                  ⚠ Stale
+                </span>
+                <span v-else class="text-gray-400">{{ r.lastSeenText }}</span>
               </div>
             </div>
 
-            <div class="shrink-0 text-right text-xs">
-              <span
-                v-if="r.isStale"
-                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-red-400 text-red-600 bg-red-50 font-semibold uppercase"
+            <hr class="border-gray-100 mb-3" />
+
+            <!-- Status rows -->
+            <div class="space-y-2">
+              <div class="flex items-center text-sm">
+                <span class="label-col">Power</span>
+                <StatusBadge :value="r.state.power" />
+              </div>
+              <div class="flex items-center text-sm">
+                <span class="label-col">Transport</span>
+                <StatusBadge :value="r.state.transport" />
+              </div>
+              <div class="flex items-center text-sm gap-3">
+                <span class="label-col">Medical</span>
+                <ProgressBar :value="r.state.medical_capacity" />
+              </div>
+              <div class="flex items-center text-sm gap-3">
+                <span class="label-col">Water</span>
+                <ProgressBar :value="r.state.water_capacity" />
+              </div>
+              <div class="flex items-center text-sm gap-3">
+                <span class="label-col">Fuel</span>
+                <ProgressBar :value="r.state.fuel_storage" />
+              </div>
+            </div>
+
+            <!-- Sites toggle -->
+            <div v-if="r.sites && r.sites.length" class="mt-3">
+              <button
+                @click="toggleSites(r.name)"
+                class="btn w-full flex justify-between items-center px-3 py-1.5 text-xs"
               >
-                ⚠ Stale
-              </span>
-              <span v-else class="text-gray-400">{{ r.lastSeenText }}</span>
-            </div>
-          </div>
+                <span>Site details</span>
+                <span class="flex items-center gap-1.5">
+                  <span class="bg-gray-100 rounded px-1.5 py-0.5">{{ r.sites.length }}</span>
+                  {{ expanded[r.name] ? '▲' : '▼' }}
+                </span>
+              </button>
 
-          <hr class="border-gray-100 mb-3" />
+              <div v-if="expanded[r.name]" class="mt-2 rounded-lg overflow-hidden border border-gray-200">
+                <table class="w-full text-xs">
+                  <thead class="bg-gray-50 text-gray-400 uppercase tracking-wide">
+                    <tr>
+                      <th class="th-cell">Site</th>
+                      <th class="th-cell">Type</th>
+                      <th class="th-cell text-right">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="s in r.sites"
+                      :key="s.name + s.resource_type"
+                      class="border-t border-gray-100 hover:bg-gray-50"
+                    >
+                      <td class="td-cell font-mono text-gray-600">{{ s.name }}</td>
+                      <td class="td-cell text-gray-500">{{ s.resource_type }}</td>
+                      <td class="td-cell text-right">
+                        <SiteValue :value="s.resource_value" />
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
-          <!-- Status rows -->
-          <div class="space-y-2">
-            <div class="flex items-center text-sm">
-              <span class="label-col">Power</span>
-              <StatusBadge :value="r.state.power" />
+            <div v-else class="mt-2.5 text-[11px] text-gray-400 italic">
+              No site details
             </div>
-            <div class="flex items-center text-sm">
-              <span class="label-col">Transport</span>
-              <StatusBadge :value="r.state.transport" />
-            </div>
-            <div class="flex items-center text-sm gap-3">
-              <span class="label-col">Medical</span>
-              <ProgressBar :value="r.state.medical_capacity" />
-            </div>
-            <div class="flex items-center text-sm gap-3">
-              <span class="label-col">Water</span>
-              <ProgressBar :value="r.state.water_capacity" />
-            </div>
-            <div class="flex items-center text-sm gap-3">
-              <span class="label-col">Fuel</span>
-              <ProgressBar :value="r.state.fuel_storage" />
-            </div>
-          </div>
-
-          <!-- Sites toggle -->
-          <div v-if="r.sites && r.sites.length" class="mt-3">
-            <button
-              @click="toggleSites(r.name)"
-              class="btn w-full flex justify-between items-center px-3 py-1.5 text-xs"
-            >
-              <span>Site details</span>
-              <span class="flex items-center gap-1.5">
-                <span class="bg-gray-100 rounded px-1.5 py-0.5">{{ r.sites.length }}</span>
-                {{ expanded[r.name] ? '▲' : '▼' }}
-              </span>
-            </button>
-
-            <div v-if="expanded[r.name]" class="mt-2 rounded-lg overflow-hidden border border-gray-200">
-              <table class="w-full text-xs">
-                <thead class="bg-gray-50 text-gray-400 uppercase tracking-wide">
-                  <tr>
-                    <th class="th-cell">Site</th>
-                    <th class="th-cell">Type</th>
-                    <th class="th-cell text-right">Value</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="s in r.sites"
-                    :key="s.name + s.resource_type"
-                    class="border-t border-gray-100 hover:bg-gray-50"
-                  >
-                    <td class="td-cell font-mono text-gray-600">{{ s.name }}</td>
-                    <td class="td-cell text-gray-500">{{ s.resource_type }}</td>
-                    <td class="td-cell text-right">
-                      <SiteValue :value="s.resource_value" />
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div v-else class="mt-2.5 text-[11px] text-gray-400 italic">
-            No site details
           </div>
         </div>
+      </div>
+      <div v-else>
+        <MapView :regions="regions" :heartbeats="heartbeats" />
       </div>
     </div>
   </div>
@@ -256,6 +269,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import StatusBadge from "./components/StatusBadge.vue";
 import ProgressBar from "./components/ProgressBar.vue";
 import SiteValue from "./components/SiteValue.vue";
+import MapView from "./components/MapView.vue";
 
 // ---- State ----
 
@@ -267,34 +281,37 @@ const lastFetch = ref(null);
 const connectedEndpoint = ref("");
 const leader = ref("");
 const capital = ref("");
-const connected = ref([]);
-const sockets = new Map();
+const connectedEndpoints = ref([]);
+const activeSocket = ref(null);
 
 let reconnectTimer = null;
 
 const expanded = reactive({});
 const wsStatus = ref("disconnected");
-const hasEverLoaded = ref(false);
+const viewMode = ref("grid");
 
-const wsCandidates = (() => {
-  const raw = (import.meta.env.VITE_WS_ENDPOINTS || "").trim();
-  const defaults = [
-    "ws://localhost:4001",
-    "ws://localhost:4002",
-    "ws://localhost:4003",
-    "ws://localhost:4004",
-  ];
+function isValidWsUrl(url) {
+  try {
+    const u = new URL(url);
+    return (u.protocol === "ws:" || u.protocol === "wss:") && Boolean(u.hostname);
+  } catch {
+    return false;
+  }
+}
 
-  const parsed = raw
-    ? raw.split(",").map(v => v.trim()).filter(Boolean)
-    : defaults;
+/** Default: live capital replicas (TLS). Override with VITE_WS_ENDPOINTS. */
+const wsCandidates = [
+  "wss://rm-1.fly.dev",
+  "wss://rm-2.fly.dev",
+  // "wss://carstairs-1.fly.dev",
+  // "wss://carstairs-2.fly.dev",
+  // "wss://hospital-1.fly.dev",
+  // "wss://hospital-2.fly.dev",
+];
 
-  return [...new Set(parsed.filter(url => /^ws:\/\/[^/]+:\d+$/i.test(url)))];
-})();
-
-const exampleCommands = [
-  "python -m replication.failover_demo",
-].join("\n");
+console.log("[InfraMonitor WS] candidates", wsCandidates);
+/** Deployed capitals use `query.capital`. Override with VITE_WS_REFRESH_ROUTE if needed. */
+const refreshRoute = (import.meta.env.VITE_WS_REFRESH_ROUTE || "query.capital").trim();
 
 function toggleSites(name) {
   expanded[name] = !expanded[name];
@@ -376,142 +393,291 @@ const lastFetchText = computed(() => {
 
 const endpointLabel = computed(() => {
   if (!connectedEndpoint.value) return "";
-  return connectedEndpoint.value.replace(/^ws:\/\//, "");
+  return connectedEndpoint.value.replace(/^wss?:\/\//, "");
 });
 
 // ---- State update handler ----
 
+function typeMatches(resourceType, needles) {
+  const t = (resourceType ?? "").toLowerCase();
+  return needles.some(n => t.includes(n.toLowerCase()));
+}
+
+function inferStringMetric(sites, typeNeedles) {
+  const s = sites.find(x => typeMatches(x.resource_type, typeNeedles));
+  if (!s) return "unknown";
+  const v = s.resource_value;
+  return typeof v === "string" && v.length ? v : "unknown";
+}
+
+function maxNumericByNeedles(sites, typeNeedles) {
+  let best = null;
+  for (const s of sites) {
+    if (!typeMatches(s.resource_type, typeNeedles)) continue;
+    const n = Number(s.resource_value);
+    if (!Number.isNaN(n)) best = best === null ? n : Math.max(best, n);
+  }
+  return best;
+}
+
+/**
+ * Maps live `query.capital` body (regions → infrastructure → sites) into the dashboard shape.
+ */
+function applyCapitalQuery(body) {
+  const regions = body?.regions;
+  if (!regions || typeof regions !== "object") return;
+
+  const capitalName = body.name ?? "";
+  const nextState = {};
+  const nextHb = {};
+
+  for (const [regionKey, regRaw] of Object.entries(regions)) {
+    const rname = regRaw?.name ?? regionKey;
+    const infra = regRaw?.infrastructure ?? {};
+    const sites = [];
+
+    for (const [siteKey, siteRaw] of Object.entries(infra)) {
+      const n = siteRaw?.name ?? siteKey;
+      const rt = siteRaw?.resource_type ?? "Unknown";
+      const rv = siteRaw?.value ?? siteRaw?.resource_value ?? null;
+      sites.push({ name: n, resource_type: rt, resource_value: rv });
+    }
+
+    const medical = maxNumericByNeedles(sites, ["hospital"]);
+    const water = maxNumericByNeedles(sites, ["water"]);
+    const fuel = maxNumericByNeedles(sites, ["fuel", "depot"]);
+
+    nextState[rname] = {
+      state: {
+        power: inferStringMetric(sites, ["powerplant", "power"]),
+        transport: inferStringMetric(sites, ["railroad", "rail", "transport"]),
+        medical_capacity: medical ?? 0,
+        water_capacity: water ?? 0,
+        fuel_storage: fuel ?? 0,
+      },
+      meta: {
+        region_type: "StandardRegionNode",
+        sites,
+      },
+    };
+
+    // Key by region name so normalizeRegion() finds hb[name].
+    nextHb[rname] = {
+      name: rname,
+      last_contact: new Date().toISOString(),
+      is_leader: true,
+    };
+  }
+
+  data.value = nextState;
+  heartbeats.value = nextHb;
+  leader.value = capitalName;
+  capital.value = capitalName;
+  lastFetch.value = Date.now();
+  loading.value = false;
+  error.value = "";
+}
+
 function applyStateUpdate(body) {
-  console.log("applyStateUpdate raw body", body);
-
   const root = body.__state ?? body ?? {};
-  const nextData = root.state ?? body.state ?? {};
-  const nextHeartbeats = root.heartbeat ?? body.heartbeats ?? {};
-
-  console.log("applyStateUpdate parsed", {
-    root,
-    nextData,
-    nextHeartbeats,
-    leader: body.leader ?? "",
-    capital: body.capital ?? body.leader ?? "",
-  });
-
-  data.value = nextData;
-  heartbeats.value = nextHeartbeats;
+  data.value = root.state ?? body.state ?? {};
+  heartbeats.value = root.heartbeat ?? body.heartbeats ?? {};
   leader.value = body.leader ?? "";
   capital.value = body.capital ?? body.leader ?? "";
   lastFetch.value = Date.now();
   loading.value = false;
-  hasEverLoaded.value = true;
   error.value = "";
 }
 
-// ---- WebSocket ----
+const WS_LOG = "[InfraMonitor WS]";
 
-async function waitForNextMessage(ws, timeoutMs = 2000) {
-  return await Promise.race([
-    new Promise((resolve, reject) => {
-      const onMessage = (e) => {
-        cleanup();
-        try {
-          resolve(JSON.parse(e.data));
-        } catch (err) {
-          reject(err);
-        }
-      };
-      const onClose = (e) => {
-        cleanup();
-        reject(new Error(`socket closed during wait (${e.code})`));
-      };
-      const onError = () => {
-        cleanup();
-        reject(new Error("socket errored during wait"));
-      };
-      const cleanup = () => {
-        ws.removeEventListener("message", onMessage);
-        ws.removeEventListener("close", onClose);
-        ws.removeEventListener("error", onError);
-      };
-
-      ws.addEventListener("message", onMessage, { once: true });
-      ws.addEventListener("close", onClose, { once: true });
-      ws.addEventListener("error", onError, { once: true });
-    }),
-    new Promise((_, reject) => setTimeout(() => reject(new Error("message timeout")), timeoutMs))
-  ]);
+/** Shapes `query.capital` bodies for console (full sites per region, not only region names). */
+function summarizeCapitalResponseBody(body) {
+  const regions = body?.regions;
+  if (!regions || typeof regions !== "object" || Array.isArray(regions)) return body;
+  const out = {};
+  for (const [regionKey, reg] of Object.entries(regions)) {
+    const infra = reg?.infrastructure ?? {};
+    out[regionKey] = {
+      name: reg?.name ?? regionKey,
+      sites: Object.entries(infra).map(([siteKey, site]) => ({
+        name: site?.name ?? siteKey,
+        resource_type: site?.resource_type,
+        value: site?.value ?? site?.resource_value,
+      })),
+    };
+  }
+  return { name: body.name, regions: out };
 }
 
-async function tryConnect(endpoint) {
-  if (sockets.has(endpoint)) return;
-
-  let ws = null;
+function handleWsMessage(raw) {
+  let msg;
   try {
-    ws = new WebSocket(endpoint);
+    msg = JSON.parse(raw);
+  } catch {
+    console.warn(WS_LOG, "non-JSON message", raw?.slice?.(0, 200) ?? raw);
+    return;
+  }
+  const body = msg.body;
+  const preview =
+    body && typeof body === "object" && body.regions && typeof body.regions === "object" && !Array.isArray(body.regions)
+      ? summarizeCapitalResponseBody(body)
+      : body;
+  console.info(WS_LOG, "←", msg.route, msg.rid ? `(rid ${String(msg.rid).slice(0, 8)}…)` : "", preview);
+  if (msg.route === "push.state_update" || msg.route === "push.replica_state_update") {
+    applyStateUpdate(msg.body ?? {});
+    return;
+  }
+  if (msg.route === "__response") {
+    const b = msg.body ?? {};
+    if (b.regions && typeof b.regions === "object" && !Array.isArray(b.regions)) {
+      applyCapitalQuery(b);
+    } else {
+      applyStateUpdate(b);
+    }
+  }
+}
 
-    await Promise.race([
-      new Promise((resolve, reject) => {
-        ws.addEventListener("error", reject, { once: true });
-        ws.addEventListener("open", resolve, { once: true });
-      }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Connection timed out")), 3000))
-    ]);
+function packRpc(route, body = {}) {
+  return {
+    route,
+    rid: crypto.randomUUID(),
+    fireforget: false,
+    body,
+  };
+}
 
-    ws.send(JSON.stringify({ name: `Frontend-${crypto.randomUUID()}` }));
-    const handshake = await waitForNextMessage(ws, 3000);
+const WS_OPEN_TIMEOUT_MS = 8000;
 
-    if (handshake.status !== "success") {
-      console.log("WS handshake failed", endpoint, handshake);
-      ws.close();
+/** If "1"/"true", each candidate is tried again as wss://same-host-and-path (TLS). */
+const tryWssAlternate =
+  import.meta.env.VITE_WS_TRY_WSS === "1" || import.meta.env.VITE_WS_TRY_WSS === "true";
+
+const lastConnectDiag = ref("");
+
+function scheduleReconnect(ms) {
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(connectWs, ms);
+}
+
+function alternateTlsUrl(endpoint) {
+  try {
+    const u = new URL(endpoint);
+    const host = u.host;
+    const path = `${u.pathname}${u.search}`;
+    return u.protocol === "ws:" ? `wss://${host}${path}` : `ws://${host}${path}`;
+  } catch {
+    return null;
+  }
+}
+
+function endpointsToTry(primary) {
+  const list = [primary];
+  if (tryWssAlternate) {
+    const alt = alternateTlsUrl(primary);
+    if (alt && alt !== primary) list.push(alt);
+  }
+  return list;
+}
+
+/**
+ * Wait until open, or fail with close code / timeout (browser "error" gives no details).
+ */
+function waitUntilOpen(ws, ms) {
+  return new Promise((resolve, reject) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      resolve();
       return;
     }
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`open timed out after ${ms}ms`));
+    }, ms);
+    const onOpen = () => {
+      cleanup();
+      resolve();
+    };
+    const onClose = ev => {
+      cleanup();
+      const detail = `closed before open (code ${ev.code}${ev.reason ? ` ${ev.reason}` : ""})`;
+      reject(new Error(detail));
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error("connection error (network/TLS/port)"));
+    };
+    function cleanup() {
+      clearTimeout(timer);
+      ws.removeEventListener("open", onOpen);
+      ws.removeEventListener("close", onClose);
+      ws.removeEventListener("error", onError);
+    }
+    ws.addEventListener("open", onOpen, { once: true });
+    ws.addEventListener("close", onClose, { once: true });
+    ws.addEventListener("error", onError, { once: true });
+  });
+}
 
-    sockets.set(endpoint, ws);
-    wsStatus.value = "connected";
+async function tryOpenCapitalSocket(endpoint) {
+  let ws = null;
+  try {
+    console.info(WS_LOG, "connecting", endpoint);
+    ws = new WebSocket(endpoint);
+    await waitUntilOpen(ws, WS_OPEN_TIMEOUT_MS);
+    console.info(WS_LOG, "socket open", { url: ws.url, readyState: ws.readyState });
+
+    ws.send(JSON.stringify({ name: `Frontend-${crypto.randomUUID()}` }));
+    const handshake = await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error("Handshake timed out")), WS_OPEN_TIMEOUT_MS);
+      ws.addEventListener(
+        "message",
+        e => {
+          clearTimeout(t);
+          resolve(JSON.parse(e.data));
+        },
+        { once: true }
+      );
+    });
+    console.info(WS_LOG, "handshake", handshake);
+
+    if (handshake.status !== "success") {
+      console.warn(WS_LOG, "handshake rejected", handshake);
+      ws.close();
+      return null;
+    }
+
+    ws.addEventListener("message", event => handleWsMessage(event.data));
+
+    ws.addEventListener("close", ev => {
+      console.info(WS_LOG, "close", { code: ev.code, reason: ev.reason || "(none)", wasClean: ev.wasClean });
+      if (import.meta.env.DEV) {
+        delete window.__infraMonitorWS;
+      }
+      if (activeSocket.value === ws) {
+        activeSocket.value = null;
+        connectedEndpoint.value = "";
+        connectedEndpoints.value = [];
+        wsStatus.value = "disconnected";
+        scheduleReconnect(2500);
+      }
+    });
+
+    activeSocket.value = ws;
     connectedEndpoint.value = endpoint;
+    connectedEndpoints.value = [endpoint.replace(/^wss?:\/\//, "")];
+    wsStatus.value = "connected";
     error.value = "";
 
-    connected.value = connected.value.filter(x => x !== endpoint);
-    connected.value.push(endpoint);
-
-    ws.addEventListener("close", (event) => {
-      console.log("WS close", endpoint, {
-        code: event.code,
-        reason: event.reason,
-        wasClean: event.wasClean,
-      });
-
-      sockets.delete(endpoint);
-      connected.value = connected.value.filter(x => x !== endpoint);
-
-      if (connected.value.length === 0) {
-        wsStatus.value = "disconnected";
-        connectedEndpoint.value = "";
-        if (hasEverLoaded.value) {
-          error.value = "Connection lost; showing last known state";
-        }
-      }
-    });
-
-    ws.addEventListener("error", (event) => {
-      console.log("WS error", endpoint, event);
-    });
-
-    ws.addEventListener("message", (event) => {
-      const msg = JSON.parse(event.data);
-      console.log("WS message", msg);
-
-      if (msg.route === "push.state_update" || msg.route === "push.replica_state_update") {
-        console.log("Applying push update", msg.body ?? {});
-        applyStateUpdate(msg.body ?? {});
-      } else if (msg.route === "__response") {
-        console.log("Applying response update", msg.body ?? {});
-        applyStateUpdate(msg.body ?? {});
-      }
-    });
+    if (import.meta.env.DEV) {
+      window.__infraMonitorWS = ws;
+      console.info(WS_LOG, "live socket on window.__infraMonitorWS (dev only)", ws);
+    }
 
     refreshNow(ws);
+    return ws;
   } catch (e) {
-    console.log("WS connect/handshake failed", endpoint, e);
+    console.warn(WS_LOG, "connect failed", endpoint, e?.message || e);
+    lastConnectDiag.value = `${endpoint}: ${e?.message || e}`;
     if (ws) {
       try {
         ws.close();
@@ -519,68 +685,69 @@ async function tryConnect(endpoint) {
         // ignore
       }
     }
+    return null;
   }
 }
 
 async function connectWs() {
-  if (connected.value.length === 0) {
-    wsStatus.value = "connecting";
-  }
-
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
 
-  const attempts = [];
-  for (const endpoint of wsCandidates) {
-    if (!connected.value.includes(endpoint) && !sockets.has(endpoint)) {
-      attempts.push(tryConnect(endpoint));
-    }
+  if (activeSocket.value && activeSocket.value.readyState === WebSocket.OPEN) {
+    return;
   }
 
-  await Promise.allSettled(attempts);
-
-  if (connected.value.length === 0 && sockets.size === 0) {
+  if (!wsCandidates.length) {
+    error.value = "No WebSocket endpoints configured (check VITE_WS_ENDPOINTS).";
     wsStatus.value = "disconnected";
-    connectedEndpoint.value = "";
-    if (hasEverLoaded.value) {
-      error.value = "Connection lost; showing last known state";
-      loading.value = false;
-    } else {
-      error.value = "WebSocket error: no replica reachable";
+    loading.value = false;
+    scheduleReconnect(5000);
+    return;
+  }
+
+  wsStatus.value = "connecting";
+
+  for (const endpoint of wsCandidates) {
+    for (const ep of endpointsToTry(endpoint)) {
+      const ws = await tryOpenCapitalSocket(ep);
+      if (ws) return;
     }
   }
 
-  reconnectTimer = setTimeout(connectWs, 2000);
+  error.value = `WebSocket: no capital reachable.${lastConnectDiag.value ? ` Last error: ${lastConnectDiag.value}` : ""}`;
+  wsStatus.value = "disconnected";
+  loading.value = false;
+  scheduleReconnect(3000);
 }
 
 function refreshNow(ws) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({
-    route: "api.national_infrastructure",
-    rid: crypto.randomUUID(),
-    fireforget: false,
-    body: {}
-  }));
+  const payload = packRpc(refreshRoute, {});
+  console.info(WS_LOG, "→", payload.route, `(rid ${String(payload.rid).slice(0, 8)}…)`);
+  ws.send(JSON.stringify(payload));
 }
 
 function refreshNowAll() {
-  for (const ws of sockets.values()) {
-    refreshNow(ws);
-  }
+  refreshNow(activeSocket.value);
 }
 
 onMounted(() => connectWs());
 onUnmounted(() => {
   if (reconnectTimer) clearTimeout(reconnectTimer);
-  for (const ws of sockets.values()) {
+  reconnectTimer = null;
+  const ws = activeSocket.value;
+  activeSocket.value = null;
+  if (import.meta.env.DEV) {
+    delete window.__infraMonitorWS;
+  }
+  if (ws) {
     try {
       ws.close();
     } catch {
       // ignore
     }
   }
-  sockets.clear();
 });
 </script>
