@@ -156,6 +156,10 @@ class BullyPlugin(Plugin):
                 LOGGER.info(f'Updating BULLY priority to priority={priority}')
             self.node_map[self.get_network_name()].priority = priority
             
+    def bump_leader_priority(self):
+        with self.bully_lock:
+            if self.current_leader() is not None:
+                self.node_map[self.current_leader()].priority += 1
          
 
     def __set_priority(
@@ -206,14 +210,17 @@ class BullyPlugin(Plugin):
             me = self.node_map[self.get_network_name()]
 
             if cur_leader is None:
+                print("LEADER NONE")
                 should_start = True
             elif cur_leader.name != self.get_network_name():
-                if self.__is_higher(me, cur_leader):
-                    should_start = True
-                elif not self.has_connection(cur_leader.name):
+                # if self.__is_higher(me, cur_leader):
+                #     print(f"LEADER 2 {me} {cur_leader}")
+                #     should_start = True
+                if not self.has_connection(cur_leader.name):
                     should_detect_down = cur_leader.name
 
         if should_start:
+            print("HELLO")
             self.__start_election()
         elif should_detect_down is not None:
             self.__on_detect_leader_down(should_detect_down)
