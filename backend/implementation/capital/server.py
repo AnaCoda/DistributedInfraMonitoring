@@ -27,15 +27,16 @@ class CapitalNode(KeyInfraNode):
 
     def region_update(self, body: dict):
         update = RegionState.model_validate(body)
-
         self.get_state().regions[update.name] = update
         self.replication_plugin.commit(self.get_state())
-
         self._print_digest("capital")
 
     def query_capital(self, body: dict, source: str):
-        print(f"BODY: {body}")
         return self.get_state().model_dump()
+
+    @node_handler(name="query.cluster")
+    def handle_query_cluster(self, body: dict, source: str):
+        return self.query_cluster(body, source)
 
     def _ensure_cluster_connection(self, target: str):
         if target == self.get_network_name():
@@ -85,33 +86,88 @@ class CapitalNode(KeyInfraNode):
                 "resource_value": None,
             }
 
+    def _safe_query_region_group(self, logical_name: str, replica_names: List[str]) -> dict:
+        topo = build_cluster_topology()
+
+        for replica_name in replica_names:
+            try:
+                self._ensure_cluster_connection(replica_name)
+                body = self.send_message(replica_name, "query.region", {}, timeout=1.5)
+                return {
+                    "name": logical_name,
+                    "leader_replica": body.get("leader_replica"),
+                    "replicas": body.get("replicas", []),
+                    "infrastructure": body.get("infrastructure", {}),
+                    "status": "up",
+                }
+            except Exception:
+                continue
+
+        return {
+            "name": logical_name,
+            "leader_replica": None,
+            "replicas": [
+                {
+                    "id": replica_name,
+                    "kind": "region",
+                    "logical_name": logical_name,
+                    "uri": topo[replica_name].uri,
+                    "status": "down",
+                    "is_leader": False,
+                    "leader_replica": None,
+                    "version": None,
+                    "last_seen_unix": None,
+                    "last_seen": None,
+                }
+                for replica_name in replica_names
+            ],
+            "infrastructure": {},
+            "status": "down",
+        }
+
     def query_cluster(self, body: dict, source: str):
         topo = build_cluster_topology()
 
-        statuses: Dict[str, dict] = {}
-        for node_name in topo.keys():
-            statuses[node_name] = self._safe_query_node_status(node_name)
+        capital_groups: Dict[str, List[str]] = {}
+        region_groups: Dict[str, List[str]] = {}
+
+        for node_name, info in topo.items():
+            if info.kind == "capital":
+                capital_groups.setdefault(info.logical_name, []).append(node_name)
+            elif info.kind == "region":
+                region_groups.setdefault(info.logical_name, []).append(node_name)
 
         capitals: Dict[str, List[dict]] = {}
-        regions: Dict[str, List[dict]] = {}
+        for logical_name, replica_names in capital_groups.items():
+            bucket = [self._safe_query_node_status(name) for name in replica_names]
+            bucket.sort(key=lambda x: x["id"])
+            capitals[logical_name] = bucket
+
+        regions: Dict[str, dict] = {}
         infrastructure: List[dict] = []
 
-        for _, status in statuses.items():
-            kind = status["kind"]
-            logical_name = status["logical_name"]
+        for logical_name, replica_names in region_groups.items():
+            region_body = self._safe_query_region_group(logical_name, replica_names)
+            regions[logical_name] = region_body
 
-            if kind == "capital":
-                capitals.setdefault(logical_name, []).append(status)
-            elif kind == "region":
-                regions.setdefault(logical_name, []).append(status)
-            elif kind == "infra":
-                infrastructure.append(status)
+            for site_name, site in region_body.get("infrastructure", {}).items():
+                if isinstance(site, dict):
+                    site_name_out = site.get("name", site_name)
+                    infra_type = site.get("resource_type")
+                    resource_value = site.get("value", site.get("resource_value"))
+                else:
+                    site_name_out = site_name
+                    infra_type = "Unknown"
+                    resource_value = site
 
-        for bucket in capitals.values():
-            bucket.sort(key=lambda x: x["id"])
-
-        for bucket in regions.values():
-            bucket.sort(key=lambda x: x["id"])
+                infrastructure.append({
+                    "id": site_name_out,
+                    "kind": "infra",
+                    "logical_name": logical_name,
+                    "infra_type": infra_type,
+                    "status": "up" if region_body.get("status") == "up" else "down",
+                    "resource_value": resource_value,
+                })
 
         infrastructure.sort(key=lambda x: x["id"])
 
@@ -129,10 +185,6 @@ class CapitalNode(KeyInfraNode):
             "regions": regions,
             "infrastructure": infrastructure,
         }
-
-    @node_handler(name="query.cluster")
-    def handle_query_cluster(self, body: dict, source: str):
-        return self.query_cluster(body, source)
 
     def _default_state(self) -> CapitalState:
         return CapitalState(

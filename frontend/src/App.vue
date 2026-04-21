@@ -84,20 +84,40 @@
         </div>
       </div>
     </div>
-    <div class="pb-4 flex flex-row gap-3 flex-wrap">
+    <div v-if="regionReplicaSets.length" class="mb-4 space-y-3">
       <div
-        class="p-1 pl-2 border rounded-full flex justify-center items-center gap-2 flex-row"
-        v-for="node in connectedNodes"
-        :key="node.id"
-        :class="node.status === 'up' ? 'border-green-400' : 'border-red-400 opacity-70'"
+        v-for="group in regionReplicaSets"
+        :key="group.name"
+        class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
       >
-        <div
-          class="w-4 h-4 border rounded-full"
-          :class="node.status === 'up' ? 'bg-green-400' : 'bg-red-400'"
-        ></div>
-        <div class="text-xs">
-          <span class="font-medium">{{ node.id }}</span>
-          <span v-if="node.is_leader" class="ml-1 text-amber-600 font-semibold">(leader)</span>
+        <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
+          Region Replica Set — {{ group.name }}
+        </div>
+
+        <div class="flex flex-wrap gap-2 items-center">
+          <div
+            v-for="rep in group.replicas"
+            :key="rep.id"
+            class="flex items-center gap-2 rounded-full border px-3 py-1 text-xs"
+            :class="rep.is_leader
+              ? 'border-amber-400 bg-amber-50 text-amber-700'
+              : rep.status === 'up'
+                ? 'border-slate-300 bg-white text-slate-700'
+                : 'border-red-300 bg-red-50 text-red-600'"
+          >
+            <span
+              class="inline-block w-2.5 h-2.5 rounded-full"
+              :class="rep.is_leader
+                ? 'bg-amber-500'
+                : rep.status === 'up'
+                  ? 'bg-green-500'
+                  : 'bg-red-500'"
+            ></span>
+
+            <span class="font-mono">{{ rep.id }}</span>
+            <span v-if="rep.is_leader" class="font-semibold">(leader)</span>
+            <span class="text-[10px] opacity-70">v{{ rep.version ?? "—" }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -741,8 +761,9 @@ const replicaGroups = computed(() => {
   for (const [logicalName, reps] of Object.entries(capitals)) {
     groups[logicalName] = reps;
   }
-  for (const [logicalName, reps] of Object.entries(regionGroups)) {
-    groups[logicalName] = reps;
+
+  for (const [logicalName, regionBody] of Object.entries(regionGroups)) {
+    groups[logicalName] = regionBody?.replicas ?? [];
   }
 
   return groups;
@@ -853,7 +874,18 @@ const operationalRegions = computed(() =>
   regions.value.filter(r => !r.isCapital)
 );
 
-const connectedNodes = computed(() => connectedEndpoints.value);
+const regionReplicaSets = computed(() => {
+  const regionGroups = clusterState.value?.regions ?? {};
+
+  return Object.entries(regionGroups)
+    .map(([name, regionBody]) => ({
+      name,
+      replicas: regionBody?.replicas ?? [],
+      leaderReplica: regionBody?.leader_replica ?? null,
+      status: regionBody?.status ?? "unknown",
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+});
 
 const nationalPower = computed(() =>
   operationalRegions.value.filter(r => (r.state.power ?? "").toLowerCase() === "stable").length
