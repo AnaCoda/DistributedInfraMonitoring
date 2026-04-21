@@ -1,7 +1,11 @@
+from random import choice
+
 from .common import InfrastructureNode
 
 
 class Powerplant(InfrastructureNode):
+    def __init__(self, entry: NetworkEntry, regions):
+        super().__init__(entry=entry, regions=regions)
     # def __init__(self, name: str, region_name: str, region_address):
     #     super().__init__(network_name=name, name=name, region_name=region_name, region_address=region_address)
     #     self.name = name
@@ -16,6 +20,8 @@ class Powerplant(InfrastructureNode):
     def get_resource_type(self):
         return "Powerplant"
     
+    def generate_value(self):
+        return choice(["stable", "unstable", "down"])
     # def generate_value(self):
         # return 
         # return super().generate_value()

@@ -3,6 +3,8 @@ from random import randint
 
 
 class FuelDepot(InfrastructureNode):
+    def __init__(self, entry: NetworkEntry, regions):
+        super().__init__(entry=entry, regions=regions)
     # def __init__(self, name: str, region_name: str, region_address):
     #     super().__init__(network_name=name, name=name, region_name=region_name, region_address=region_address)
     #     self.name = name

@@ -1,11 +1,19 @@
 # from .base_site import base_site
+from random import randint
+
 from .common import InfrastructureNode
 
 class WaterTreatmentPlant(InfrastructureNode):
+    def __init__(self, entry: NetworkEntry, regions):
+        super().__init__(entry=entry, regions=regions)
+
 
     def get_resource_type(self):
         return "Water Treatment Plant"
         # return super().get_resource_type()
+
+    def generate_value(self):
+        return randint(0, 100)
 
     # # Pass up to base_site then define self as a water_treatment_plant
     # def __init__(self, name: str, region_name: str, region_address):
