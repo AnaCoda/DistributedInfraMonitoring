@@ -119,32 +119,33 @@ class PseudoClock:
         return float(self.time)
 
 def create_node_pool(n: int, clock: PseudoClock, timeout: float = 50.0, verbose: bool = False) -> list[BullyElectionNode]:
-    peers = [ BullyPeer(f'n-{i}', i, i) for i in range(n) ]
+    peers = [ f'n-{i}'for i in range(n) ]
     nodes = [ BullyElectionNode(peer, peers, get_time=clock.get_time, timeout=timeout, verbose=verbose) for peer in peers ]
     return nodes
 
 def tick_pool(outboxes: dict, pool: list[BullyElectionNode]):
     # print(">> Start ticks")
     for node in pool:
-        if node.node_info not in outboxes or len(outboxes[node.node_info]) == 0:
+        key = node.node_info.name
+        if key not in outboxes or len(outboxes[key]) == 0:
             node.receive(None)
         else:
-            while outboxes[node.node_info]:
+            while outboxes[key]:
                 # msg = outboxes[node.node_info].pop(0)
-                msg = outboxes[node.node_info].pop(0)
+                msg = outboxes[key].pop(0)
                 if node.verbose:
                     print(f'[{msg.source.name}] -> [{msg.destination.name}] | packet = {msg}')
                 
                 node.receive(msg)
         out_msgs = node.poll()
         if len(out_msgs) != 0 and node.verbose:
-            print(f'Outbox for {node.node_info.name}:')
+            print(f'Outbox for {key}:')
         for msg in out_msgs:
             if node.verbose and msg.type:
                 print(f'  - {msg}')
-            if msg.destination not in outboxes:
-                outboxes[msg.destination] = []
-            outboxes[msg.destination].append(msg)
+            if msg.destination.name not in outboxes:
+                outboxes[msg.destination.name] = []
+            outboxes[msg.destination.name].append(msg)
 
 import itertools
 

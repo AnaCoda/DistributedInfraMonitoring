@@ -222,13 +222,15 @@ class NetLayer(SimulationLayer):
     # @abstractmethod
     def _net_on_connect_evt(self, name: str):
         # print("HI2")
-        self._invoke_event(NodeEvent.ON_CONNECT, name)
+        self.launch_background_thread(self._invoke_event, function_args=(NodeEvent.ON_CONNECT, name))
+        # self._invoke_event(NodeEvent.ON_CONNECT, name)
 
     # @abstractmethod
     def _net_on_disconnect_evt(self, name: str):
         # print("HI3")
         # pass
-        self._invoke_event(NodeEvent.ON_DISCONNECT, name)
+        self.launch_background_thread(self._invoke_event, function_args=(NodeEvent.ON_DISCONNECT, name))
+        # self._invoke_event(NodeEvent.ON_DISCONNECT, name)
     
     # @abstractmethod
     def _net_handle_msg(
@@ -382,7 +384,9 @@ class NetLayer(SimulationLayer):
         
         
         # TODO: Add a named lock herew.
+        # print(f'waiting on lock')
         with self.__target_gate.gate(target):
+            # print(f'Waiting on lock')
             if not self.connection_map.has_connection(target):
                 preallocation = self.connection_map.get_preallocation(target)
 
@@ -392,7 +396,7 @@ class NetLayer(SimulationLayer):
 
                 # print(f'Starting net connect...')
                 self.__net_connect(preallocation.name, preallocation.address)
-
+                # print(f'Finished net connect...')
 
         try:
             conn = self.connection_map.get_connection(target)

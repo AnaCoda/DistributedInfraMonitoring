@@ -98,8 +98,8 @@ class BullyPlugin(Plugin):
         # print(f'INitialized bully elec w/ {node}, peer_names = {peer_names}')
         bully_peers  =[ BullyPeer(peer.name, int(peer.name.split('-')[1]), 1) for peer in peer_names ]
         self.node = BullyElectionNode(
-            node=node,
-            peer_list=bully_peers,
+            node=node.name,
+            peer_list=[ peer.name for peer in peer_names ],
             hb_timeout=heartbeat_interval_ms / 1000.0,
             timeout=leader_timeout_ms / 1000.0,
             verbose=verbose
@@ -107,6 +107,8 @@ class BullyPlugin(Plugin):
         self.node.register_hook(BullyElectionHook.ON_ELECT_OTHER, self.__on_elect_other)
         self.node.register_hook(BullyElectionHook.ON_BECOME_LEADER, self.on_become_leader)
         self.node.register_hook(BullyElectionHook.ON_ELECTION_START, self.on_start_election)
+
+        self.__bully_pause = True
         # print("INITTED")
 
     def __on_elect_other(self):
@@ -204,6 +206,7 @@ class BullyPlugin(Plugin):
     @node_handler(name="handle.bully.msg")
     def handle_bully_msg(self, body: dict, sender: str):
         decoded = _deser_bully_packet(body)
+        print(f'DECODED: {decoded}')
         self.__recv_poll(decoded)
         return {"status": "success"}
 
@@ -211,18 +214,74 @@ class BullyPlugin(Plugin):
         self.node.receive(message)
         self.__handle_bully_messages(self.node.poll())
 
-    def __get_peer_by_unique_id(self, unique_id: str) -> Optional[BullyPeer]:
-        for item in self.peer_translator.keys():
-            if item.unique_id == unique_id:
-                return item
-        return None
+
+    @node_handler(name='bully.report.leader')
+    def bully_report_leader(self, _):
+        ids = self.node.get_leader_id()
+        if ids is not None:
+            ids = list(ids)
+        return { 'leader': ids }
     
-    @node_handler(event=NodeEvent.ON_CONNECT)
-    def on_connect_bully(self, name: str):
-        if self.node.current_leader() is None:
-            # We do not currently have a leader.
-            print(f'CONNECTING LEADERLESS')
+
+    # @node
+
+    # @node_handler(event=NodeEvent.ON_CONNECT)
+    # def on_connect_bully(self, name: str):
+    #     while True:
+    #         if self.node.get_leader_id() is None:
+    #             # We do not currently have a leader.
+    #             print(f'No current leader')
+    #             if name in self.peer_map:
+    #                 print(f'He')
+    #                 peer = self.peer_map[name]
+
+    #                 # Preallocate the connection/
+    #                 self._try_connect(peer)
+
+    #                 try:
+    #                 # print(f'Sending request...')
+    #                     check = self.send_message(peer.name, 'bully.report.leader', {}, timeout=5)
+    #                     if check['leader'] is None:
+    #                         self.__bully_pause = False
+    #                 except Exception as e:
+    #                     continue
+                # print(f'Check: {check}')
+
+            # print(f'CONNECTING LEADERLESS')
+
+    @node_handler(internal_ms=300)
+    def poll_bully_start(self):
+        if self.node.get_leader_id() is not None:
+            return
+        output = []
+        for peer in self.peers:
+            try:
+                ids = self.send_message(peer.name, 'bully.report.leader', {})['leader']
+                output.append((peer, ids))
+            except:
+                pass
+        if len(output) > 0:
+            peer, leader = output[0]
+            if leader is None:
+                self.__bully_pause = False
+            
+        print(f'Output: {output}')
+
+
+    @node_handler(event=NodeEvent.ON_DISCONNECT)
+    def on_bully_disconnect(self, name: str):
+        print("ON DISCONNECT")
+        connected_to_cluster = False
+        for peer in self.peers:
+            if self.has_connection(peer.name):
+                connected_to_cluster = True
+                break
+        if not connected_to_cluster:
+            LOGGER.info("Node has been disconnected from the cluster.")
+        # pass
 
     @node_handler(internal_ms=50)
     def poll_internal_node(self):
+        if self.__bully_pause:
+            return
         self.__recv_poll(None)

@@ -1,9 +1,11 @@
 import logging
-from typing import Iterable, Optional, Callable
+from typing import Dict, Iterable, List, Optional, Callable, Tuple
 from threading import Lock
 from dataclasses import dataclass
 from time import time
 from enum import Enum
+
+from pydantic import BaseModel, ConfigDict
 
 
 class _BullyState(Enum):
@@ -12,14 +14,14 @@ class _BullyState(Enum):
     WAITING_FOR_LEADER = 2
 
 
-@dataclass(frozen=True)
-class BullyPeer:
+# @dataclass(frozen=True)
+class BullyPeer(BaseModel):
     name: str
-    unique_id: str
+    unique_id: int
     priority: int
 
     @property
-    def election_id(self) -> tuple[int, str]:
+    def election_id(self) -> Tuple[int, str]:
         return (self.priority, self.unique_id)
 
 
@@ -56,13 +58,25 @@ class BullyElectionNode(BaseStateMachine):
 
     def __init__(
         self,
-        node: BullyPeer,
-        peer_list: Iterable[BullyPeer],
+        node: str,
+        peer_list: List[str],
         timeout: float = 50.0,
         hb_timeout: float = 5.0,
         get_time: Callable[[], float] = time,
         verbose: bool = False
     ):
+        
+        all_names: List[str] = list(set([ node ] + peer_list))
+        all_names.sort()
+        all_names: List[Tuple[int, str]] = list(enumerate(all_names))
+
+        self.node_map: Dict[str, BullyPeer] = {
+            name: BullyPeer(name=name, unique_id=id, priority=0) for id, name in all_names
+        }
+
+        node = self.node_map[node]
+        peer_list = [ self.node_map[peer] for peer in peer_list ]
+
         # The ID of this node.
         self.node_info = node
         self.node_id = node.election_id
@@ -125,8 +139,8 @@ class BullyElectionNode(BaseStateMachine):
             threading.Thread(target=fn).start()
 
     def __reset_heartbeats(self):
-        self.heartbeat: dict[BullyPeer, HBState] = {
-            p: HBState(HBMsgState.IDLE, self.get_time())
+        self.heartbeat: dict[str, HBState] = {
+            p.name: HBState(HBMsgState.IDLE, self.get_time())
             for p in self.peer_list
             if p.election_id != self.node_id
         }
@@ -233,8 +247,8 @@ class BullyElectionNode(BaseStateMachine):
         if self.current_leader is None or self.election_in_progress:
             return
 
-        self.heartbeat[packet.source].state = HBMsgState.IDLE
-        self.heartbeat[packet.source].last_hb = self.get_time()
+        self.heartbeat[packet.source.name].state = HBMsgState.IDLE
+        self.heartbeat[packet.source.name].last_hb = self.get_time()
 
     def get_leader_id(self) -> Optional[tuple[int, str]]:
         return self.current_leader
@@ -253,6 +267,7 @@ class BullyElectionNode(BaseStateMachine):
 
         now = self.get_time()
         for node_info, state in self.heartbeat.items():
+            node_info = self.node_map[node_info]
             should_send = (
                 state.state == HBMsgState.IDLE
                 and now - state.last_hb > self.hb_timeout / 5.0
