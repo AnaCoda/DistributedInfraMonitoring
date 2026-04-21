@@ -198,13 +198,25 @@ class BullyPlugin(Plugin):
 
     @node_handler(internal_ms=100)
     def bully_loop(self):
+        should_start = False
+        should_detect_down = None
+
         with self.bully_lock:
             cur_leader = self.bully_state.current_leader
-        if cur_leader is None:
+            me = self.node_map[self.get_network_name()]
+
+            if cur_leader is None:
+                should_start = True
+            elif cur_leader.name != self.get_network_name():
+                if self.__is_higher(me, cur_leader):
+                    should_start = True
+                elif not self.has_connection(cur_leader.name):
+                    should_detect_down = cur_leader.name
+
+        if should_start:
             self.__start_election()
-        elif cur_leader.name != self.get_network_name() and not self.has_connection(cur_leader.name):
-            print("HEYYE")
-            self.__on_detect_leader_down(cur_leader.name)
+        elif should_detect_down is not None:
+            self.__on_detect_leader_down(should_detect_down)
         # else:
 
     def __on_detect_leader_down(self, name: str):
@@ -236,16 +248,36 @@ class BullyPlugin(Plugin):
     @node_handler(event=NodeEvent.ON_CONNECT)
     def on_peer_connect(self, name: str):
         try:
-            ids = self.send_message(name, 'bully.inquire', self.node_map[self.get_network_name()].model_dump(mode='json'))
+            ids = self.send_message(
+                name,
+                'bully.inquire',
+                self.node_map[self.get_network_name()].model_dump(mode='json')
+            )
 
-            # Update our local information about that node.
             node = BullyPeer.model_validate(ids['node'])
+            leader = BullyPeer.model_validate(ids['leader']) if ids['leader'] is not None else None
+
+            should_start_election = False
+
             with self.bully_lock:
                 self.__set_priority(node)
+                me = self.node_map[self.get_network_name()]
 
-            # output.append(BullyPeer.model_validate(ids['leader']) if ids['leader'] is not None else None)
-        except Exception as e:
-            # print(f'E: {e}')
+                if leader is not None:
+                    self.__set_priority(leader)
+
+                    if self.__is_higher(me, leader):
+                        should_start_election = True
+                    elif (
+                        self.bully_state.current_leader is None
+                        or self.__is_higher(leader, self.bully_state.current_leader)
+                    ):
+                        self.bully_state.current_leader = leader
+
+            if should_start_election:
+                self.launch_background_thread(self.__start_election, None)
+
+        except Exception:
             pass
     # @node_handler(event=NodeEvent.ON_CONNECT)
     # def on_peer_connect(self, name: str):
@@ -295,13 +327,13 @@ class BullyPlugin(Plugin):
     #################
     # BULLY METHODS #
     ##################
-    def __higher_peers(
-        self
-    ) -> List[BullyPeer]:
-        
-        return [ peer for peer_name, peer in self.node_map.items()
-                    if peer_name != self.get_network_name()
-                    and self.__lookup_node(self.get_network_name()).election_id < peer.election_id
+    def __higher_peers(self) -> List[BullyPeer]:
+        me = self.__lookup_node(self.get_network_name())
+        return [
+            peer
+            for peer_name, peer in self.node_map.items()
+            if peer_name != self.get_network_name()
+            and self.__is_higher(peer, me)
         ]
     
     def __internal_state(
@@ -321,8 +353,9 @@ class BullyPlugin(Plugin):
 
         with self.bully_lock:
             self.__set_priority(leader)
+            me = self.node_map[self.get_network_name()]
 
-            if leader.election_id < self.node_map[self.get_network_name()].election_id:
+            if self.__is_higher(me, leader):
                 should_challenge = True
             else:
                 should_challenge = False
@@ -333,6 +366,7 @@ class BullyPlugin(Plugin):
 
         if should_challenge:
             self.launch_background_thread(self.__start_election, None)
+            return
 
         if leader.name == self.get_network_name():
             self.on_become_leader()
@@ -343,18 +377,22 @@ class BullyPlugin(Plugin):
     @node_handler(name='bully.election')
     def bully_election(self, body: dict):
         peer = BullyPeer.model_validate(body['peer'])
-        print(f'GOT ELECTION MESSAGE.')
+        print('GOT ELECTION MESSAGE.')
 
         with self.bully_lock:
             self.__set_priority(peer)
             me = self.node_map[self.get_network_name()]
 
-        if me.election_id > peer.election_id:
+        if self.__is_higher(me, peer):
             try:
-                self.send_message_no_wait(peer.name, 'bully.ok', { 'peer': self.__internal_state() })
-            except:
+                self.send_message_no_wait(
+                    peer.name,
+                    'bully.ok',
+                    {'peer': self.__internal_state()}
+                )
+            except Exception:
                 pass
-        
+
             self.launch_background_thread(self.__start_election, None)
         
     @node_handler(name='bully.ok')
@@ -486,3 +524,8 @@ class BullyPlugin(Plugin):
         LOGGER.info(f'We have elected node={leader}')
         self.host.on_elect_other(leader)
 
+    def __peer_rank(self, peer: BullyPeer) -> tuple[int, int]:
+        return (peer.priority, peer.unique_id)
+
+    def __is_higher(self, left: BullyPeer, right: BullyPeer) -> bool:
+        return self.__peer_rank(left) > self.__peer_rank(right)
