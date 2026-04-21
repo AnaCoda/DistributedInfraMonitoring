@@ -99,7 +99,7 @@ def get_application_node(
         infra_spec: InfraSpecificConfig = config.infra
         if infra_spec.type == 'hospital':
             return Hospital(
-                network_name=config.name,
+                entry=NetworkEntry(name=config.name, address=address),
                 regions=resolve_peers(infra_spec.regions, service)
             )
 
@@ -116,6 +116,7 @@ def launch_application(
         service (ServiceRegistry): Provides the actual addresses
         to the various services.
     """
+    node = None
     try:
         # Launch the node.
         node: RawNode = get_application_node(config, service)
@@ -128,7 +129,8 @@ def launch_application(
             time.sleep(0.5)
 
     finally:
-        node.shutdown()
+        if node is not None:
+            node.shutdown()
 
 def main():
     # Configure the logger.

@@ -1,34 +1,24 @@
-# from ..shared.node import NodeBase, node_handler
-# from debugpy import connect
-
-
-
-import logging
+from typing import List
+from threading import Lock
 from random import randint
+import logging
 
 from colorama import Fore
 
-from backend.common.components.events.connect import NodeConnectionType
-
 from ...common.raw import RawNode, node_handler
-from abc import abstractmethod
-
-from typing import List
-
-from threading import Lock
-
-from ..state.monitoring import InfrastructureState
 from ...common.components.util import NetworkEntry
+from ..state.monitoring import InfrastructureState
 
-LOGGER = logging.getLogger('node::infra')
+LOGGER = logging.getLogger("node::infra")
+
 
 class InfrastructureNode(RawNode):
     def __init__(
         self,
-        network_name,
+        entry: NetworkEntry,
         regions: List[NetworkEntry]
     ):
-        super().__init__(network_name, address=('0.0.0.0', 4000))
+        super().__init__(entry.name, address=entry.address.to_tuple())
 
         self.regions = regions
         self.resource_value = 0
@@ -41,13 +31,12 @@ class InfrastructureNode(RawNode):
             value=self.generate_value()
         )
 
-        self.__notified_region: bool = False
+        self.__notified_region = False
 
         self.ready_to_handle()
 
-    @abstractmethod
     def get_resource_type(self):
-        pass
+        raise NotImplementedError
 
     def update_value(self):
         with self.__state_lock:
@@ -58,21 +47,24 @@ class InfrastructureNode(RawNode):
     def generate_value(self):
         return randint(0, 100)
 
-
-    def __send_update_target(
-        self,
-        target: str
-    ):
-        print(f'{Fore.YELLOW}[{self.get_network_name()}] Pushing update of infrastructure to the regional node. Current state: {self.__state.model_dump()}{Fore.RESET}')
+    def __send_update_target(self, target: str):
+        print(
+            f'{Fore.YELLOW}[{self.get_network_name()}] '
+            f'Pushing update of infrastructure to the regional node. '
+            f'Current state: {self.__state.model_dump()}{Fore.RESET}'
+        )
         with self.__state_lock:
-            current_state: dict = self.__state.model_dump()
+            current_state = self.__state.model_dump()
 
-        
         self.send_message_no_wait(target, 'infra.update', current_state)
+
         with self.__region_notify_lock:
             self.__notified_region = True
-        print(f'{Fore.GREEN}[{self.get_network_name()}] Succesfully notified the regional nodes of a change.')
 
+        print(
+            f'{Fore.GREEN}[{self.get_network_name()}] '
+            f'Succesfully notified the regional nodes of a change.'
+        )
 
     @node_handler(name='infra.random')
     def handle_infra_random(self, body: dict):
@@ -81,24 +73,17 @@ class InfrastructureNode(RawNode):
     @node_handler(internal_ms=4000)
     def handle_update(self):
         self.update_value()
-    
-    
+
     @node_handler(internal_ms=200)
     def handle_tick(self):
-        # Try to connect to the regions if we are
-        # not already connected.
         for region in self.regions:
             if not self.has_connection(region.name):
                 self._try_connect(region)
-        
+
         with self.__region_notify_lock:
-            # Check if we need to send any updates.
             flag = not self.__notified_region
 
         if flag:
-            # Recall that we only need to send an
-            # update to ONE of the nodes, not all of
-            # them.
             for region in self.regions:
                 try:
                     LOGGER.info(f'Trying to notify {region.name}')
@@ -107,6 +92,3 @@ class InfrastructureNode(RawNode):
                     break
                 except Exception as e:
                     LOGGER.error(e)
-                    pass
-                
-    
