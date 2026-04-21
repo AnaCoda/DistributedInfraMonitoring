@@ -32,6 +32,7 @@ class CapitalNode(KeyInfraNode):
         self._print_digest("capital")
 
     def query_capital(self, body: dict, source: str):
+        
         return self.get_state().model_dump()
 
     @node_handler(name="query.cluster")

@@ -66,6 +66,10 @@ class ReplicationPlugin(Plugin):
         else:
             self.leader_event.set()
 
+    def on_operation(self):
+        if hasattr(self.host, "on_operation"):
+            self.host.on_operation()
+
     # def is_leader(self) -> bool:
         # return 
 
@@ -214,9 +218,11 @@ class ReplicationPlugin(Plugin):
     
         output = self.__op_map[key](*args, **kwargs)
 
+        # self.on_operation()
         if operation.sequence_number == self.get_seq_num() + 1:
             self.log.add_log(operation)
             self.on_new_version()
+        
         # Now we commit the operation.
         # print(f'[AO] commiting w/ {operation.sequence_number}')
         # o = self.__core.receive(ReplicationMsg.from_op(ReplicationOp.COMMIT, { 'sequence': operation.sequence_number }))    

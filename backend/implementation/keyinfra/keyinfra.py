@@ -53,6 +53,11 @@ class KeyInfraNode(RawNode):
         if loaded is not None:
             self.__state = self._parse_state(loaded)
 
+    def on_operation(self):
+        print("ON OP")
+        if self.leader_election.current_leader() is not None and not self.leader_election.is_leader():
+            self.leader_election.bump_leader_priority()
+
     def _infer_logical_name(self, node_name: str) -> str:
         if "-" not in node_name:
             return node_name
