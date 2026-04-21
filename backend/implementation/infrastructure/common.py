@@ -24,6 +24,7 @@ class InfrastructureNode(RawNode):
         self.regions = regions
         self.resource_value = 0
         self._logical_name = entry.name
+        self._forced_value = None
 
         self.__region_notify_lock = Lock()
         self.__state_lock = Lock()
@@ -41,18 +42,46 @@ class InfrastructureNode(RawNode):
 
     def update_value(self):
         with self.__state_lock:
-            self.__state.value = self.generate_value()
+            if self._forced_value is not None:
+                self.__state.value = self._forced_value
+            else:
+                self.__state.value = self.generate_value()
         with self.__region_notify_lock:
             self.__notified_region = False
 
     def generate_value(self):
         return randint(0, 100)
 
+    @node_handler(name="control.infra.set_state")
+    def handle_control_infra_set_state(self, body: dict):
+        value = body.get("value")
+        if value is None:
+            raise RuntimeError("control.infra.set_state requires 'value'")
+
+        try:
+            value = int(value)
+        except Exception as exc:
+            raise RuntimeError("value must be an integer") from exc
+
+        self._forced_value = value
+        with self.__state_lock:
+            self.__state.value = value
+        with self.__region_notify_lock:
+            self.__notified_region = False
+
+        return {
+            "status": "success",
+            "id": self.get_network_name(),
+            "resource_value": value,
+        }
+
     @node_handler(name="query.node_status")
     def handle_query_node_status(self, body: dict):
         now = time.time()
+
         with self.__state_lock:
             state = self.__state.model_dump(mode="json")
+
         return {
             "id": self.get_network_name(),
             "kind": "infra",
@@ -85,6 +114,8 @@ class InfrastructureNode(RawNode):
 
     @node_handler(name='infra.random')
     def handle_infra_random(self, body: dict):
+        if self._forced_value is not None:
+            return {"status": "ignored", "reason": "forced value active"}
         self.update_value()
 
     @node_handler(internal_ms=4000)

@@ -53,6 +53,7 @@
         </button>
       </div>
     </div>
+
     <div v-if="capitalReplicas.length" class="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
       <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
         Capital Replica Set
@@ -84,6 +85,7 @@
         </div>
       </div>
     </div>
+
     <div v-if="regionReplicaSets.length" class="mb-4 space-y-3">
       <div
         v-for="group in regionReplicaSets"
@@ -118,6 +120,24 @@
             <span v-if="rep.is_leader" class="font-semibold">(leader)</span>
             <span class="text-[10px] opacity-70">v{{ rep.version ?? "—" }}</span>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pb-4 flex flex-row gap-3 flex-wrap">
+      <div
+        class="p-1 pl-2 border rounded-full flex justify-center items-center gap-2 flex-row"
+        v-for="node in connectedNodes"
+        :key="node.id"
+        :class="node.status === 'up' ? 'border-green-400' : 'border-red-400 opacity-70'"
+      >
+        <div
+          class="w-4 h-4 border rounded-full"
+          :class="node.status === 'up' ? 'bg-green-400' : 'bg-red-400'"
+        ></div>
+        <div class="text-xs">
+          <span class="font-medium">{{ node.id }}</span>
+          <span v-if="node.is_leader" class="ml-1 text-amber-600 font-semibold">(leader)</span>
         </div>
       </div>
     </div>
@@ -293,29 +313,40 @@
                 </span>
               </button>
 
-              <div v-if="expanded[r.name]" class="mt-2 rounded-lg overflow-hidden border border-gray-200">
-                <table class="w-full text-xs">
-                  <thead class="bg-gray-50 text-gray-400 uppercase tracking-wide">
-                    <tr>
-                      <th class="th-cell">Site</th>
-                      <th class="th-cell">Type</th>
-                      <th class="th-cell text-right">Value</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr
-                      v-for="s in r.sites"
-                      :key="s.name + s.resource_type"
-                      class="border-t border-gray-100 hover:bg-gray-50"
-                    >
-                      <td class="td-cell font-mono text-gray-600">{{ s.name }}</td>
-                      <td class="td-cell text-gray-500">{{ s.resource_type }}</td>
-                      <td class="td-cell text-right">
-                        <SiteValue :value="s.resource_value" />
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+              <div v-if="expanded[r.name]" class="mt-2 space-y-2">
+                <div class="rounded-lg overflow-hidden border border-gray-200">
+                  <table class="w-full text-xs">
+                    <thead class="bg-gray-50 text-gray-400 uppercase tracking-wide">
+                      <tr>
+                        <th class="th-cell">Site</th>
+                        <th class="th-cell">Type</th>
+                        <th class="th-cell text-right">Value</th>
+                        <th class="th-cell text-right">Set</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr
+                        v-for="s in r.sites"
+                        :key="s.name + s.resource_type"
+                        class="border-t border-gray-100 hover:bg-gray-50"
+                      >
+                        <td class="td-cell font-mono text-gray-600">{{ s.name }}</td>
+                        <td class="td-cell text-gray-500">{{ s.resource_type }}</td>
+                        <td class="td-cell text-right">
+                          <SiteValue :value="s.resource_value" />
+                        </td>
+                        <td class="td-cell text-right">
+                          <div class="flex gap-1 justify-end">
+                            <button class="btn px-2 py-1 text-[10px]" @click="setInfraValue(s.name, 0)">0</button>
+                            <button class="btn px-2 py-1 text-[10px]" @click="setInfraValue(s.name, 25)">25</button>
+                            <button class="btn px-2 py-1 text-[10px]" @click="setInfraValue(s.name, 50)">50</button>
+                            <button class="btn px-2 py-1 text-[10px]" @click="setInfraValue(s.name, 100)">100</button>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
@@ -352,6 +383,9 @@ const activeSocket = ref(null);
 
 let reconnectTimer = null;
 
+let clusterPollTimer = null;
+let capitalPollTimer = null;
+
 const expanded = reactive({});
 const wsStatus = ref("disconnected");
 const viewMode = ref("grid");
@@ -363,6 +397,8 @@ const wsCandidates = [
 
 const WS_LOG = "[InfraMonitor WS]";
 const WS_OPEN_TIMEOUT_MS = 8000;
+const CLUSTER_POLL_MS = 3000;
+const CAPITAL_POLL_MS = 6000;
 
 function toggleSites(name) {
   expanded[name] = !expanded[name];
@@ -393,6 +429,43 @@ function maxNumericByNeedles(sites, typeNeedles) {
 function scheduleReconnect(ms) {
   if (reconnectTimer) clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(connectWs, ms);
+}
+
+function clearPollTimers() {
+  if (clusterPollTimer) clearInterval(clusterPollTimer);
+  if (capitalPollTimer) clearInterval(capitalPollTimer);
+  clusterPollTimer = null;
+  capitalPollTimer = null;
+}
+
+function startPollTimers() {
+  clearPollTimers();
+
+  clusterPollTimer = setInterval(async () => {
+    if (document.hidden) return;
+    if (wsStatus.value !== "connected") return;
+
+    try {
+      await refreshClusterWithFallback();
+      lastFetch.value = Date.now();
+    } catch (e) {
+      console.warn("[InfraMonitor WS] background cluster poll failed", e?.message || e);
+    }
+  }, CLUSTER_POLL_MS);
+
+  capitalPollTimer = setInterval(() => {
+    if (document.hidden) return;
+    if (wsStatus.value !== "connected") return;
+
+    const ws = activeSocket.value;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    try {
+      refreshNow(ws, "query.capital");
+    } catch (e) {
+      console.warn("[InfraMonitor WS] background capital poll failed", e?.message || e);
+    }
+  }, CAPITAL_POLL_MS);
 }
 
 function waitUntilOpen(ws, ms) {
@@ -475,6 +548,7 @@ async function tryOpenCapitalSocket(endpoint) {
         connectedEndpoint.value = "";
         connectedEndpoints.value = [];
         wsStatus.value = "disconnected";
+        clearPollTimers();
         scheduleReconnect(2500);
       }
     });
@@ -483,6 +557,7 @@ async function tryOpenCapitalSocket(endpoint) {
     connectedEndpoint.value = endpoint;
     wsStatus.value = "connected";
     error.value = "";
+    startPollTimers();
 
     refreshNowAll();
     return ws;
@@ -535,7 +610,9 @@ function applyClusterQuery(body) {
 
   const connected = [];
   Object.values(body.capitals ?? {}).flat().forEach(x => connected.push(x));
-  Object.values(body.regions ?? {}).flat().forEach(x => connected.push(x));
+  Object.values(body.regions ?? {}).forEach(regionBody => {
+    connected.push(...(regionBody?.replicas ?? []));
+  });
   (body.infrastructure ?? []).forEach(x => connected.push(x));
 
   connectedEndpoints.value = connected;
@@ -655,63 +732,6 @@ async function discoverCapitalLeaderEndpoint() {
   return connectedEndpoint.value || wsCandidates[0] || null;
 }
 
-async function queryClusterFromEndpoint(endpoint) {
-  let ws = null;
-
-  try {
-    ws = new WebSocket(endpoint);
-    await waitUntilOpen(ws, WS_OPEN_TIMEOUT_MS);
-
-    ws.send(JSON.stringify({ name: `Frontend-ClusterRetry-${crypto.randomUUID()}` }));
-
-    const handshake = await new Promise((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error("Handshake timed out")), WS_OPEN_TIMEOUT_MS);
-      ws.addEventListener(
-        "message",
-        e => {
-          clearTimeout(t);
-          resolve(JSON.parse(e.data));
-        },
-        { once: true }
-      );
-    });
-
-    if (handshake.status !== "success") {
-      throw new Error(`Handshake rejected by ${endpoint}`);
-    }
-
-    const payload = packRpc("query.cluster", {});
-    ws.send(JSON.stringify(payload));
-
-    const response = await new Promise((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error("query.cluster timed out")), WS_OPEN_TIMEOUT_MS);
-      ws.addEventListener(
-        "message",
-        e => {
-          clearTimeout(t);
-          resolve(JSON.parse(e.data));
-        },
-        { once: true }
-      );
-    });
-
-    const body = response?.body ?? {};
-    if (body.status === "fail") {
-      throw new Error(body.reason || "query.cluster failed");
-    }
-
-    if (!body.capitals && !body.regions && !body.infrastructure) {
-      throw new Error("query.cluster returned unexpected payload");
-    }
-
-    return body;
-  } finally {
-    if (ws) {
-      try { ws.close(); } catch {}
-    }
-  }
-}
-
 async function refreshClusterWithFallback() {
   const leaderEndpoint = await discoverCapitalLeaderEndpoint();
   const ordered = [
@@ -750,8 +770,80 @@ async function refreshNowAll() {
   loading.value = false;
 }
 
+async function rpcOnActive(route, body = {}) {
+  const ws = activeSocket.value;
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    throw new Error("No active capital socket");
+  }
+
+  return new Promise((resolve, reject) => {
+    const payload = packRpc(route, body);
+    const rid = payload.rid;
+
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`${route} timed out`));
+    }, 5000);
+
+    function onMessage(event) {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.route === "__response" && msg.rid === rid) {
+          cleanup();
+          const body = msg.body ?? {};
+          if (body.status === "fail") {
+            reject(new Error(body.reason || `${route} failed`));
+          } else {
+            resolve(body);
+          }
+        }
+      } catch {}
+    }
+
+    function cleanup() {
+      clearTimeout(timer);
+      ws.removeEventListener("message", onMessage);
+    }
+
+    ws.addEventListener("message", onMessage);
+    ws.send(JSON.stringify(payload));
+  });
+}
+
+async function setInfraValue(target, value) {
+  try {
+    loading.value = true;
+    await rpcOnActive("control.infra.set_state", { target, value });
+    await refreshNowAll();
+  } catch (e) {
+    error.value = e?.message || String(e);
+  } finally {
+    loading.value = false;
+  }
+}
+
 const capitalNamespace = computed(() => clusterState.value?.capital_namespace ?? capitalState.value?.name ?? "");
 const capitalLeaderReplica = computed(() => clusterState.value?.capital_leader_replica ?? "");
+
+const capitalReplicas = computed(() => {
+  const caps = clusterState.value?.capitals ?? {};
+  const live = caps[capitalNamespace.value];
+  if (live?.length) return live;
+  return [];
+});
+
+const regionReplicaSets = computed(() => {
+  const regionGroups = clusterState.value?.regions ?? {};
+
+  return Object.entries(regionGroups)
+    .map(([name, regionBody]) => ({
+      name,
+      replicas: regionBody?.replicas ?? [],
+      leaderReplica: regionBody?.leader_replica ?? null,
+      status: regionBody?.status ?? "unknown",
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+});
 
 const replicaGroups = computed(() => {
   const groups = {};
@@ -855,36 +947,26 @@ const regions = computed(() => {
   });
 });
 
-const capitalReplicas = computed(() => {
-  const caps = clusterState.value?.capitals ?? {};
-  const live = caps[capitalNamespace.value];
-  if (live?.length) return live;
-
-  if (capitalNamespace.value === "rm") {
-    return [
-      { id: "rm-1", status: connectedEndpoint.value.includes("rm-1") ? "up" : "unknown", is_leader: false, version: null },
-      { id: "rm-2", status: connectedEndpoint.value.includes("rm-2") ? "up" : "unknown", is_leader: false, version: null },
-    ];
-  }
-
-  return [];
-});
-
 const operationalRegions = computed(() =>
   regions.value.filter(r => !r.isCapital)
 );
 
-const regionReplicaSets = computed(() => {
-  const regionGroups = clusterState.value?.regions ?? {};
+const connectedNodes = computed(() => {
+  const out = [];
+  const caps = clusterState.value?.capitals ?? {};
+  const regs = clusterState.value?.regions ?? {};
+  const infra = clusterState.value?.infrastructure ?? [];
 
-  return Object.entries(regionGroups)
-    .map(([name, regionBody]) => ({
-      name,
-      replicas: regionBody?.replicas ?? [],
-      leaderReplica: regionBody?.leader_replica ?? null,
-      status: regionBody?.status ?? "unknown",
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  for (const reps of Object.values(caps)) {
+    out.push(...reps);
+  }
+
+  for (const regionBody of Object.values(regs)) {
+    out.push(...(regionBody?.replicas ?? []));
+  }
+
+  out.push(...infra);
+  return out;
 });
 
 const nationalPower = computed(() =>
@@ -928,6 +1010,7 @@ onMounted(() => connectWs());
 onUnmounted(() => {
   if (reconnectTimer) clearTimeout(reconnectTimer);
   reconnectTimer = null;
+  clearPollTimers();
   const ws = activeSocket.value;
   activeSocket.value = null;
   if (ws) {

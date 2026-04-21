@@ -38,6 +38,17 @@ class CapitalNode(KeyInfraNode):
     def handle_query_cluster(self, body: dict, source: str):
         return self.query_cluster(body, source)
 
+    @node_handler(name="control.infra.set_state")
+    def handle_control_infra_set_state_proxy(self, body: dict, source: str):
+        target = body.get("target")
+        value = body.get("value")
+
+        if not target:
+            raise RuntimeError("control.infra.set_state requires target")
+
+        self._ensure_cluster_connection(target)
+        return self.send_message(target, "control.infra.set_state", {"value": value}, timeout=1.5)
+
     def _ensure_cluster_connection(self, target: str):
         if target == self.get_network_name():
             return
