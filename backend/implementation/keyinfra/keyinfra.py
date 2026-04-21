@@ -132,7 +132,7 @@ class KeyInfraNode(RawNode):
             "leader": self.leader_election.current_leader(),
         }
 
-    @node_handler(internal_ms=750)
+    @node_handler(internal_ms=1500)
     def pinger_int(self):
         for peer in self.peers:
             if peer.name == self.get_network_name():
@@ -140,6 +140,9 @@ class KeyInfraNode(RawNode):
             self._try_connect(peer)
             try:
                 o = self.send_message(peer.name, "ping.re", {})
+                if self.leader_election.current_leader() != o['leader']:
+                    logging.error("DECTED A DISAGREEMENT!")
+                    self.leader_election.start_election()
                 logging.info(
                     f"[PING] [{self.get_network_name()} -> {peer.name}] "
                     f"Ping succeeded: {o} "

@@ -1,0 +1,9 @@
+{
+    "name": "railroad-2",
+    "variant": "infra",
+    "uri": "railroad-2.fly.dev",
+    "infra": {
+        "type": "transport",
+        "regions": [ "reddeer-1", "reddeer-2", "reddeer-3" ]
+    }
+}

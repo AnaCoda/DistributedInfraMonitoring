@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, List
 
 from backend.common.components.storage.backend import StorageBackend
@@ -37,7 +38,8 @@ class RegionalNode(KeyInfraNode):
     def _parse_state(self, data: Dict) -> RegionState:
         return RegionState.model_validate(data)
 
-    def handle_infra_update(self, body: dict):
+    def handle_infra_update(self, body: dict, source: str):
+        logging.info(f'Received infra.update from {source}')
         infra_state = InfrastructureState.model_validate(body)
         self.get_state().infrastructure[infra_state.name] = infra_state
         self.replication_plugin.commit(self.get_state())
@@ -97,6 +99,7 @@ class RegionalNode(KeyInfraNode):
 
     def __send_update_target(self, target: str):
         try:
+            logging.info(f'Sending a region.update to {target}')
             current_state: dict = self.get_state().model_dump()
             self.send_message(target, "region.update", current_state)
             self.__dirty = False

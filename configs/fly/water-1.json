@@ -1,0 +1,9 @@
+{
+    "name": "water-1",
+    "variant": "infra",
+    "uri": "water-1.fly.dev",
+    "infra": {
+        "type": "water",
+        "regions": [ "carstairs-1", "carstairs-2", "carstairs-3" ]
+    }
+}

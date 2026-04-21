@@ -1,0 +1,9 @@
+{
+    "name": "water-2",
+    "variant": "infra",
+    "uri": "water-2.fly.dev",
+    "infra": {
+        "type": "water",
+        "regions": [ "reddeer-1", "reddeer-2", "reddeer-3" ]
+    }
+}

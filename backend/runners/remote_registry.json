@@ -1,11 +1,15 @@
 {
     "rm-1": "rm-1.fly.dev",
     "rm-2": "rm-2.fly.dev",
+    "rm-3": "rm-3.fly.dev",
     "carstairs-1": "carstairs-1.fly.dev",
     "carstairs-2": "carstairs-2.fly.dev",
+    "carstairs-3": "carstairs-3.fly.dev",
     "reddeer-1":"reddeer-1.fly.dev",
     "reddeer-2":"reddeer-2.fly.dev",
+    "reddeer-3": "reddeer-3.fly.dev",
     "hospital-1": "hospital-1.fly.dev",
-    "hospital-2": "hospital-2.fly.dev",
-    "hospital-3": "hospital-3.fly.dev"
+    "hospital-3": "hospital-3.fly.dev",
+    "water-1": "water-1.fly.dev",
+    "fuel-1": "fuel-1.fly.dev"
 }

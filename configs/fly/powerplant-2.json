@@ -1,0 +1,9 @@
+{
+    "name": "powerplant-2",
+    "variant": "infra",
+    "uri": "powerplant-2.fly.dev",
+    "infra": {
+        "type": "powerplant",
+        "regions": [ "reddeer-1", "reddeer-2", "reddeer-3" ]
+    }
+}

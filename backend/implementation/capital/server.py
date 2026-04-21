@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, List
 
 from backend.common.components.storage.backend import StorageBackend
@@ -20,19 +21,20 @@ class CapitalNode(KeyInfraNode):
         self.capital_name = capital_name
         super().__init__(entry, peers, [
             ("region.update", self.region_update),
-            ("query.capital", self.query_capital),
+            ("query.capital", self.query_capital)
         ], backend)
 
         self.ready_to_handle()
 
-    def region_update(self, body: dict):
+    def region_update(self, body: dict, source: str):
+        logging.info(f'Received region.update from {source}')
         update = RegionState.model_validate(body)
         self.get_state().regions[update.name] = update
         self.replication_plugin.commit(self.get_state())
         self._print_digest("capital")
 
     def query_capital(self, body: dict, source: str):
-        
+        logging.info(f'Received query.capital from {source}')
         return self.get_state().model_dump()
 
     @node_handler(name="query.cluster")
@@ -115,6 +117,22 @@ class CapitalNode(KeyInfraNode):
             except Exception:
                 continue
 
+        cached_region = self.get_state().regions.get(logical_name)
+        cached_infra = {}
+
+        if cached_region is not None:
+            for site_name, site in cached_region.infrastructure.items():
+                if hasattr(site, "model_dump"):
+                    cached_infra[site_name] = site.model_dump(mode="json")
+                elif isinstance(site, dict):
+                    cached_infra[site_name] = site
+                else:
+                    cached_infra[site_name] = {
+                        "name": site_name,
+                        "resource_type": "Unknown",
+                        "value": site,
+                    }
+
         return {
             "name": logical_name,
             "leader_replica": None,
@@ -133,7 +151,7 @@ class CapitalNode(KeyInfraNode):
                 }
                 for replica_name in replica_names
             ],
-            "infrastructure": {},
+            "infrastructure": cached_infra,
             "status": "down",
         }
 

@@ -1,6 +1,8 @@
 # from .base_site import base_site
 from random import randint
 
+from backend.common.components.util import NetworkEntry
+
 from .common import InfrastructureNode
 
 class WaterTreatmentPlant(InfrastructureNode):

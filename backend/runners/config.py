@@ -19,7 +19,7 @@ class RegionSpecificConfig(BaseModel):
     peers: List[str]
     
 class InfraSpecificConfig(BaseModel):
-    type: Union[Literal["hospital"]]
+    type: Union[Literal["hospital"], Literal['powerplant'], Literal['water'], Literal['fuel'], Literal['transport']]
     regions: List[str]
 
 

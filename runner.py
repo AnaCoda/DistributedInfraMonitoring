@@ -7,12 +7,17 @@ from typing import List
 from colorama import Fore
 
 
+from backend.common.components.storage.disk import DiskBackend
 from backend.common.components.storage.memory import MemoryStorageBackend
 from backend.common.components.util import NetworkAddress, NetworkEntry
 from backend.common.raw import RawNode
 from backend.implementation.capital.server import CapitalNode
 from backend.implementation.infrastructure.common import InfrastructureNode
+from backend.implementation.infrastructure.fuel_depot import FuelDepot
 from backend.implementation.infrastructure.hospital import Hospital
+from backend.implementation.infrastructure.powerplant import Powerplant
+from backend.implementation.infrastructure.railroads import Railroad
+from backend.implementation.infrastructure.water_treatment_plant import WaterTreatmentPlant
 from backend.implementation.regional.base import RegionalNode
 from backend.runners.config import CapitalSpecificConfig, InfraSpecificConfig, RegionSpecificConfig, RunnerConfig, parse_runner_config
 from backend.runners.registry import ServiceRegistry
@@ -99,6 +104,26 @@ def get_application_node(
         infra_spec: InfraSpecificConfig = config.infra
         if infra_spec.type == 'hospital':
             return Hospital(
+                entry=NetworkEntry(name=config.name, address=address),
+                regions=resolve_peers(infra_spec.regions, service)
+            )
+        elif infra_spec.type == 'powerplant':
+            return Powerplant(
+                entry=NetworkEntry(name=config.name, address=address),
+                regions=resolve_peers(infra_spec.regions, service)
+            )
+        elif infra_spec.type == 'water':
+            return WaterTreatmentPlant(
+                entry=NetworkEntry(name=config.name, address=address),
+                regions=resolve_peers(infra_spec.regions, service)
+            )
+        elif infra_spec.type == 'fuel':
+            return FuelDepot(
+                entry=NetworkEntry(name=config.name, address=address),
+                regions=resolve_peers(infra_spec.regions, service)
+            )
+        elif infra_spec.type == 'transport':
+            return Railroad(
                 entry=NetworkEntry(name=config.name, address=address),
                 regions=resolve_peers(infra_spec.regions, service)
             )

@@ -6,6 +6,8 @@ import time
 
 from colorama import Fore
 
+from backend.common.components.events.event import NodeEvent
+
 from ...common.raw import RawNode, node_handler
 from ...common.components.util import NetworkEntry
 from ..state.monitoring import InfrastructureState
@@ -54,14 +56,15 @@ class InfrastructureNode(RawNode):
 
     @node_handler(name="control.infra.set_state")
     def handle_control_infra_set_state(self, body: dict):
-        value = body.get("value")
-        if value is None:
+        if "value" not in body:
             raise RuntimeError("control.infra.set_state requires 'value'")
 
-        try:
-            value = int(value)
-        except Exception as exc:
-            raise RuntimeError("value must be an integer") from exc
+        value = body["value"]
+
+        if isinstance(value, str):
+            value = value.strip()
+            if value == "":
+                raise RuntimeError("value must not be empty")
 
         self._forced_value = value
         with self.__state_lock:
@@ -118,11 +121,12 @@ class InfrastructureNode(RawNode):
             return {"status": "ignored", "reason": "forced value active"}
         self.update_value()
 
-    @node_handler(internal_ms=4000)
-    def handle_update(self):
-        self.update_value()
 
-    @node_handler(internal_ms=200)
+    # @node_handler(internal_ms=4000)
+    # def handle_update(self):
+    #     self.update_value()
+
+    @node_handler(internal_ms=25_000)
     def handle_tick(self):
         for region in self.regions:
             if not self.has_connection(region.name):
@@ -131,12 +135,11 @@ class InfrastructureNode(RawNode):
         with self.__region_notify_lock:
             flag = not self.__notified_region
 
-        if flag:
-            for region in self.regions:
-                try:
-                    LOGGER.info(f'Trying to notify {region.name}')
-                    self.__send_update_target(region.name)
-                    LOGGER.info(f'Succesfully notified {region.name}')
-                    break
-                except Exception as e:
-                    LOGGER.error(e)
+        for region in self.regions:
+            try:
+                LOGGER.info(f'Trying to notify {region.name}')
+                self.__send_update_target(region.name)
+                LOGGER.info(f'Succesfully notified {region.name}')
+                break
+            except Exception as e:
+                LOGGER.error(e)

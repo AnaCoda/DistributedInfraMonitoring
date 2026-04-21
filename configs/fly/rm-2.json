@@ -4,6 +4,6 @@
     "uri": "rm-2.fly.dev",
     "capital": {
         "capital_name": "rm",
-        "peers": [ "rm-1" ]
+        "peers": [ "rm-1", "rm-3" ]
     }
 }

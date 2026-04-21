@@ -4,7 +4,7 @@
     "uri": "carstairs-1.fly.dev",
     "region": {
         "region_name": "carstairs",
-        "capitals": [ "rm-1", "rm-2" ],
-        "peers": [ "carstairs-2" ]
+        "capitals": [ "rm-1", "rm-2", "rm-3" ],
+        "peers": [ "carstairs-2", "carstairs-3" ]
     }
 }

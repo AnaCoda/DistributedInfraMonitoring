@@ -1,5 +1,7 @@
 from random import choice
 
+from backend.common.components.util import NetworkEntry
+
 from .common import InfrastructureNode
 
 

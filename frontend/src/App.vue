@@ -126,9 +126,9 @@
 
     <div class="pb-4 flex flex-row gap-3 flex-wrap">
       <div
-        class="p-1 pl-2 border rounded-full flex justify-center items-center gap-2 flex-row"
         v-for="node in connectedNodes"
         :key="node.id"
+        class="p-1 pl-2 border rounded-full flex justify-center items-center gap-2 flex-row"
         :class="node.status === 'up' ? 'border-green-400' : 'border-red-400 opacity-70'"
       >
         <div
@@ -142,10 +142,10 @@
       </div>
     </div>
 
-    <div v-if="loading && regions.length === 0" class="text-sm text-gray-400">Loading…</div>
+    <div v-if="loading && displayRegions.length === 0" class="text-sm text-gray-400">Loading…</div>
 
     <div
-      v-else-if="regions.length === 0"
+      v-else-if="displayRegions.length === 0"
       class="p-4 border border-dashed border-gray-300 rounded-lg text-sm text-gray-600"
     >
       No regions reporting yet.
@@ -155,7 +155,7 @@
       <div class="mb-5 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
         <div class="summary-card">
           <div class="summary-label">Regions</div>
-          <div class="summary-value text-gray-800">{{ regions.length }}</div>
+          <div class="summary-value text-gray-800">{{ displayRegions.length }}</div>
         </div>
         <div class="summary-card">
           <div class="summary-label">Power Stable</div>
@@ -207,7 +207,7 @@
           style="grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));"
         >
           <div
-            v-for="r in regions"
+            v-for="r in displayRegions"
             :key="r.name"
             class="border rounded-xl p-4 shadow-sm bg-white transition-colors"
             :class="r.isCapital ? 'border-slate-400 bg-slate-50 shadow-md' : 'border-gray-200'"
@@ -329,6 +329,7 @@
                         v-for="s in r.sites"
                         :key="s.name + s.resource_type"
                         class="border-t border-gray-100 hover:bg-gray-50"
+                        :class="s.node_status === 'down' ? 'bg-red-50/50' : ''"
                       >
                         <td class="td-cell font-mono text-gray-600">{{ s.name }}</td>
                         <td class="td-cell text-gray-500">{{ s.resource_type }}</td>
@@ -336,12 +337,20 @@
                           <SiteValue :value="s.resource_value" />
                         </td>
                         <td class="td-cell text-right">
-                          <div class="flex gap-1 justify-end">
-                            <button class="btn px-2 py-1 text-[10px]" @click="setInfraValue(s.name, 0)">0</button>
-                            <button class="btn px-2 py-1 text-[10px]" @click="setInfraValue(s.name, 25)">25</button>
-                            <button class="btn px-2 py-1 text-[10px]" @click="setInfraValue(s.name, 50)">50</button>
-                            <button class="btn px-2 py-1 text-[10px]" @click="setInfraValue(s.name, 100)">100</button>
-                          </div>
+                          <template v-if="canControlInfra(s.name)">
+                            <div class="flex flex-wrap gap-1 justify-end max-w-[180px] ml-auto">
+                              <button
+                                v-for="preset in getInfraPresetsForSite(s)"
+                                :key="`${s.name}-${preset.value}`"
+                                class="btn px-2 py-1 text-[10px] text-center whitespace-nowrap min-w-[44px]"
+                                @click="setInfraValue(s.name, preset.value)"
+                              >
+                                {{ preset.label }}
+                              </button>
+                            </div>
+                          </template>
+
+                          <span v-else class="text-[10px] text-gray-400 italic">no control</span>
                         </td>
                       </tr>
                     </tbody>
@@ -358,7 +367,7 @@
       </div>
 
       <div v-else>
-        <MapView :regions="regions" :heartbeats="replicaHeartbeatMap" />
+        <MapView :regions="displayRegions" :heartbeats="replicaHeartbeatMap" />
       </div>
     </div>
   </div>
@@ -373,6 +382,7 @@ import MapView from "./components/MapView.vue";
 
 const capitalState = ref(null);
 const clusterState = ref(null);
+const infraStatusMap = ref(new Map());
 
 const loading = ref(true);
 const error = ref("");
@@ -382,7 +392,6 @@ const connectedEndpoints = ref([]);
 const activeSocket = ref(null);
 
 let reconnectTimer = null;
-
 let clusterPollTimer = null;
 let capitalPollTimer = null;
 
@@ -426,6 +435,35 @@ function maxNumericByNeedles(sites, typeNeedles) {
   return best;
 }
 
+function getInfraPresetsForSite(site) {
+  const clusterSite = getControllableInfra(site.name);
+  const effectiveType = clusterSite?.infra_type ?? site.resource_type ?? "";
+  const t = effectiveType.toLowerCase();
+
+  if (t.includes("power")) {
+    return [
+      { label: "D", value: "down" },
+      { label: "UN", value: "unstable" },
+      { label: "ST", value: "stable" },
+    ];
+  }
+
+  if (t.includes("rail") || t.includes("transport")) {
+    return [
+      { label: "D", value: "down" },
+      { label: "DE", value: "degraded" },
+      { label: "OP", value: "operational" },
+    ];
+  }
+
+  return [
+    { label: "0", value: 0 },
+    { label: "25", value: 25 },
+    { label: "50", value: 50 },
+    { label: "100", value: 100 },
+  ];
+}
+
 function scheduleReconnect(ms) {
   if (reconnectTimer) clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(connectWs, ms);
@@ -446,7 +484,10 @@ function startPollTimers() {
     if (wsStatus.value !== "connected") return;
 
     try {
-      await refreshClusterWithFallback();
+      const ok = await refreshClusterWithFallback();
+      if (ok) {
+        await refreshInfraStatuses();
+      }
       lastFetch.value = Date.now();
     } catch (e) {
       console.warn("[InfraMonitor WS] background cluster poll failed", e?.message || e);
@@ -705,6 +746,97 @@ async function queryRouteFromEndpoint(endpoint, route, body = {}) {
   }
 }
 
+async function rpcDirectToEndpoint(endpoint, route, body = {}) {
+  let ws = null;
+
+  try {
+    ws = new WebSocket(endpoint);
+    await waitUntilOpen(ws, WS_OPEN_TIMEOUT_MS);
+
+    ws.send(JSON.stringify({ name: `Frontend-Direct-${crypto.randomUUID()}` }));
+
+    const handshake = await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error("Handshake timed out")), WS_OPEN_TIMEOUT_MS);
+      ws.addEventListener(
+        "message",
+        e => {
+          clearTimeout(t);
+          resolve(JSON.parse(e.data));
+        },
+        { once: true }
+      );
+    });
+
+    if (handshake.status !== "success") {
+      throw new Error(`Handshake rejected by ${endpoint}`);
+    }
+
+    const payload = packRpc(route, body);
+
+    console.log("[InfraMonitor WS] rpcDirectToEndpoint payload", {
+      endpoint,
+      route,
+      body,
+      payload,
+    });
+    console.log("[InfraMonitor WS] rpcDirectToEndpoint raw", JSON.stringify(payload));
+
+    ws.send(JSON.stringify(payload));
+
+    const response = await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error(`${route} timed out`)), 5000);
+      ws.addEventListener(
+        "message",
+        e => {
+          clearTimeout(t);
+          resolve(JSON.parse(e.data));
+        },
+        { once: true }
+      );
+    });
+
+    const out = response?.body ?? {};
+    if (out?.status === "fail") {
+      throw new Error(out.reason || `${route} failed`);
+    }
+
+    return out;
+  } finally {
+    if (ws) {
+      try { ws.close(); } catch {}
+    }
+  }
+}
+
+async function refreshInfraStatuses() {
+  const next = new Map();
+
+  const infraList = clusterState.value?.infrastructure ?? [];
+  for (const infra of infraList) {
+    if (!infra?.id) continue;
+
+    const endpoint = infraEndpointForTarget(infra.id);
+
+    try {
+      const body = await queryRouteFromEndpoint(endpoint, "query.node_status", {});
+      next.set(infra.id, body);
+    } catch {
+      next.set(infra.id, {
+        id: infra.id,
+        kind: "infra",
+        logical_name: infra.logical_name,
+        infra_type: infra.infra_type,
+        status: "down",
+        resource_value: null,
+        last_seen_unix: null,
+        last_seen: null,
+      });
+    }
+  }
+
+  infraStatusMap.value = next;
+}
+
 async function discoverCapitalLeaderEndpoint() {
   const electionResults = [];
 
@@ -763,58 +895,25 @@ async function refreshNowAll() {
 
   const ok = await refreshClusterWithFallback();
 
-  if (!ok && !capitalState.value) {
+  if (ok) {
+    await refreshInfraStatuses();
+  } else if (!capitalState.value) {
     error.value = "Unable to load cluster topology from any capital replica.";
   }
 
   loading.value = false;
 }
 
-async function rpcOnActive(route, body = {}) {
-  const ws = activeSocket.value;
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    throw new Error("No active capital socket");
-  }
-
-  return new Promise((resolve, reject) => {
-    const payload = packRpc(route, body);
-    const rid = payload.rid;
-
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error(`${route} timed out`));
-    }, 5000);
-
-    function onMessage(event) {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.route === "__response" && msg.rid === rid) {
-          cleanup();
-          const body = msg.body ?? {};
-          if (body.status === "fail") {
-            reject(new Error(body.reason || `${route} failed`));
-          } else {
-            resolve(body);
-          }
-        }
-      } catch {}
-    }
-
-    function cleanup() {
-      clearTimeout(timer);
-      ws.removeEventListener("message", onMessage);
-    }
-
-    ws.addEventListener("message", onMessage);
-    ws.send(JSON.stringify(payload));
-  });
-}
-
 async function setInfraValue(target, value) {
   try {
     loading.value = true;
-    await rpcOnActive("control.infra.set_state", { target, value });
+
+    const endpoint = infraEndpointForTarget(target);
+    console.log("[InfraMonitor WS] setInfraValue direct", { target, value, endpoint });
+
+    await rpcDirectToEndpoint(endpoint, "control.infra.set_state", { value });
     await refreshNowAll();
+    await refreshInfraStatuses();
   } catch (e) {
     error.value = e?.message || String(e);
   } finally {
@@ -824,6 +923,26 @@ async function setInfraValue(target, value) {
 
 const capitalNamespace = computed(() => clusterState.value?.capital_namespace ?? capitalState.value?.name ?? "");
 const capitalLeaderReplica = computed(() => clusterState.value?.capital_leader_replica ?? "");
+
+const controllableInfraMap = computed(() => {
+  const out = new Map();
+  for (const site of clusterState.value?.infrastructure ?? []) {
+    if (site?.id) out.set(site.id, site);
+  }
+  return out;
+});
+
+function getControllableInfra(siteName) {
+  return controllableInfraMap.value.get(siteName) ?? null;
+}
+
+function canControlInfra(siteName) {
+  return !!getControllableInfra(siteName);
+}
+
+function infraEndpointForTarget(target) {
+  return `wss://${target}.fly.dev`;
+}
 
 const capitalReplicas = computed(() => {
   const caps = clusterState.value?.capitals ?? {};
@@ -905,9 +1024,33 @@ const regions = computed(() => {
 
     for (const [siteKey, siteRaw] of Object.entries(infra)) {
       const n = siteRaw?.name ?? siteKey;
-      const rt = siteRaw?.resource_type ?? "Unknown";
-      const rv = siteRaw?.value ?? siteRaw?.resource_value ?? null;
-      sites.push({ name: n, resource_type: rt, resource_value: rv });
+      const clusterInfra = getControllableInfra(n);
+      const directInfra = infraStatusMap.value.get(n) ?? null;
+
+      const rt =
+        directInfra?.infra_type ??
+        clusterInfra?.infra_type ??
+        siteRaw?.resource_type ??
+        "Unknown";
+
+      let rv =
+        siteRaw?.value ??
+        siteRaw?.resource_value ??
+        null;
+
+      if (directInfra?.status === "down") {
+        rv = "down";
+      } else if (directInfra?.resource_value !== undefined && directInfra?.resource_value !== null) {
+        rv = directInfra.resource_value;
+      }
+
+      sites.push({
+        name: n,
+        resource_type: rt,
+        resource_value: rv,
+        node_status: directInfra?.status ?? clusterInfra?.status ?? "unknown",
+        last_seen: directInfra?.last_seen ?? null,
+      });
     }
 
     const medical = maxNumericByNeedles(sites, ["hospital"]);
@@ -940,12 +1083,12 @@ const regions = computed(() => {
         fuel_storage: fuel ?? 0,
       },
     };
-  }).sort((a, b) => {
-    if (a.isCapital) return -1;
-    if (b.isCapital) return 1;
-    return a.name.localeCompare(b.name);
-  });
+  }).sort((a, b) => a.name.localeCompare(b.name));
 });
+
+const displayRegions = computed(() =>
+  regions.value.filter(r => !r.isCapital)
+);
 
 const operationalRegions = computed(() =>
   regions.value.filter(r => !r.isCapital)

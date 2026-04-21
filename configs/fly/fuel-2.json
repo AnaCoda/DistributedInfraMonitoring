@@ -1,0 +1,9 @@
+{
+    "name": "fuel-2",
+    "variant": "infra",
+    "uri": "fuel-2.fly.dev",
+    "infra": {
+        "type": "fuel",
+        "regions": [ "reddeer-1", "reddeer-2", "reddeer-3" ]
+    }
+}

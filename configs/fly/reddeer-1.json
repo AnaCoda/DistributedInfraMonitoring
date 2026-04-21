@@ -4,7 +4,7 @@
     "uri": "reddeer-1.fly.dev",
     "region": {
         "region_name": "reddeer",
-        "capitals": [ "rm-1", "rm-2" ],
-        "peers": [ "reddeer-2" ]
+        "capitals": [ "rm-1", "rm-2", "rm-3" ],
+        "peers": [ "reddeer-2", "reddeer-3" ]
     }
 }
