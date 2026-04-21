@@ -1,4 +1,6 @@
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict as asdict_dc, is_dataclass
+
+from pydantic import BaseModel
 from ..storage.backend import StorageBackend
 from typing import Optional
 from .operation import Operation
@@ -10,6 +12,13 @@ class _LogState:
 
 class ReplicationOutOfOrder(Exception):
     pass
+
+def asdict(obj):
+    if isinstance(obj, BaseModel):
+        return obj.model_dump(mode='json')
+    elif is_dataclass(obj):
+        return asdict_dc(obj)
+
 
 class ReplicationLog:
 
@@ -35,6 +44,7 @@ class ReplicationLog:
         return self.log_state.sequence_position
     
     def __write_back_log_state(self):
+
         self.backend.write('meta', 'state', asdict(self.log_state))
 
     def add_log(self, operation: Operation):

@@ -3,6 +3,7 @@
 
 
 
+import logging
 from random import randint
 
 from colorama import Fore
@@ -19,6 +20,7 @@ from threading import Lock
 from ..state.monitoring import InfrastructureState
 from ...common.components.util import NetworkEntry
 
+LOGGER = logging.getLogger('node::infra')
 
 class InfrastructureNode(RawNode):
     def __init__(
@@ -75,6 +77,10 @@ class InfrastructureNode(RawNode):
     @node_handler(name='infra.random')
     def handle_infra_random(self, body: dict):
         self.update_value()
+
+    @node_handler(internal_ms=4000)
+    def handle_update(self):
+        self.update_value()
     
     
     @node_handler(internal_ms=200)
@@ -94,7 +100,13 @@ class InfrastructureNode(RawNode):
             # update to ONE of the nodes, not all of
             # them.
             for region in self.regions:
-                if self.has_connection(region.name):
+                try:
+                    LOGGER.info(f'Trying to notify {region.name}')
                     self.__send_update_target(region.name)
+                    LOGGER.info(f'Succesfully notified {region.name}')
                     break
+                except Exception as e:
+                    LOGGER.error(e)
+                    pass
+                
     

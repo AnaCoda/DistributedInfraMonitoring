@@ -1,0 +1,9 @@
+{
+    "name": "hospital-1",
+    "variant": "infra",
+    "uri": "hospital-1.fly.dev",
+    "infra": {
+        "type": "hospital",
+        "regions": [ "carstairs-1", "carstairs-2" ]
+    }
+}

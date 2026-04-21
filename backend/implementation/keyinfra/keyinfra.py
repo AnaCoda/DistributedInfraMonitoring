@@ -145,6 +145,10 @@ class KeyInfraNode(RawNode):
         return self.replication_plugin.serve_state_request(sequences)
 
 
+    def on_new_version(self):
+        self.leader_election.set_own_priority(self.replication_plugin.get_seq_num())
+        # print('ON NEW VERSION')
+
     
 
     def __run_challenge(
@@ -189,10 +193,14 @@ class KeyInfraNode(RawNode):
     def on_become_leader(self):
         self.__on_elect(self.get_network_name())
 
-    def on_elect_leader(self, _l, _p, target):
-
+    def on_elect_other(self, target):
+        # print(f'KEY INFRA')
         self.__on_elect(target)
-        # self.replication_plugin.set_leader(target)
+
+    # def on_elect_leader(self, _l, _p, target):
+
+    #     self.__on_elect(target)
+    #     # self.replication_plugin.set_leader(target)
         
     @abstractmethod
     def _default_state(self) -> BaseModel:

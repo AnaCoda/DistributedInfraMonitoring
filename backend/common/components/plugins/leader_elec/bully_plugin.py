@@ -1,7 +1,6 @@
 import logging
 from threading import Lock
 import time
-from tkinter import NO
 
 from colorama import Fore
 from pydantic import BaseModel
@@ -150,6 +149,14 @@ class BullyPlugin(Plugin):
 
         # self.__bully_pause = True
         # print("INITTED")
+
+    def set_own_priority(self, priority: int):
+        with self.bully_lock:
+            if self.node_map[self.get_network_name()].priority != priority:
+                LOGGER.info(f'Updating BULLY priority to priority={priority}')
+            self.node_map[self.get_network_name()].priority = priority
+            
+         
 
     def __set_priority(
         self,

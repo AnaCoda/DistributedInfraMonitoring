@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 from typing import Dict
 
+from pydantic import BaseModel
 
-@dataclass
-class Operation:
+
+# @dataclass
+class Operation(BaseModel):
     sequence_number: int
     operation: Dict
 

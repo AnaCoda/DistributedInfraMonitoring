@@ -25,7 +25,7 @@ class SimulationLayer(RoutingLayer):
 
     def sim_delay(self) -> bool:
         if self.__should_do_simulated_delays():
-            time.sleep(random.uniform(0.0, 1.0))
+            time.sleep(random.uniform(0.0, 0.3))
 
     @node_handler(name='sim.version')
     def handle_sim_version(self, body: dict):

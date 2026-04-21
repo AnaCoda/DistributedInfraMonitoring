@@ -7,6 +7,7 @@ from enum import Enum
 class RunnerClass(str, Enum):
     CAPITAL = 'capital'
     REGION = 'region'
+    INFRA = 'infra'
 
 class CapitalSpecificConfig(BaseModel):
     capital_name: str
@@ -17,6 +18,11 @@ class RegionSpecificConfig(BaseModel):
     capitals: List[str]
     peers: List[str]
     
+class InfraSpecificConfig(BaseModel):
+    type: Union[Literal["hospital"]]
+    regions: List[str]
+
+
 class CapitalRunnerConfig(BaseModel):
     name: str
     variant: Literal[RunnerClass.CAPITAL]
@@ -29,10 +35,18 @@ class RegionRunnerConfig(BaseModel):
     uri: str
     region: RegionSpecificConfig
 
-def parse_runner_config(data: dict) -> Union[CapitalRunnerConfig, RegionRunnerConfig]:
+class InfraRunnerConfig(BaseModel):
+    name: str
+    variant: Literal[RunnerClass.INFRA]
+    uri: str
+    infra: InfraSpecificConfig
+
+def parse_runner_config(data: dict) -> Union[CapitalRunnerConfig, RegionRunnerConfig, InfraRunnerConfig]:
     if data['variant'] == 'capital':
         return CapitalRunnerConfig.model_validate(data)
     elif data['variant'] == 'region':
         return RegionRunnerConfig.model_validate(data)
+    elif data['variant'] == 'infra':
+        return InfraRunnerConfig.model_validate(data)
 
 RunnerConfig = Union[CapitalRunnerConfig, RegionRunnerConfig]

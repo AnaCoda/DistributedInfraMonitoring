@@ -12,8 +12,9 @@ from backend.common.components.util import NetworkAddress, NetworkEntry
 from backend.common.raw import RawNode
 from backend.implementation.capital.server import CapitalNode
 from backend.implementation.infrastructure.common import InfrastructureNode
+from backend.implementation.infrastructure.hospital import Hospital
 from backend.implementation.regional.base import RegionalNode
-from backend.runners.config import CapitalSpecificConfig, RegionSpecificConfig, RunnerConfig, parse_runner_config
+from backend.runners.config import CapitalSpecificConfig, InfraSpecificConfig, RegionSpecificConfig, RunnerConfig, parse_runner_config
 from backend.runners.registry import ServiceRegistry
 def setup_logging():
     """
@@ -93,7 +94,14 @@ def get_application_node(
             backend=MemoryStorageBackend(),
             entry=NetworkEntry(name=config.name, address=address),
             peers=resolve_peers(region_spec.peers, service)
-        )
+        ) 
+    elif config.variant == 'infra':
+        infra_spec: InfraSpecificConfig = config.infra
+        if infra_spec.type == 'hospital':
+            return Hospital(
+                network_name=config.name,
+                regions=resolve_peers(infra_spec.regions, service)
+            )
 
 def launch_application(
     config: RunnerConfig,

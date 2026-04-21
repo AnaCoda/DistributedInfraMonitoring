@@ -43,6 +43,7 @@ class RegionalNode(KeyInfraNode):
         # return super()._parse_state(data)
         # return super()._default_state()
 
+    # @node_handler(name='infra.update')
     def handle_infra_update(self, body: dict):
         infra_state = InfrastructureState.model_validate(body)
         self.get_state().infrastructure[infra_state.name] = infra_state
