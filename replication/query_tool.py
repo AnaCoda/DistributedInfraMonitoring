@@ -53,7 +53,7 @@ async def client():
         response = dumps(loads(await websocket.recv()), indent=4)
 
         print(f'Response:{Fore.CYAN}\n{response}{Fore.RESET}')
-        await websocket.close()
+        # await websocket.close()
 
         # print(f'Response: {Fore.LIGHTBLACK_EX}{await websocket.recv()}{Fore.}')
 

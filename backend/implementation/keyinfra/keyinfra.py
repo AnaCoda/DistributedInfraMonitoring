@@ -75,18 +75,25 @@ class KeyInfraNode(RawNode):
     
     
     def election_state(self):
-        return ElectionState(
-            name=self.get_network_name(),
-            version=self.replication_plugin.get_seq_num(),
-            leader=self.leader_election.current_leader(),
-            heartbeat={
-                bully.name: HeartBeatState(
-                    heartbeat_state=state.state,
-                    last_heartbeat=time.time() - state.last_hb
-                )
-                for bully, state in self.leader_election.node.heartbeat.items()
+        bully = self.leader_election
+
+        return {
+            'name': self.get_network_name(),
+            'version': self.replication_plugin.get_seq_num(),
+            'leader': bully.current_leader(),
+            'is_leader': bully.is_leader(),
+            'election_in_progress': bully.bully_state.election_in_progress,
+            'received_ok': bully.bully_state.received_ok,
+            'updating_states': bully.bully_state.updating_states,
+            'current_leader_peer': (
+                bully.bully_state.current_leader.model_dump(mode='json')
+                if bully.bully_state.current_leader is not None else None
+            ),
+            'peers': {
+                name: peer.model_dump(mode='json')
+                for name, peer in bully.node_map.items()
             }
-        )
+        }
     
     @node_handler(name='ping.re')
     def handle_pingre(self, body: dict):
@@ -113,7 +120,8 @@ class KeyInfraNode(RawNode):
     @node_handler(name='election.state')
     def handle_get_election_state(self, body: dict):
         print(f'GOT A GET ELECTION STATE CALL')
-        return self.election_state().model_dump(mode='json')
+        state = self.election_state()
+        return state.model_dump(mode='json') if hasattr(state, 'model_dump') else state
 
     @node_handler(event=NodeEvent.ON_CONNECT)
     def handle_outbound_conn(self, name: str):
