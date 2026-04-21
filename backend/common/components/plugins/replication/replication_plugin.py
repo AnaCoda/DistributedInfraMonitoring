@@ -185,9 +185,9 @@ class ReplicationPlugin(Plugin):
                     operations = self.send_message(self.get_leader(), 'sync.request', { 'sync': list(range(self.get_seq_num() + 1, operation.sequence_number + 1)) })['operations']
                     for op in operations:
                         op = Operation.model_validate(op)
-                        self.__apply_operation(op)
+                        out = self.__apply_operation(op)
                     LOGGER.info(f'We have fast forwarded succesfully to sequence={operation.get_seq_num()}')
-                    return
+                    return out
                 
         # Execute the operation without the need for fast forward.
         with self.__operation_lock:
@@ -261,7 +261,7 @@ class ReplicationPlugin(Plugin):
                 'message': 'unauthorized request, only for internal use of replicas.'
             }
         # operation = Operation.model_validate(body)
-        self.__execute_operation(Operation.model_validate(body))
+        return self.__execute_operation(Operation.model_validate(body))
         
         # print(f'Received: {operation}')
 
@@ -282,7 +282,7 @@ class ReplicationPlugin(Plugin):
             operation = Operation(sequence_number=self.log.get_sequence_pos() + 1, operation=body)
             
             # The leader executes the operation locally.
-            self.__apply_operation(operation)
+            out = self.__apply_operation(operation)
 
             for replica in filter(lambda x : x != self.get_network_name(), self.replicas):
                 try:
@@ -290,6 +290,7 @@ class ReplicationPlugin(Plugin):
                 except Exception as e:
                     LOGGER.error(f'{Fore.RED}[{self.get_network_name()}] Failed to send to {replica} with error={e}{Fore.RESET}')
                     pass
+            return out
         # # External operations must wait for the leader.
         # self.__wait_leader()
 
