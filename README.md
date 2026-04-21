@@ -94,6 +94,7 @@ We have two cases for node resolution:
 # FLY.IO DEPLOYMENT
 The actual deployment logic for a replica named `rm-1` is as follows:
 ```bash
+$ fly apps create <app-name>
 $ fly secrets set CONFIG_NAME=rm-1 -a rm-1 
 $ fly deploy -a rm-1 --ha=False --depot=false --local-only
 $ fly scale count 1 -a rm-1
