@@ -1,6 +1,7 @@
 import logging
 from threading import Lock
 import time
+from tkinter import NO
 
 from colorama import Fore
 from pydantic import BaseModel
@@ -188,47 +189,82 @@ class BullyPlugin(Plugin):
         return output
         # print(f'Output: {output}')
 
+    @node_handler(internal_ms=100)
+    def bully_loop(self):
+        with self.bully_lock:
+            cur_leader = self.bully_state.current_leader
+        if cur_leader is None:
+            self.__start_election()
+        # else:
+
+    @node_handler(event=NodeEvent.ON_DISCONNECT)
+    def on_peer_disconnect(self, name: str):
+        with self.bully_lock:
+            if self.bully_state.current_leader is not None and self.bully_state.current_leader.name == name:
+                logging.info("The leader has disconnected.")
+                self.bully_state.current_leader = None
+                should_elect = True
+            else:
+                should_elect = False
+
+        if should_elect:
+            self.__start_election()
+            
     @node_handler(event=NodeEvent.ON_CONNECT)
     def on_peer_connect(self, name: str):
-        with self.__on_connect_lock:
-            
+        try:
+            ids = self.send_message(name, 'bully.inquire', self.node_map[self.get_network_name()].model_dump(mode='json'))
+
+            # Update our local information about that node.
+            node = BullyPeer.model_validate(ids['node'])
             with self.bully_lock:
-                if not self.bully_state.updating_states:
-                    # This basically prevents two of these running concurrently,
-                    # which could happen in older versions when two connection events
-                    # would fire.
-                    return
-                if name in self.node_map and self.get_network_name() != name:
-                    LOGGER.info("Connected to another peer node.")
+                self.__set_priority(node)
+
+            # output.append(BullyPeer.model_validate(ids['leader']) if ids['leader'] is not None else None)
+        except Exception as e:
+            # print(f'E: {e}')
+            pass
+    # @node_handler(event=NodeEvent.ON_CONNECT)
+    # def on_peer_connect(self, name: str):
+    #     with self.__on_connect_lock:
+            
+    #         with self.bully_lock:
+    #             if not self.bully_state.updating_states:
+    #                 # This basically prevents two of these running concurrently,
+    #                 # which could happen in older versions when two connection events
+    #                 # would fire.
+    #                 return
+    #             if name in self.node_map and self.get_network_name() != name:
+    #                 LOGGER.info("Connected to another peer node.")
                 
-            # Now we need to collect information on other nodes.
-            while True:
-                detection = self.__try_reach_out()
-                if len(detection) > 0:
-                    # We have collected information from peers on who the leader is.
-                    LOGGER.info(f'Detected leader election information from {len(detection)} node(s).')
+    #         # Now we need to collect information on other nodes.
+    #         while True:
+    #             detection = self.__try_reach_out()
+    #             if len(detection) > 0:
+    #                 # We have collected information from peers on who the leader is.
+    #                 LOGGER.info(f'Detected leader election information from {len(detection)} node(s).')
                     
-                    should_start_election = False
-                    if any(x is None for x in detection):
-                        should_start_election = True
-                    else:
-                        detection.sort(key=lambda x : x.election_id, reverse=True)
-                        if detection[0].election_id < self.node_map[self.get_network_name()].election_id:
-                            should_start_election = True
-                        else:
-                            # There is already a leader, so we just absorb this leader.
-                            with self.bully_lock:
-                                self.bully_state.current_leader = detection[0]
-                                self.bully_state.updating_states = False
+    #                 should_start_election = False
+    #                 if any(x is None for x in detection):
+    #                     should_start_election = True
+    #                 else:
+    #                     detection.sort(key=lambda x : x.election_id, reverse=True)
+    #                     if detection[0].election_id < self.node_map[self.get_network_name()].election_id:
+    #                         should_start_election = True
+    #                     else:
+    #                         # There is already a leader, so we just absorb this leader.
+    #                         with self.bully_lock:
+    #                             self.bully_state.current_leader = detection[0]
+    #                             self.bully_state.updating_states = False
                         
-                    if should_start_election:
-                        # We should start an election.
-                        with self.bully_lock:
-                            self.bully_state.updating_states = False
-                        self.__start_election()
+    #                 if should_start_election:
+    #                     # We should start an election.
+    #                     with self.bully_lock:
+    #                         self.bully_state.updating_states = False
+    #                     self.__start_election()
                     
-                    # We are done here.
-                    break
+    #                 # We are done here.
+    #                 break
 
 
                 
@@ -322,6 +358,9 @@ class BullyPlugin(Plugin):
         # where we can do some cleaner separated
         # logic.
         self.on_become_leader()
+
+
+    # @node_handler(inter)
         
     def __start_election(
         self
@@ -358,7 +397,7 @@ class BullyPlugin(Plugin):
             
             # Wait two seconds.
             start = time.time()
-            while time.time() - start < 5.0:
+            while time.time() - start < 2.5:
                 with self.bully_lock:
                     # Check if we have received an OK, if
                     # we have we can break out.
