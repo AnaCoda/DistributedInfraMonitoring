@@ -195,10 +195,12 @@ class BullyPlugin(Plugin):
             cur_leader = self.bully_state.current_leader
         if cur_leader is None:
             self.__start_election()
+        elif cur_leader.name != self.get_network_name() and not self.has_connection(cur_leader.name):
+            print("HEYYE")
+            self.__on_detect_leader_down(cur_leader.name)
         # else:
 
-    @node_handler(event=NodeEvent.ON_DISCONNECT)
-    def on_peer_disconnect(self, name: str):
+    def __on_detect_leader_down(self, name: str):
         with self.bully_lock:
             if self.bully_state.current_leader is not None and self.bully_state.current_leader.name == name:
                 logging.info("The leader has disconnected.")
@@ -209,7 +211,21 @@ class BullyPlugin(Plugin):
 
         if should_elect:
             self.__start_election()
-            
+
+    @node_handler(event=NodeEvent.ON_DISCONNECT)
+    def on_peer_disconnect(self, name: str):
+        logging.info(f'Detected discnnect from {name}')
+        with self.bully_lock:
+            if self.bully_state.current_leader is not None and self.bully_state.current_leader.name == name:
+                logging.info("The leader has disconnected.")
+                self.bully_state.current_leader = None
+                should_elect = True
+            else:
+                should_elect = False
+
+        if should_elect:
+            self.__start_election()
+
     @node_handler(event=NodeEvent.ON_CONNECT)
     def on_peer_connect(self, name: str):
         try:
@@ -298,10 +314,18 @@ class BullyPlugin(Plugin):
 
         with self.bully_lock:
             self.__set_priority(leader)
-            self.bully_state.current_leader = leader
-            self.bully_state.election_in_progress = False
-            self.bully_state.received_ok = False
-            self.bully_state.updating_states = False
+
+            if leader.election_id < self.node_map[self.get_network_name()].election_id:
+                should_challenge = True
+            else:
+                should_challenge = False
+                self.bully_state.current_leader = leader
+                self.bully_state.election_in_progress = False
+                self.bully_state.received_ok = False
+                self.bully_state.updating_states = False
+
+        if should_challenge:
+            self.launch_background_thread(self.__start_election, None)
 
         if leader.name == self.get_network_name():
             self.on_become_leader()
@@ -453,4 +477,5 @@ class BullyPlugin(Plugin):
     
     def on_elect_other(self, leader: str):
         LOGGER.info(f'We have elected node={leader}')
+        self.host.on_elect_other(leader)
 
