@@ -1,6 +1,7 @@
 export const REGION_COORDS = {
   rm: [51.0447, -114.0719],
   carstairs: [51.5668, -114.1017],
+  reddeer: [52.2681, -113.8112],
 };
 
 export const REGION_FALLBACK_COORDS = [50.0, -100.0];
@@ -14,6 +15,10 @@ export const REPLICA_COORDS = {
     "carstairs-1": [51.5828, -114.1217],
     "carstairs-2": [51.5508, -114.0817],
   },
+  reddeer: {
+    "reddeer-1": [52.2841, -113.8312],
+    "reddeer-2": [52.2521, -113.7912],
+  },
 };
 
 export const SITE_COORDS = {
@@ -22,16 +27,18 @@ export const SITE_COORDS = {
     "hospital-1": [51.5748, -114.0917],
     "hospital-2": [51.5588, -114.1117],
   },
+  reddeer: {
+    "hospital-3": [52.2381, -113.8112],
+  },
 };
 
 export function getRegionCoords(regionName) {
   return REGION_COORDS[regionName] ?? REGION_FALLBACK_COORDS;
 }
 
-export function getReplicaCoords(regionName, replicaId, fallbackCenter) {
+export function getReplicaCoords(regionName, replicaId, fallbackCenter = null) {
   const explicit = REPLICA_COORDS[regionName]?.[replicaId];
   if (explicit) return explicit;
-
   return fallbackCenter;
 }
 

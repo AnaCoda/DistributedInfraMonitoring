@@ -14,7 +14,7 @@
               class="text-[10px] px-2 py-0.5 rounded-full border font-black uppercase tracking-widest"
               :class="hoveredRegion.isCapital ? 'bg-amber-500 text-white border-amber-500 shadow-sm' : 'bg-slate-100 text-slate-600 border-slate-200'"
             >
-              {{ hoveredRegion.isCapital ? "capital" : (hoveredRegion.regionType || "region") }}
+              {{ hoveredRegion.isCapital ? "capital" : "region" }}
             </span>
             <span class="text-[11px] text-slate-400 font-medium">{{ hoveredRegion.sites?.length || 0 }} Infrastructure Sites</span>
           </div>
@@ -44,7 +44,7 @@
 
     <div
       v-if="hoveredReplica"
-      class="absolute bottom-6 right-6 z-[1000] w-[280px] bg-slate-900/95 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-700 p-4 text-white transition-all duration-300"
+      class="absolute bottom-6 right-6 z-[1000] w-[300px] bg-slate-900/95 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-700 p-4 text-white transition-all duration-300"
     >
       <div class="flex justify-between items-start mb-3">
         <div>
@@ -56,13 +56,25 @@
         </div>
       </div>
 
-      <div class="flex items-center justify-between text-[11px] bg-white/5 p-2.5 rounded-xl border border-white/10">
-        <span class="text-slate-400 font-medium">Heartbeat Status</span>
-        <span class="flex items-center gap-2 font-bold text-emerald-400">
-          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          SYNCHRONIZED
-        </span>
+      <div class="space-y-2 text-[11px]">
+        <div class="flex items-center justify-between bg-white/5 p-2.5 rounded-xl border border-white/10">
+          <span class="text-slate-400 font-medium">Status</span>
+          <span :class="hoveredReplica.status === 'up' ? 'text-emerald-400' : 'text-rose-400'" class="font-bold uppercase">
+            {{ hoveredReplica.status ?? 'unknown' }}
+          </span>
+        </div>
+
+        <div class="flex items-center justify-between bg-white/5 p-2.5 rounded-xl border border-white/10">
+          <span class="text-slate-400 font-medium">Version</span>
+          <span class="font-bold text-white">{{ hoveredReplica.version ?? "—" }}</span>
+        </div>
+
+        <div class="flex items-center justify-between bg-white/5 p-2.5 rounded-xl border border-white/10">
+          <span class="text-slate-400 font-medium">Last Seen</span>
+          <span class="font-bold text-white">{{ formatLastSeen(hoveredReplica.last_seen) }}</span>
+        </div>
       </div>
+
       <p class="mt-3 text-[10px] text-slate-500 italic text-center">Physical Node ID: {{ hoveredReplica.id }}</p>
     </div>
 
@@ -182,6 +194,15 @@ function getSiteIconStyled(type, colorHex) {
   return svg.replace('stroke="currentColor"', `stroke="${colorHex}"`);
 }
 
+function formatLastSeen(lastSeen) {
+  if (!lastSeen) return "—";
+  const ts = new Date(lastSeen).getTime();
+  if (Number.isNaN(ts)) return "—";
+  const delta = Math.max(0, (Date.now() - ts) / 1000);
+  if (delta < 1) return "just now";
+  return `${delta.toFixed(1)}s ago`;
+}
+
 function deterministicReplicaCoords(center, idx, total) {
   if (total <= 1) return center;
   const angle = (idx / total) * 2 * Math.PI;
@@ -208,11 +229,9 @@ function updateMapLayers() {
   layers.clear();
 
   const replicasByRegion = {};
-  Object.entries(props.heartbeats || {}).forEach(([replicaId, hb]) => {
-    if (!hb?.name) return;
-    if (!replicasByRegion[hb.name]) replicasByRegion[hb.name] = [];
-    replicasByRegion[hb.name].push({ id: replicaId, ...hb });
-  });
+  for (const region of props.regions) {
+    replicasByRegion[region.name] = region.replicas ?? [];
+  }
 
   props.regions.forEach((region) => {
     const coords = getRegionCoords(region.name);
@@ -239,6 +258,33 @@ function updateMapLayers() {
     });
 
     const replicas = replicasByRegion[region.name] || [];
+    const leaderReplica = replicas.find((r) => r.is_leader);
+
+    if (leaderReplica) {
+      const leaderCenterMarker = L.circleMarker(coords, {
+        radius: region.isCapital ? 9 : 7,
+        fillColor: "#f59e0b",
+        color: "#fff",
+        weight: 3,
+        fillOpacity: 1,
+        className: "leader-glow",
+      }).addTo(group);
+
+      leaderCenterMarker.on("mouseover", (e) => {
+        L.DomEvent.stopPropagation(e);
+        hoveredReplica.value = {
+          ...leaderReplica,
+          regionName: region.name,
+          isCapital: region.isCapital,
+          centerMarker: true,
+        };
+      });
+
+      leaderCenterMarker.on("mouseout", () => {
+        hoveredReplica.value = null;
+      });
+    }
+
     replicas.forEach((rep, idx) => {
       const explicit = getReplicaCoords(region.name, rep.id, null);
       const repCoords =
@@ -258,7 +304,11 @@ function updateMapLayers() {
 
       replicaMarker.on("mouseover", (e) => {
         L.DomEvent.stopPropagation(e);
-        hoveredReplica.value = { ...rep, regionName: region.name, isCapital };
+        hoveredReplica.value = {
+          ...rep,
+          regionName: region.name,
+          isCapital,
+        };
       });
 
       replicaMarker.on("mouseout", () => {
@@ -313,10 +363,7 @@ function updateMapLayers() {
 async function initMap() {
   await nextTick();
 
-  if (!mapEl.value) {
-    console.warn("[MapView] map element not ready yet");
-    return;
-  }
+  if (!mapEl.value) return;
 
   if (map) {
     map.invalidateSize();
@@ -327,7 +374,7 @@ async function initMap() {
   map = L.map(mapEl.value, {
     zoomControl: false,
     attributionControl: false,
-  }).setView([51.2, -114.0], 9);
+  }).setView([51.5, -114.0], 8);
 
   L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
     maxZoom: 19,

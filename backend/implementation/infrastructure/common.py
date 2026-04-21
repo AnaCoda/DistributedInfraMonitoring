@@ -2,6 +2,7 @@ from typing import List
 from threading import Lock
 from random import randint
 import logging
+import time
 
 from colorama import Fore
 
@@ -22,6 +23,7 @@ class InfrastructureNode(RawNode):
 
         self.regions = regions
         self.resource_value = 0
+        self._logical_name = entry.name
 
         self.__region_notify_lock = Lock()
         self.__state_lock = Lock()
@@ -32,7 +34,6 @@ class InfrastructureNode(RawNode):
         )
 
         self.__notified_region = False
-
         self.ready_to_handle()
 
     def get_resource_type(self):
@@ -46,6 +47,22 @@ class InfrastructureNode(RawNode):
 
     def generate_value(self):
         return randint(0, 100)
+
+    @node_handler(name="query.node_status")
+    def handle_query_node_status(self, body: dict):
+        now = time.time()
+        with self.__state_lock:
+            state = self.__state.model_dump(mode="json")
+        return {
+            "id": self.get_network_name(),
+            "kind": "infra",
+            "logical_name": self._logical_name,
+            "infra_type": self.get_resource_type(),
+            "status": "up",
+            "resource_value": state["value"],
+            "last_seen_unix": now,
+            "last_seen": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+        }
 
     def __send_update_target(self, target: str):
         print(

@@ -1,6 +1,5 @@
 <template>
-  <div class="max-w-[1100px] mx-auto px-5 py-5">
-    <!-- Header -->
+  <div class="max-w-[1200px] mx-auto px-5 py-5">
     <div class="flex gap-3 items-center mb-4 flex-wrap">
       <h1 class="text-xl font-bold mr-auto">Infrastructure Monitor</h1>
 
@@ -15,10 +14,9 @@
       <span v-if="error" class="text-red-600 text-sm">{{ error }}</span>
       <span v-else class="text-gray-400 text-sm">Updated {{ lastFetchText }}</span>
       <span v-if="endpointLabel" class="text-gray-400 text-xs">via {{ endpointLabel }}</span>
-      <span v-if="capital" class="text-gray-400 text-xs">capital {{ capital }}</span>
-      <span v-if="leader" class="text-gray-400 text-xs">leader {{ leader }}</span>
+      <span v-if="capitalNamespace" class="text-gray-400 text-xs">capital {{ capitalNamespace }}</span>
+      <span v-if="capitalLeaderReplica" class="text-gray-400 text-xs">leader {{ capitalLeaderReplica }}</span>
 
-      <!-- WS status badge -->
       <span
         class="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border font-medium"
         :class="wsStatus === 'connected'
@@ -55,22 +53,57 @@
         </button>
       </div>
     </div>
+    <div v-if="capitalReplicas.length" class="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+      <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
+        Capital Replica Set
+      </div>
 
-    <div class="pb-6 flex flex-row gap-3 flex-wrap">
+      <div class="flex flex-wrap gap-2 items-center">
+        <div
+          v-for="rep in capitalReplicas"
+          :key="rep.id"
+          class="flex items-center gap-2 rounded-full border px-3 py-1 text-xs"
+          :class="rep.is_leader
+            ? 'border-amber-400 bg-amber-50 text-amber-700'
+            : rep.status === 'up'
+              ? 'border-slate-300 bg-white text-slate-700'
+              : 'border-red-300 bg-red-50 text-red-600'"
+        >
+          <span
+            class="inline-block w-2.5 h-2.5 rounded-full"
+            :class="rep.is_leader
+              ? 'bg-amber-500'
+              : rep.status === 'up'
+                ? 'bg-green-500'
+                : 'bg-red-500'"
+          ></span>
+
+          <span class="font-mono">{{ rep.id }}</span>
+          <span v-if="rep.is_leader" class="font-semibold">(leader)</span>
+          <span class="text-[10px] opacity-70">v{{ rep.version ?? "—" }}</span>
+        </div>
+      </div>
+    </div>
+    <div class="pb-4 flex flex-row gap-3 flex-wrap">
       <div
-        class="p-1 pl-2 border-gray-500 border rounded-full flex justify-center items-center gap-2 flex-row"
-        v-for="value in connectedEndpoints"
-        :key="value"
+        class="p-1 pl-2 border rounded-full flex justify-center items-center gap-2 flex-row"
+        v-for="node in connectedNodes"
+        :key="node.id"
+        :class="node.status === 'up' ? 'border-green-400' : 'border-red-400 opacity-70'"
       >
-        <div class="w-4 h-4 border bg-green-400 rounded-full"></div>
-        <div>{{ value }}</div>
+        <div
+          class="w-4 h-4 border rounded-full"
+          :class="node.status === 'up' ? 'bg-green-400' : 'bg-red-400'"
+        ></div>
+        <div class="text-xs">
+          <span class="font-medium">{{ node.id }}</span>
+          <span v-if="node.is_leader" class="ml-1 text-amber-600 font-semibold">(leader)</span>
+        </div>
       </div>
     </div>
 
-    <!-- Loading -->
     <div v-if="loading && regions.length === 0" class="text-sm text-gray-400">Loading…</div>
 
-    <!-- Empty state -->
     <div
       v-else-if="regions.length === 0"
       class="p-4 border border-dashed border-gray-300 rounded-lg text-sm text-gray-600"
@@ -79,7 +112,6 @@
     </div>
 
     <div v-else>
-      <!-- National summary -->
       <div class="mb-5 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
         <div class="summary-card">
           <div class="summary-label">Regions</div>
@@ -89,9 +121,9 @@
           <div class="summary-label">Power Stable</div>
           <div
             class="summary-value"
-            :class="nationalPower === regions.length ? 'text-green-700' : 'text-yellow-600'"
+            :class="nationalPower === operationalRegions.length ? 'text-green-700' : 'text-yellow-600'"
           >
-            {{ nationalPower }}/{{ regions.length }}
+            {{ nationalPower }}/{{ operationalRegions.length }}
           </div>
         </div>
         <div class="summary-card">
@@ -122,53 +154,42 @@
           </div>
         </div>
         <div class="summary-card">
-          <div class="summary-label">Stale Nodes</div>
-          <div class="summary-value" :class="staleCount === 0 ? 'text-gray-400' : 'text-red-600'">
-            {{ staleCount }}
+          <div class="summary-label">Stale Replicas</div>
+          <div class="summary-value" :class="staleReplicaCount === 0 ? 'text-gray-400' : 'text-red-600'">
+            {{ staleReplicaCount }}
           </div>
         </div>
       </div>
 
-      <!-- Region visualization -->
       <div v-if="viewMode === 'grid'">
-        <!-- Region cards -->
         <div
           class="grid gap-4 items-start"
-          style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));"
+          style="grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));"
         >
           <div
             v-for="r in regions"
             :key="r.name"
             class="border rounded-xl p-4 shadow-sm bg-white transition-colors"
-            :class="r.isCapital
-              ? 'border-slate-400 bg-slate-50 shadow-md'
-              : r.isStale
-                ? 'border-red-300 opacity-70'
-                : 'border-gray-200'"
+            :class="r.isCapital ? 'border-slate-400 bg-slate-50 shadow-md' : 'border-gray-200'"
           >
-            <!-- Card header -->
             <div class="flex items-start justify-between gap-3 mb-3">
               <div>
                 <h2 class="text-base font-semibold leading-tight">{{ r.name }}</h2>
                 <div class="flex items-center gap-2 mt-1 flex-wrap">
                   <span
                     class="text-[11px] px-1.5 py-0.5 rounded border font-medium uppercase tracking-wide"
-                    :class="r.regionType === 'urban'
-                      ? 'border-purple-300 text-purple-700 bg-purple-50'
-                      : r.regionType === 'standard'
-                        ? 'border-blue-300 text-blue-700 bg-blue-50'
-                        : r.isCapital
-                          ? 'border-slate-700 text-white bg-slate-700'
-                          : 'border-gray-300 text-gray-500'"
+                    :class="r.isCapital
+                      ? 'border-slate-700 text-white bg-slate-700'
+                      : 'border-blue-300 text-blue-700 bg-blue-50'"
                   >
-                    {{ r.isCapital ? "capital" : (r.regionType || "unknown") }}
+                    {{ r.isCapital ? "capital" : "region" }}
                   </span>
 
                   <span
-                    v-if="r.name === leader"
+                    v-if="r.leaderReplica"
                     class="text-[11px] px-1.5 py-0.5 rounded border border-green-300 text-green-700 bg-green-50 font-medium uppercase tracking-wide"
                   >
-                    leader
+                    leader {{ r.leaderReplica }}
                   </span>
 
                   <span v-if="r.sites" class="text-[11px] text-gray-400">{{ r.sites.length }} sites</span>
@@ -176,19 +197,12 @@
               </div>
 
               <div class="shrink-0 text-right text-xs">
-                <span
-                  v-if="r.isStale"
-                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-red-400 text-red-600 bg-red-50 font-semibold uppercase"
-                >
-                  ⚠ Stale
-                </span>
-                <span v-else class="text-gray-400">{{ r.lastSeenText }}</span>
+                <span v-if="r.lastSeenText" class="text-gray-400">{{ r.lastSeenText }}</span>
               </div>
             </div>
 
             <hr class="border-gray-100 mb-3" />
 
-            <!-- Status rows -->
             <div class="space-y-2">
               <div class="flex items-center text-sm">
                 <span class="label-col">Power</span>
@@ -212,7 +226,41 @@
               </div>
             </div>
 
-            <!-- Sites toggle -->
+            <div class="mt-4 rounded-lg border border-gray-200 overflow-hidden">
+              <div class="px-3 py-2 bg-gray-50 text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                Replicas
+              </div>
+              <table class="w-full text-xs">
+                <thead class="bg-white text-gray-400 uppercase tracking-wide">
+                  <tr>
+                    <th class="th-cell">Replica</th>
+                    <th class="th-cell">Status</th>
+                    <th class="th-cell">Version</th>
+                    <th class="th-cell">Seen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="rep in r.replicas"
+                    :key="rep.id"
+                    class="border-t border-gray-100"
+                  >
+                    <td class="td-cell font-mono">
+                      {{ rep.id }}
+                      <span v-if="rep.is_leader" class="ml-1 text-amber-600 font-semibold">(L)</span>
+                    </td>
+                    <td class="td-cell">
+                      <span :class="rep.status === 'up' ? 'text-green-700' : 'text-red-600'">
+                        {{ rep.status }}
+                      </span>
+                    </td>
+                    <td class="td-cell">{{ rep.version ?? "—" }}</td>
+                    <td class="td-cell">{{ formatLastSeen(rep.last_seen) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
             <div v-if="r.sites && r.sites.length" class="mt-3">
               <button
                 @click="toggleSites(r.name)"
@@ -257,8 +305,9 @@
           </div>
         </div>
       </div>
+
       <div v-else>
-        <MapView :regions="regions" :heartbeats="heartbeats" />
+        <MapView :regions="regions" :heartbeats="replicaHeartbeatMap" />
       </div>
     </div>
   </div>
@@ -271,16 +320,13 @@ import ProgressBar from "./components/ProgressBar.vue";
 import SiteValue from "./components/SiteValue.vue";
 import MapView from "./components/MapView.vue";
 
-// ---- State ----
+const capitalState = ref(null);
+const clusterState = ref(null);
 
-const data = ref({});
-const heartbeats = ref({});
 const loading = ref(true);
 const error = ref("");
 const lastFetch = ref(null);
 const connectedEndpoint = ref("");
-const leader = ref("");
-const capital = ref("");
 const connectedEndpoints = ref([]);
 const activeSocket = ref(null);
 
@@ -290,113 +336,17 @@ const expanded = reactive({});
 const wsStatus = ref("disconnected");
 const viewMode = ref("grid");
 
-function isValidWsUrl(url) {
-  try {
-    const u = new URL(url);
-    return (u.protocol === "ws:" || u.protocol === "wss:") && Boolean(u.hostname);
-  } catch {
-    return false;
-  }
-}
-
-/** Default: live capital replicas (TLS). Override with VITE_WS_ENDPOINTS. */
 const wsCandidates = [
   "wss://rm-1.fly.dev",
   "wss://rm-2.fly.dev",
-  // "wss://carstairs-1.fly.dev",
-  // "wss://carstairs-2.fly.dev",
-  // "wss://hospital-1.fly.dev",
-  // "wss://hospital-2.fly.dev",
 ];
 
-console.log("[InfraMonitor WS] candidates", wsCandidates);
-/** Deployed capitals use `query.capital`. Override with VITE_WS_REFRESH_ROUTE if needed. */
-const refreshRoute = (import.meta.env.VITE_WS_REFRESH_ROUTE || "query.capital").trim();
+const WS_LOG = "[InfraMonitor WS]";
+const WS_OPEN_TIMEOUT_MS = 8000;
 
 function toggleSites(name) {
   expanded[name] = !expanded[name];
 }
-
-function parseRegionType(raw) {
-  if (!raw) return null;
-  return raw.toLowerCase().replace(/regionnode$|node$/, "").trim() || null;
-}
-
-function normalizeRegion(name, raw, hb) {
-  const isNew = raw && typeof raw === "object" && ("state" in raw || "meta" in raw);
-  const state = isNew ? (raw.state ?? {}) : (raw ?? {});
-  const meta = isNew ? (raw.meta ?? {}) : {};
-  const regionType = parseRegionType(meta.region_type || meta.regionType || null);
-  const sites = Array.isArray(meta.sites) ? meta.sites : null;
-
-  const hbEntry = hb?.[name];
-  const lastContact = hbEntry?.last_contact ? new Date(hbEntry.last_contact).getTime() / 1000 : null;
-  const ts = lastContact;
-
-  const now = Date.now() / 1000;
-  const age = ts ? (now - ts) : null;
-  const isStale = age !== null ? age > 5 : false;
-
-  const lastSeenText =
-    age === null ? "no heartbeat" :
-      age < 1 ? "just now" :
-        `${age.toFixed(1)}s ago`;
-
-  const isCapital = capital.value === name;
-
-  return { name, state, regionType, sites, ts, isStale, lastSeenText, isCapital };
-}
-
-const regions = computed(() => {
-  const obj = data.value || {};
-  const hb = heartbeats.value || {};
-  return Object.entries(obj)
-    .map(([name, raw]) => normalizeRegion(name, raw, hb))
-    .sort((a, b) => {
-      if (a.isCapital) return -1;
-      if (b.isCapital) return 1;
-      return a.name.localeCompare(b.name);
-    });
-});
-
-const nationalPower = computed(() =>
-  regions.value.filter(r => {
-    const v = (r.state.power ?? "").toLowerCase();
-    return v === "stable";
-  }).length
-);
-
-const nationalMedical = computed(() => {
-  const vals = regions.value.map(r => Number(r.state.medical_capacity)).filter(v => !Number.isNaN(v));
-  if (!vals.length) return 0;
-  return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
-});
-
-const nationalWater = computed(() => {
-  const vals = regions.value.map(r => Number(r.state.water_capacity)).filter(v => !Number.isNaN(v));
-  if (!vals.length) return 0;
-  return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
-});
-
-const nationalFuel = computed(() => {
-  const vals = regions.value.map(r => Number(r.state.fuel_storage)).filter(v => !Number.isNaN(v));
-  if (!vals.length) return 0;
-  return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
-});
-
-const staleCount = computed(() => regions.value.filter(r => r.isStale).length);
-
-const lastFetchText = computed(() => {
-  if (!lastFetch.value) return "never";
-  return new Date(lastFetch.value).toLocaleTimeString();
-});
-
-const endpointLabel = computed(() => {
-  if (!connectedEndpoint.value) return "";
-  return connectedEndpoint.value.replace(/^wss?:\/\//, "");
-});
-
-// ---- State update handler ----
 
 function typeMatches(resourceType, needles) {
   const t = (resourceType ?? "").toLowerCase();
@@ -420,122 +370,46 @@ function maxNumericByNeedles(sites, typeNeedles) {
   return best;
 }
 
-/**
- * Maps live `query.capital` body (regions → infrastructure → sites) into the dashboard shape.
- */
-function applyCapitalQuery(body) {
-  const regions = body?.regions;
-  if (!regions || typeof regions !== "object") return;
+function scheduleReconnect(ms) {
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(connectWs, ms);
+}
 
-  const capitalName = body.name ?? "";
-  const nextState = {};
-  const nextHb = {};
+function waitUntilOpen(ws, ms) {
+  return new Promise((resolve, reject) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`open timed out after ${ms}ms`));
+    }, ms);
 
-  for (const [regionKey, regRaw] of Object.entries(regions)) {
-    const rname = regRaw?.name ?? regionKey;
-    const infra = regRaw?.infrastructure ?? {};
-    const sites = [];
+    const onOpen = () => {
+      cleanup();
+      resolve();
+    };
+    const onClose = ev => {
+      cleanup();
+      reject(new Error(`closed before open (code ${ev.code}${ev.reason ? ` ${ev.reason}` : ""})`));
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error("connection error (network/TLS/port)"));
+    };
 
-    for (const [siteKey, siteRaw] of Object.entries(infra)) {
-      const n = siteRaw?.name ?? siteKey;
-      const rt = siteRaw?.resource_type ?? "Unknown";
-      const rv = siteRaw?.value ?? siteRaw?.resource_value ?? null;
-      sites.push({ name: n, resource_type: rt, resource_value: rv });
+    function cleanup() {
+      clearTimeout(timer);
+      ws.removeEventListener("open", onOpen);
+      ws.removeEventListener("close", onClose);
+      ws.removeEventListener("error", onError);
     }
 
-    const medical = maxNumericByNeedles(sites, ["hospital"]);
-    const water = maxNumericByNeedles(sites, ["water"]);
-    const fuel = maxNumericByNeedles(sites, ["fuel", "depot"]);
-
-    nextState[rname] = {
-      state: {
-        power: inferStringMetric(sites, ["powerplant", "power"]),
-        transport: inferStringMetric(sites, ["railroad", "rail", "transport"]),
-        medical_capacity: medical ?? 0,
-        water_capacity: water ?? 0,
-        fuel_storage: fuel ?? 0,
-      },
-      meta: {
-        region_type: "StandardRegionNode",
-        sites,
-      },
-    };
-
-    // Key by region name so normalizeRegion() finds hb[name].
-    nextHb[rname] = {
-      name: rname,
-      last_contact: new Date().toISOString(),
-      is_leader: true,
-    };
-  }
-
-  data.value = nextState;
-  heartbeats.value = nextHb;
-  leader.value = capitalName;
-  capital.value = capitalName;
-  lastFetch.value = Date.now();
-  loading.value = false;
-  error.value = "";
-}
-
-function applyStateUpdate(body) {
-  const root = body.__state ?? body ?? {};
-  data.value = root.state ?? body.state ?? {};
-  heartbeats.value = root.heartbeat ?? body.heartbeats ?? {};
-  leader.value = body.leader ?? "";
-  capital.value = body.capital ?? body.leader ?? "";
-  lastFetch.value = Date.now();
-  loading.value = false;
-  error.value = "";
-}
-
-const WS_LOG = "[InfraMonitor WS]";
-
-/** Shapes `query.capital` bodies for console (full sites per region, not only region names). */
-function summarizeCapitalResponseBody(body) {
-  const regions = body?.regions;
-  if (!regions || typeof regions !== "object" || Array.isArray(regions)) return body;
-  const out = {};
-  for (const [regionKey, reg] of Object.entries(regions)) {
-    const infra = reg?.infrastructure ?? {};
-    out[regionKey] = {
-      name: reg?.name ?? regionKey,
-      sites: Object.entries(infra).map(([siteKey, site]) => ({
-        name: site?.name ?? siteKey,
-        resource_type: site?.resource_type,
-        value: site?.value ?? site?.resource_value,
-      })),
-    };
-  }
-  return { name: body.name, regions: out };
-}
-
-function handleWsMessage(raw) {
-  let msg;
-  try {
-    msg = JSON.parse(raw);
-  } catch {
-    console.warn(WS_LOG, "non-JSON message", raw?.slice?.(0, 200) ?? raw);
-    return;
-  }
-  const body = msg.body;
-  const preview =
-    body && typeof body === "object" && body.regions && typeof body.regions === "object" && !Array.isArray(body.regions)
-      ? summarizeCapitalResponseBody(body)
-      : body;
-  console.info(WS_LOG, "←", msg.route, msg.rid ? `(rid ${String(msg.rid).slice(0, 8)}…)` : "", preview);
-  if (msg.route === "push.state_update" || msg.route === "push.replica_state_update") {
-    applyStateUpdate(msg.body ?? {});
-    return;
-  }
-  if (msg.route === "__response") {
-    const b = msg.body ?? {};
-    if (b.regions && typeof b.regions === "object" && !Array.isArray(b.regions)) {
-      applyCapitalQuery(b);
-    } else {
-      applyStateUpdate(b);
-    }
-  }
+    ws.addEventListener("open", onOpen, { once: true });
+    ws.addEventListener("close", onClose, { once: true });
+    ws.addEventListener("error", onError, { once: true });
+  });
 }
 
 function packRpc(route, body = {}) {
@@ -547,86 +421,15 @@ function packRpc(route, body = {}) {
   };
 }
 
-const WS_OPEN_TIMEOUT_MS = 8000;
-
-/** If "1"/"true", each candidate is tried again as wss://same-host-and-path (TLS). */
-const tryWssAlternate =
-  import.meta.env.VITE_WS_TRY_WSS === "1" || import.meta.env.VITE_WS_TRY_WSS === "true";
-
-const lastConnectDiag = ref("");
-
-function scheduleReconnect(ms) {
-  if (reconnectTimer) clearTimeout(reconnectTimer);
-  reconnectTimer = setTimeout(connectWs, ms);
-}
-
-function alternateTlsUrl(endpoint) {
-  try {
-    const u = new URL(endpoint);
-    const host = u.host;
-    const path = `${u.pathname}${u.search}`;
-    return u.protocol === "ws:" ? `wss://${host}${path}` : `ws://${host}${path}`;
-  } catch {
-    return null;
-  }
-}
-
-function endpointsToTry(primary) {
-  const list = [primary];
-  if (tryWssAlternate) {
-    const alt = alternateTlsUrl(primary);
-    if (alt && alt !== primary) list.push(alt);
-  }
-  return list;
-}
-
-/**
- * Wait until open, or fail with close code / timeout (browser "error" gives no details).
- */
-function waitUntilOpen(ws, ms) {
-  return new Promise((resolve, reject) => {
-    if (ws.readyState === WebSocket.OPEN) {
-      resolve();
-      return;
-    }
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error(`open timed out after ${ms}ms`));
-    }, ms);
-    const onOpen = () => {
-      cleanup();
-      resolve();
-    };
-    const onClose = ev => {
-      cleanup();
-      const detail = `closed before open (code ${ev.code}${ev.reason ? ` ${ev.reason}` : ""})`;
-      reject(new Error(detail));
-    };
-    const onError = () => {
-      cleanup();
-      reject(new Error("connection error (network/TLS/port)"));
-    };
-    function cleanup() {
-      clearTimeout(timer);
-      ws.removeEventListener("open", onOpen);
-      ws.removeEventListener("close", onClose);
-      ws.removeEventListener("error", onError);
-    }
-    ws.addEventListener("open", onOpen, { once: true });
-    ws.addEventListener("close", onClose, { once: true });
-    ws.addEventListener("error", onError, { once: true });
-  });
-}
-
 async function tryOpenCapitalSocket(endpoint) {
   let ws = null;
   try {
     console.info(WS_LOG, "connecting", endpoint);
     ws = new WebSocket(endpoint);
     await waitUntilOpen(ws, WS_OPEN_TIMEOUT_MS);
-    console.info(WS_LOG, "socket open", { url: ws.url, readyState: ws.readyState });
 
     ws.send(JSON.stringify({ name: `Frontend-${crypto.randomUUID()}` }));
+
     const handshake = await new Promise((resolve, reject) => {
       const t = setTimeout(() => reject(new Error("Handshake timed out")), WS_OPEN_TIMEOUT_MS);
       ws.addEventListener(
@@ -638,21 +441,15 @@ async function tryOpenCapitalSocket(endpoint) {
         { once: true }
       );
     });
-    console.info(WS_LOG, "handshake", handshake);
 
     if (handshake.status !== "success") {
-      console.warn(WS_LOG, "handshake rejected", handshake);
       ws.close();
       return null;
     }
 
     ws.addEventListener("message", event => handleWsMessage(event.data));
-
     ws.addEventListener("close", ev => {
       console.info(WS_LOG, "close", { code: ev.code, reason: ev.reason || "(none)", wasClean: ev.wasClean });
-      if (import.meta.env.DEV) {
-        delete window.__infraMonitorWS;
-      }
       if (activeSocket.value === ws) {
         activeSocket.value = null;
         connectedEndpoint.value = "";
@@ -664,26 +461,15 @@ async function tryOpenCapitalSocket(endpoint) {
 
     activeSocket.value = ws;
     connectedEndpoint.value = endpoint;
-    connectedEndpoints.value = [endpoint.replace(/^wss?:\/\//, "")];
     wsStatus.value = "connected";
     error.value = "";
 
-    if (import.meta.env.DEV) {
-      window.__infraMonitorWS = ws;
-      console.info(WS_LOG, "live socket on window.__infraMonitorWS (dev only)", ws);
-    }
-
-    refreshNow(ws);
+    refreshNowAll();
     return ws;
   } catch (e) {
     console.warn(WS_LOG, "connect failed", endpoint, e?.message || e);
-    lastConnectDiag.value = `${endpoint}: ${e?.message || e}`;
     if (ws) {
-      try {
-        ws.close();
-      } catch {
-        // ignore
-      }
+      try { ws.close(); } catch {}
     }
     return null;
   }
@@ -700,7 +486,7 @@ async function connectWs() {
   }
 
   if (!wsCandidates.length) {
-    error.value = "No WebSocket endpoints configured (check VITE_WS_ENDPOINTS).";
+    error.value = "No WebSocket endpoints configured.";
     wsStatus.value = "disconnected";
     loading.value = false;
     scheduleReconnect(5000);
@@ -710,44 +496,410 @@ async function connectWs() {
   wsStatus.value = "connecting";
 
   for (const endpoint of wsCandidates) {
-    for (const ep of endpointsToTry(endpoint)) {
-      const ws = await tryOpenCapitalSocket(ep);
-      if (ws) return;
-    }
+    const ws = await tryOpenCapitalSocket(endpoint);
+    if (ws) return;
   }
 
-  error.value = `WebSocket: no capital reachable.${lastConnectDiag.value ? ` Last error: ${lastConnectDiag.value}` : ""}`;
+  error.value = "WebSocket: no capital reachable.";
   wsStatus.value = "disconnected";
   loading.value = false;
   scheduleReconnect(3000);
 }
 
-function refreshNow(ws) {
+function applyCapitalQuery(body) {
+  capitalState.value = body;
+}
+
+function applyClusterQuery(body) {
+  clusterState.value = body;
+
+  const connected = [];
+  Object.values(body.capitals ?? {}).flat().forEach(x => connected.push(x));
+  Object.values(body.regions ?? {}).flat().forEach(x => connected.push(x));
+  (body.infrastructure ?? []).forEach(x => connected.push(x));
+
+  connectedEndpoints.value = connected;
+}
+
+function handleWsMessage(raw) {
+  let msg;
+  try {
+    msg = JSON.parse(raw);
+  } catch {
+    return;
+  }
+
+  if (msg.route !== "__response") return;
+
+  const body = msg.body ?? {};
+
+  if (body.capitals || body.infrastructure || body.capital_leader_replica) {
+    applyClusterQuery(body);
+  } else if (body.regions && body.name) {
+    applyCapitalQuery(body);
+  } else if (body.status === "fail") {
+    console.warn("[InfraMonitor WS] request failed", body);
+    if (!capitalState.value && !clusterState.value) {
+      error.value = body.reason || "Request failed";
+    }
+  }
+
+  lastFetch.value = Date.now();
+  loading.value = false;
+}
+
+function refreshNow(ws, route) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  const payload = packRpc(refreshRoute, {});
-  console.info(WS_LOG, "→", payload.route, `(rid ${String(payload.rid).slice(0, 8)}…)`);
+  const payload = packRpc(route, {});
+  console.info(WS_LOG, "→", payload.route);
   ws.send(JSON.stringify(payload));
 }
 
-function refreshNowAll() {
-  refreshNow(activeSocket.value);
+async function queryRouteFromEndpoint(endpoint, route, body = {}) {
+  let ws = null;
+
+  try {
+    ws = new WebSocket(endpoint);
+    await waitUntilOpen(ws, WS_OPEN_TIMEOUT_MS);
+
+    ws.send(JSON.stringify({ name: `Frontend-Probe-${crypto.randomUUID()}` }));
+
+    const handshake = await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error("Handshake timed out")), WS_OPEN_TIMEOUT_MS);
+      ws.addEventListener(
+        "message",
+        e => {
+          clearTimeout(t);
+          resolve(JSON.parse(e.data));
+        },
+        { once: true }
+      );
+    });
+
+    if (handshake.status !== "success") {
+      throw new Error(`Handshake rejected by ${endpoint}`);
+    }
+
+    const payload = packRpc(route, body);
+    ws.send(JSON.stringify(payload));
+
+    const response = await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error(`${route} timed out`)), WS_OPEN_TIMEOUT_MS);
+      ws.addEventListener(
+        "message",
+        e => {
+          clearTimeout(t);
+          resolve(JSON.parse(e.data));
+        },
+        { once: true }
+      );
+    });
+
+    const out = response?.body ?? {};
+    if (out?.status === "fail") {
+      throw new Error(out.reason || `${route} failed`);
+    }
+
+    return out;
+  } finally {
+    if (ws) {
+      try { ws.close(); } catch {}
+    }
+  }
 }
 
+async function discoverCapitalLeaderEndpoint() {
+  const electionResults = [];
+
+  for (const endpoint of wsCandidates) {
+    try {
+      const body = await queryRouteFromEndpoint(endpoint, "election.state", {});
+      electionResults.push({ endpoint, body });
+    } catch (e) {
+      console.warn("[InfraMonitor WS] election.state failed on", endpoint, e?.message || e);
+    }
+  }
+
+  const leaderEntry = electionResults.find(x => x.body?.is_leader === true);
+  if (leaderEntry) return leaderEntry.endpoint;
+
+  const explicitLeaderName = electionResults
+    .map(x => x.body?.leader)
+    .find(Boolean);
+
+  if (explicitLeaderName) {
+    const guessed = wsCandidates.find(ep => ep.includes(explicitLeaderName));
+    if (guessed) return guessed;
+  }
+
+  return connectedEndpoint.value || wsCandidates[0] || null;
+}
+
+async function queryClusterFromEndpoint(endpoint) {
+  let ws = null;
+
+  try {
+    ws = new WebSocket(endpoint);
+    await waitUntilOpen(ws, WS_OPEN_TIMEOUT_MS);
+
+    ws.send(JSON.stringify({ name: `Frontend-ClusterRetry-${crypto.randomUUID()}` }));
+
+    const handshake = await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error("Handshake timed out")), WS_OPEN_TIMEOUT_MS);
+      ws.addEventListener(
+        "message",
+        e => {
+          clearTimeout(t);
+          resolve(JSON.parse(e.data));
+        },
+        { once: true }
+      );
+    });
+
+    if (handshake.status !== "success") {
+      throw new Error(`Handshake rejected by ${endpoint}`);
+    }
+
+    const payload = packRpc("query.cluster", {});
+    ws.send(JSON.stringify(payload));
+
+    const response = await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error("query.cluster timed out")), WS_OPEN_TIMEOUT_MS);
+      ws.addEventListener(
+        "message",
+        e => {
+          clearTimeout(t);
+          resolve(JSON.parse(e.data));
+        },
+        { once: true }
+      );
+    });
+
+    const body = response?.body ?? {};
+    if (body.status === "fail") {
+      throw new Error(body.reason || "query.cluster failed");
+    }
+
+    if (!body.capitals && !body.regions && !body.infrastructure) {
+      throw new Error("query.cluster returned unexpected payload");
+    }
+
+    return body;
+  } finally {
+    if (ws) {
+      try { ws.close(); } catch {}
+    }
+  }
+}
+
+async function refreshClusterWithFallback() {
+  const leaderEndpoint = await discoverCapitalLeaderEndpoint();
+  const ordered = [
+    ...(leaderEndpoint ? [leaderEndpoint] : []),
+    ...wsCandidates.filter(x => x !== leaderEndpoint),
+  ];
+
+  for (const endpoint of ordered) {
+    try {
+      const body = await queryRouteFromEndpoint(endpoint, "query.cluster", {});
+      applyClusterQuery(body);
+      return true;
+    } catch (e) {
+      console.warn("[InfraMonitor WS] query.cluster failed on", endpoint, e?.message || e);
+    }
+  }
+
+  return false;
+}
+
+async function refreshNowAll() {
+  const ws = activeSocket.value;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+  loading.value = true;
+  error.value = "";
+
+  refreshNow(ws, "query.capital");
+
+  const ok = await refreshClusterWithFallback();
+
+  if (!ok && !capitalState.value) {
+    error.value = "Unable to load cluster topology from any capital replica.";
+  }
+
+  loading.value = false;
+}
+
+const capitalNamespace = computed(() => clusterState.value?.capital_namespace ?? capitalState.value?.name ?? "");
+const capitalLeaderReplica = computed(() => clusterState.value?.capital_leader_replica ?? "");
+
+const replicaGroups = computed(() => {
+  const groups = {};
+  const capitals = clusterState.value?.capitals ?? {};
+  const regionGroups = clusterState.value?.regions ?? {};
+
+  for (const [logicalName, reps] of Object.entries(capitals)) {
+    groups[logicalName] = reps;
+  }
+  for (const [logicalName, reps] of Object.entries(regionGroups)) {
+    groups[logicalName] = reps;
+  }
+
+  return groups;
+});
+
+const replicaHeartbeatMap = computed(() => {
+  const out = {};
+  for (const reps of Object.values(replicaGroups.value)) {
+    for (const rep of reps) {
+      out[rep.id] = {
+        name: rep.logical_name,
+        is_leader: !!rep.is_leader,
+        last_contact: rep.last_seen,
+        status: rep.status,
+        version: rep.version,
+      };
+    }
+  }
+  return out;
+});
+
+function formatLastSeen(lastSeen) {
+  if (!lastSeen) return "—";
+  const ts = new Date(lastSeen).getTime();
+  if (Number.isNaN(ts)) return "—";
+  const delta = Math.max(0, (Date.now() - ts) / 1000);
+  if (delta < 1) return "just now";
+  return `${delta.toFixed(1)}s ago`;
+}
+
+const regions = computed(() => {
+  const capitalBody = capitalState.value ?? {};
+  const capitalRegions = capitalBody.regions ?? {};
+  const clusterCaps = clusterState.value?.capitals ?? {};
+  const clusterRegs = clusterState.value?.regions ?? {};
+
+  const logicalNames = new Set([
+    ...Object.keys(clusterCaps),
+    ...Object.keys(clusterRegs),
+    ...Object.keys(capitalRegions),
+  ]);
+
+  return [...logicalNames].map((logicalName) => {
+    const regRaw = capitalRegions[logicalName] ?? null;
+    const infra = regRaw?.infrastructure ?? {};
+    const sites = [];
+
+    for (const [siteKey, siteRaw] of Object.entries(infra)) {
+      const n = siteRaw?.name ?? siteKey;
+      const rt = siteRaw?.resource_type ?? "Unknown";
+      const rv = siteRaw?.value ?? siteRaw?.resource_value ?? null;
+      sites.push({ name: n, resource_type: rt, resource_value: rv });
+    }
+
+    const medical = maxNumericByNeedles(sites, ["hospital"]);
+    const water = maxNumericByNeedles(sites, ["water"]);
+    const fuel = maxNumericByNeedles(sites, ["fuel", "depot"]);
+
+    const replicas = replicaGroups.value[logicalName] ?? [];
+    const leaderReplica = replicas.find(r => r.is_leader)?.id ?? null;
+
+    const newestSeenTs = replicas
+      .map(r => r.last_seen ? new Date(r.last_seen).getTime() : null)
+      .filter(v => v !== null);
+
+    const newestSeen = newestSeenTs.length
+      ? new Date(Math.max(...newestSeenTs)).toISOString()
+      : null;
+
+    return {
+      name: logicalName,
+      isCapital: logicalName === capitalNamespace.value,
+      leaderReplica,
+      replicas,
+      lastSeenText: formatLastSeen(newestSeen),
+      sites,
+      state: {
+        power: inferStringMetric(sites, ["powerplant", "power"]),
+        transport: inferStringMetric(sites, ["railroad", "rail", "transport"]),
+        medical_capacity: medical ?? 0,
+        water_capacity: water ?? 0,
+        fuel_storage: fuel ?? 0,
+      },
+    };
+  }).sort((a, b) => {
+    if (a.isCapital) return -1;
+    if (b.isCapital) return 1;
+    return a.name.localeCompare(b.name);
+  });
+});
+
+const capitalReplicas = computed(() => {
+  const caps = clusterState.value?.capitals ?? {};
+  const live = caps[capitalNamespace.value];
+  if (live?.length) return live;
+
+  if (capitalNamespace.value === "rm") {
+    return [
+      { id: "rm-1", status: connectedEndpoint.value.includes("rm-1") ? "up" : "unknown", is_leader: false, version: null },
+      { id: "rm-2", status: connectedEndpoint.value.includes("rm-2") ? "up" : "unknown", is_leader: false, version: null },
+    ];
+  }
+
+  return [];
+});
+
+const operationalRegions = computed(() =>
+  regions.value.filter(r => !r.isCapital)
+);
+
+const connectedNodes = computed(() => connectedEndpoints.value);
+
+const nationalPower = computed(() =>
+  operationalRegions.value.filter(r => (r.state.power ?? "").toLowerCase() === "stable").length
+);
+
+const nationalMedical = computed(() => {
+  const vals = operationalRegions.value.map(r => Number(r.state.medical_capacity)).filter(v => !Number.isNaN(v));
+  if (!vals.length) return 0;
+  return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+});
+
+const nationalWater = computed(() => {
+  const vals = operationalRegions.value.map(r => Number(r.state.water_capacity)).filter(v => !Number.isNaN(v));
+  if (!vals.length) return 0;
+  return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+});
+
+const nationalFuel = computed(() => {
+  const vals = operationalRegions.value.map(r => Number(r.state.fuel_storage)).filter(v => !Number.isNaN(v));
+  if (!vals.length) return 0;
+  return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+});
+
+const staleReplicaCount = computed(() =>
+  connectedNodes.value.filter(n => n.status !== "up").length
+);
+
+const lastFetchText = computed(() => {
+  if (!lastFetch.value) return "never";
+  return new Date(lastFetch.value).toLocaleTimeString();
+});
+
+const endpointLabel = computed(() => {
+  if (!connectedEndpoint.value) return "";
+  return connectedEndpoint.value.replace(/^wss?:\/\//, "");
+});
+
 onMounted(() => connectWs());
+
 onUnmounted(() => {
   if (reconnectTimer) clearTimeout(reconnectTimer);
   reconnectTimer = null;
   const ws = activeSocket.value;
   activeSocket.value = null;
-  if (import.meta.env.DEV) {
-    delete window.__infraMonitorWS;
-  }
   if (ws) {
-    try {
-      ws.close();
-    } catch {
-      // ignore
-    }
+    try { ws.close(); } catch {}
   }
 });
 </script>
