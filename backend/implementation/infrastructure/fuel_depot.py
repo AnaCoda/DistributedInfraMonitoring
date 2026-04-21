@@ -1,3 +1,5 @@
+from backend.common.components.util import NetworkEntry
+
 from .common import InfrastructureNode
 from random import randint
 

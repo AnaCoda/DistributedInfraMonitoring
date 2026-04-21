@@ -336,11 +336,15 @@
                           <SiteValue :value="s.resource_value" />
                         </td>
                         <td class="td-cell text-right">
-                          <div class="flex gap-1 justify-end">
-                            <button class="btn px-2 py-1 text-[10px]" @click="setInfraValue(s.name, 0)">0</button>
-                            <button class="btn px-2 py-1 text-[10px]" @click="setInfraValue(s.name, 25)">25</button>
-                            <button class="btn px-2 py-1 text-[10px]" @click="setInfraValue(s.name, 50)">50</button>
-                            <button class="btn px-2 py-1 text-[10px]" @click="setInfraValue(s.name, 100)">100</button>
+                          <div class="flex gap-1 justify-end flex-wrap">
+                            <button
+                              v-for="preset in getInfraPresets(s.resource_type)"
+                              :key="`${s.name}-${preset.value}`"
+                              class="btn px-2 py-1 text-[10px]"
+                              @click="setInfraValue(s.name, preset.value)"
+                            >
+                              {{ preset.label }}
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -382,7 +386,6 @@ const connectedEndpoints = ref([]);
 const activeSocket = ref(null);
 
 let reconnectTimer = null;
-
 let clusterPollTimer = null;
 let capitalPollTimer = null;
 
@@ -424,6 +427,33 @@ function maxNumericByNeedles(sites, typeNeedles) {
     if (!Number.isNaN(n)) best = best === null ? n : Math.max(best, n);
   }
   return best;
+}
+
+function getInfraPresets(resourceType) {
+  const t = (resourceType ?? "").toLowerCase();
+
+  if (t.includes("power")) {
+    return [
+      { label: "D", value: "down" },
+      { label: "UN", value: "unstable" },
+      { label: "ST", value: "stable" },
+    ];
+  }
+
+  if (t.includes("rail") || t.includes("transport")) {
+    return [
+      { label: "D", value: "down" },
+      { label: "DE", value: "degraded" },
+      { label: "OP", value: "operational" },
+    ];
+  }
+
+  return [
+    { label: "0", value: 0 },
+    { label: "25", value: 25 },
+    { label: "50", value: 50 },
+    { label: "100", value: 100 },
+  ];
 }
 
 function scheduleReconnect(ms) {

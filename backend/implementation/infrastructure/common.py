@@ -54,14 +54,15 @@ class InfrastructureNode(RawNode):
 
     @node_handler(name="control.infra.set_state")
     def handle_control_infra_set_state(self, body: dict):
-        value = body.get("value")
-        if value is None:
+        if "value" not in body:
             raise RuntimeError("control.infra.set_state requires 'value'")
 
-        try:
-            value = int(value)
-        except Exception as exc:
-            raise RuntimeError("value must be an integer") from exc
+        value = body["value"]
+
+        if isinstance(value, str):
+            value = value.strip()
+            if value == "":
+                raise RuntimeError("value must not be empty")
 
         self._forced_value = value
         with self.__state_lock:
