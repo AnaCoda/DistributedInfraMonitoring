@@ -96,7 +96,7 @@ class BullyPlugin(Plugin):
 
         LOGGER.info(f'Initialized bully plugin with self={node} and peers={peer_names}')
         # print(f'INitialized bully elec w/ {node}, peer_names = {peer_names}')
-        bully_peers  =[ BullyPeer(peer.name, int(peer.name.split('-')[1]), 1) for peer in peer_names ]
+        # bully_peers  =[ BullyPeer(peer.name, int(peer.name.split('-')[1]), 1) for peer in peer_names ]
         self.node = BullyElectionNode(
             node=node.name,
             peer_list=[ peer.name for peer in peer_names ],
@@ -206,7 +206,7 @@ class BullyPlugin(Plugin):
     @node_handler(name="handle.bully.msg")
     def handle_bully_msg(self, body: dict, sender: str):
         decoded = _deser_bully_packet(body)
-        print(f'DECODED: {decoded}')
+        # print(f'DECODED: {decoded}')
         self.__recv_poll(decoded)
         return {"status": "success"}
 
@@ -217,10 +217,10 @@ class BullyPlugin(Plugin):
 
     @node_handler(name='bully.report.leader')
     def bully_report_leader(self, _):
-        ids = self.node.get_leader_id()
+        ids = self.node.get_leader()
         if ids is not None:
-            ids = list(ids)
-        return { 'leader': ids }
+            ids = ids.model_dump(mode='json')
+        return { 'node': self.node.node_info.model_dump(mode='json'), 'leader': ids }
     
 
     # @node

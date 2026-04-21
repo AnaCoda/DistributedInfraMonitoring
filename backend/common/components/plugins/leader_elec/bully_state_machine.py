@@ -21,7 +21,7 @@ class BullyPeer(BaseModel):
     priority: int
 
     @property
-    def election_id(self) -> Tuple[int, str]:
+    def election_id(self) -> Tuple[int, int]:
         return (self.priority, self.unique_id)
 
 
@@ -78,7 +78,7 @@ class BullyElectionNode(BaseStateMachine):
         peer_list = [ self.node_map[peer] for peer in peer_list ]
 
         # The ID of this node.
-        self.node_info = node
+        self.node_info: BullyPeer = node
         self.node_id = node.election_id
         self.verbose = verbose
 
@@ -213,7 +213,7 @@ class BullyElectionNode(BaseStateMachine):
                 hook()
 
             higher_peers = self.__higher_peers()
-            self.__print(f'[{self.node_info.name}] Peer list: {self.peer_list}')
+            self.__print(f'[{self.node_info.name}] Peer list: {self.peer_list + [ self.node_info ]}')
 
             if len(higher_peers) == 0:
                 self.outbox += [
@@ -289,6 +289,17 @@ class BullyElectionNode(BaseStateMachine):
                         f'[{self.node_info.name}] Detected non-leader node crash: '
                         f'{node_info.name} ({(now - state.last_hb):.2f}, timeout_threshold={self.hb_timeout})'
                     )
+
+    def set_priority(self, name: str, priority: int):
+        LOGGER.info(f'Priority change (name={name}, priority={priority})')
+        if self.node_info.name == name:
+            self.node_info.priority = priority
+            self.node_id = self.node_info.election_id
+        else:
+            for peer in self.peer_list:
+                if peer.name == name:
+                    peer.priority = priority
+                    break
 
     def receive(self, packet: Optional[BullyPacket]):
         with self.bully_lock:

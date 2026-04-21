@@ -23,6 +23,7 @@ class RegionalNode(KeyInfraNode):
             ('infra.update', self.handle_infra_update)
         ], backend)
 
+        self.leader_election.node.set_priority('carstairs-1', 10)
         
         self.capitals = capital_addresses
 

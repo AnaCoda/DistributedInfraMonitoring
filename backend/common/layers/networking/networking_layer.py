@@ -612,9 +612,14 @@ class NetLayer(SimulationLayer):
                 else:
                     print(f'CHALLENGING')
                     self.__sock_send(connection, { 'status': 'challenge' })
+                    
+                    self.connection_map.deregister(name)
+                    connection.close()
+                    return True
 
-                    print(f'WAITING ON CHALLENGE RESPONSE')
-                    ch_re = self.__sock_recv(connection)
+
+                    # print(f'WAITING ON CHALLENGE RESPONSE')
+                    # ch_re = self.__sock_recv(connection)
 
                 # connection.close()
                 
