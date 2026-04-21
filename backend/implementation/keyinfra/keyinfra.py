@@ -103,7 +103,7 @@ class KeyInfraNode(RawNode):
             try:
                 o = self.send_message(peer.name, 'ping.re', {})
                 logging.info(f'[PING] [{self.get_network_name()} -> {peer.name}] Ping succeeded: {o} (local_leader={self.leader_election.current_leader()})')
-                logging.info(f'HEARTBEATS: {self.leader_election.node.heartbeat}')
+                # logging.info(f'HEARTBEATS: {self.leader_election.node.heartbeat}')
             except Exception as e:
                 pass
                 # print(

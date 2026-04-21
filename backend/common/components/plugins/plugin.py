@@ -6,6 +6,10 @@ class Plugin(NodeTemplate):
         super().__init__()
         self.host = host
 
+    def launch_background_thread(self, functor, function_args):
+        return self.host.launch_background_thread(functor, function_args)
+        # return super().launch_background_thread(functor, function_args)
+
     def _register_route(self, route, functor):
         self.host._register_route(route, functor)
         # return super()._register_route(route, functor)

@@ -1,11 +1,18 @@
 
-from typing import Optional, Callable
+from typing import Any, Optional, Callable
 from abc import ABC, abstractmethod
 
 from backend.common.components.util import NetworkAddress
 
 class NodeTemplate(ABC):
 
+    @abstractmethod
+    def launch_background_thread(
+        self,
+        functor: Callable[..., Any],
+        function_args: ...
+    ):
+        pass
 
     @abstractmethod
     def _try_connect(self, address: NetworkAddress):

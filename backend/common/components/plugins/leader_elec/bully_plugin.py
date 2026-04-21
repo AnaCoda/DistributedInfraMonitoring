@@ -1,14 +1,17 @@
 import logging
+from threading import Lock
 import time
 
 from colorama import Fore
+from pydantic import BaseModel
+from pydantic.types import T
 
 from backend.common.components.events.event import NodeEvent
 from backend.common.components.util import NetworkEntry
 
 from ..plugin import Plugin
 
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from .bully_state_machine import (
     BullyElectionHook,
@@ -46,7 +49,15 @@ def _deser_bully_packet(packet: dict) -> BullyPacket:
         type=packet['type']
     )
 
-LOGGER = logging.getLogger("BULLY_PLUGIN")
+LOGGER = logging.getLogger("plugin::bully")
+
+
+class ElectionState(BaseModel):
+    updating_states: bool
+    election_in_progress: bool
+    current_leader: Optional[BullyPeer]
+    received_ok: bool 
+
 
 class BullyPlugin(Plugin):
 
@@ -62,16 +73,28 @@ class BullyPlugin(Plugin):
         super().__init__(host)
         self.init_bully_election(node, peers, heartbeat_interval_ms, leader_timeout_ms, verbose)
 
+        # This prevents a race condition.
+        self.__on_connect_lock = Lock()
+        self.__start_election_lock = Lock()
+
+
     
     def is_leader(self):
-        return self.node.is_leader()
+        current = self.current_leader()
+        return current is not None and current == self.get_network_name()
+        # return self.node.is_leader()
     
     def current_leader(self) -> Optional[str]:
-        leader: Optional[BullyPeer] = self.node.get_leader()
-        if leader is None:
-            return None
-        else:
-            return leader.name
+        with self.bully_lock:
+            if self.bully_state.current_leader is None:
+                return None
+            else:
+                return self.bully_state.current_leader.name
+    
+
+    # def __current_leader_peer(
+        # self
+    # ) -> Optional[BullyPeer]:
         # return self.node.get_leader().name
     
 
@@ -85,203 +108,310 @@ class BullyPlugin(Plugin):
         leader_timeout_ms: int = 3000,
         verbose: bool = True
     ):
+        all_names: List[str] = list(set([ node.name ] + [ p.name for p in peer_names ]))
+        all_names.sort()
+        all_names: List[Tuple[int, str]] = list(enumerate(all_names))
+
+        self.node_map: Dict[str, BullyPeer] = {
+            name: BullyPeer(name=name, unique_id=id, priority=0) for id, name in all_names
+        }
+        self.peer_names =  [ p for p in self.node_map if p != self.get_network_name() ]
+
         self.peer_map = { entry.name: entry for entry in peer_names }
         self.peers = peer_names
 
-        node = BullyPeer(
-            name=node.name,
-            unique_id=int(node.name.split('-')[1]),
-            priority=1
-        )
 
         LOGGER.info(f'Initialized bully plugin with self={node} and peers={peer_names}')
-        # print(f'INitialized bully elec w/ {node}, peer_names = {peer_names}')
-        # bully_peers  =[ BullyPeer(peer.name, int(peer.name.split('-')[1]), 1) for peer in peer_names ]
-        self.node = BullyElectionNode(
-            node=node.name,
-            peer_list=[ peer.name for peer in peer_names ],
-            hb_timeout=heartbeat_interval_ms / 1000.0,
-            timeout=leader_timeout_ms / 1000.0,
-            verbose=verbose
+        
+        #########
+        # BULLY STATE
+        #########
+        self.bully_lock = Lock()
+        self.bully_state = ElectionState(
+            updating_states=True,
+            election_in_progress=False,
+            current_leader=None,
+            received_ok=False
         )
-        self.node.register_hook(BullyElectionHook.ON_ELECT_OTHER, self.__on_elect_other)
-        self.node.register_hook(BullyElectionHook.ON_BECOME_LEADER, self.on_become_leader)
-        self.node.register_hook(BullyElectionHook.ON_ELECTION_START, self.on_start_election)
+        
+        # # print(f'INitialized bully elec w/ {node}, peer_names = {peer_names}')
+        # # bully_peers  =[ BullyPeer(peer.name, int(peer.name.split('-')[1]), 1) for peer in peer_names ]
+        # self.node = BullyElectionNode(
+        #     node=node.name,
+        #     peer_list=[ peer.name for peer in peer_names ],
+        #     hb_timeout=heartbeat_interval_ms / 1000.0,
+        #     timeout=leader_timeout_ms / 1000.0,
+        #     verbose=verbose
+        # )
+        # self.node.register_hook(BullyElectionHook.ON_ELECT_OTHER, self.__on_elect_other)
+        # self.node.register_hook(BullyElectionHook.ON_BECOME_LEADER, self.on_become_leader)
+        # self.node.register_hook(BullyElectionHook.ON_ELECTION_START, self.on_start_election)
 
-        self.__bully_pause = True
+        # self.__bully_pause = True
         # print("INITTED")
 
-    def __on_elect_other(self):
-        # print(f'[{self.get_network_name()}] Hi! Another person has been elected. {self.node.get_leader_id()}')
-        leader = self.node.get_leader()
-        if leader is None:
-            return
+    def __set_priority(
+        self,
+        peer: BullyPeer
+    ):
+        if self.node_map[peer.name].priority != peer.priority:
+            LOGGER.info(f'Updating name={peer.name} priority to priority={peer.priority}')
+        self.node_map[peer.name] = peer
 
-        try:
-            target = self.__translate_and_ensure_connect(leader)
-        except Exception as e:
-            print(
-                f"{Fore.RED}[BULLY][{self.get_network_name()}] "
-                f"failed to prepare leader link "
-                f"leader={leader.name} err={type(e).__name__}: {e}{Fore.RESET}"
-            )
-            return
+    @node_handler(name='bully.inquire')
+    def bully_inquire(self, body: dict):
+        peer = BullyPeer.model_validate(body)
 
-        self.host.launch_background_thread(
-            self.host.on_elect_leader,
-            function_args=(self.node.get_leader_id(), leader, target)
-        )
+        with self.bully_lock:
+            self.__set_priority(peer)
+            current_leader = self.bully_state.current_leader
+
+        return { 'node': self.node_map[self.get_network_name()].model_dump(mode='json'), 'leader': current_leader.model_dump(mode='json') if current_leader is not None else current_leader }
+
+    def __try_reach_out(
+        self
+    ) -> Dict[str, Optional[BullyPeer]]:
+        output = []
+        for peer in self.peer_names:
+            try:
+                ids = self.send_message(peer, 'bully.inquire', self.node_map[self.get_network_name()].model_dump(mode='json'))
+
+                # Update our local information about that node.
+                node = BullyPeer.model_validate(ids['node'])
+                with self.bully_lock:
+                    self.__set_priority(node)
+
+                output.append(BullyPeer.model_validate(ids['leader']) if ids['leader'] is not None else None)
+            except Exception as e:
+                # print(f'E: {e}')
+                pass
+        return output
+        # print(f'Output: {output}')
+
+    @node_handler(event=NodeEvent.ON_CONNECT)
+    def on_peer_connect(self, name: str):
+        with self.__on_connect_lock:
+            
+            with self.bully_lock:
+                if not self.bully_state.updating_states:
+                    # This basically prevents two of these running concurrently,
+                    # which could happen in older versions when two connection events
+                    # would fire.
+                    return
+                if name in self.node_map and self.get_network_name() != name:
+                    LOGGER.info("Connected to another peer node.")
+                
+            # Now we need to collect information on other nodes.
+            while True:
+                detection = self.__try_reach_out()
+                if len(detection) > 0:
+                    # We have collected information from peers on who the leader is.
+                    LOGGER.info(f'Detected leader election information from {len(detection)} node(s).')
+                    
+                    should_start_election = False
+                    if any(x is None for x in detection):
+                        should_start_election = True
+                    else:
+                        detection.sort(key=lambda x : x.election_id, reverse=True)
+                        if detection[0].election_id < self.node_map[self.get_network_name()].election_id:
+                            should_start_election = True
+                        else:
+                            # There is already a leader, so we just absorb this leader.
+                            with self.bully_lock:
+                                self.bully_state.current_leader = detection[0]
+                                self.bully_state.updating_states = False
+                        
+                    if should_start_election:
+                        # We should start an election.
+                        with self.bully_lock:
+                            self.bully_state.updating_states = False
+                        self.__start_election()
+                    
+                    # We are done here.
+                    break
+
+
+                
+        
+    #################
+    # BULLY METHODS #
+    ##################
+    def __higher_peers(
+        self
+    ) -> List[BullyPeer]:
+        
+        return [ peer for peer_name, peer in self.node_map.items()
+                    if peer_name != self.get_network_name()
+                    and self.__lookup_node(self.get_network_name()).election_id < peer.election_id
+        ]
+    
+    def __internal_state(
+        self
+    ) -> dict:
+        return self.node_map[self.get_network_name()].model_dump(mode='json')
+
+    def __lookup_node(
+        self,
+        name: str
+    ) -> BullyPeer:
+        return self.node_map[name]
+    
+    @node_handler(name='bully.leader')
+    def bully_leader(self, body: dict):
+        leader = BullyPeer.model_validate(body['peer'])
+
+        with self.bully_lock:
+            self.__set_priority(leader)
+            self.bully_state.current_leader = leader
+            self.bully_state.election_in_progress = False
+            self.bully_state.received_ok = False
+            self.bully_state.updating_states = False
+
+        if leader.name == self.get_network_name():
+            self.on_become_leader()
+        else:
+            self.on_elect_other(leader.name)
+        # print(f'got bully.leader @ {leader}')
+
+    @node_handler(name='bully.election')
+    def bully_election(self, body: dict):
+        peer = BullyPeer.model_validate(body['peer'])
+        print(f'GOT ELECTION MESSAGE.')
+
+        with self.bully_lock:
+            self.__set_priority(peer)
+            me = self.node_map[self.get_network_name()]
+
+        if me.election_id > peer.election_id:
+            try:
+                self.send_message_no_wait(peer.name, 'bully.ok', { 'peer': self.__internal_state() })
+            except:
+                pass
+        
+            self.launch_background_thread(self.__start_election, None)
+        
+    @node_handler(name='bully.ok')
+    def bully_ok(self, body: dict):
+        print(f'GOT BULLY OK')
+        peer = BullyPeer.model_validate(body['peer'])
+        
+        with self.bully_lock:
+            # Update the node priority and notify that we received OK.
+            self.__set_priority(peer)
+            if self.bully_state.election_in_progress:
+                self.bully_state.received_ok = True
+
+
+    def __declare_self_leader(
+        self
+    ):
+        with self.bully_lock:
+            me = self.node_map[self.get_network_name()]
+            self.bully_state.current_leader = me
+            self.bully_state.election_in_progress = False
+            self.bully_state.received_ok = False
+            self.bully_state.updating_states = False
+        
+        for peer in self.peer_names:
+            try:
+                self.send_message_no_wait(peer, 'bully.leader', { 'peer': me.model_dump(mode='json') })
+            except:
+                pass
+
+        # Call the on_become_leader method
+        # where we can do some cleaner separated
+        # logic.
+        self.on_become_leader()
+        
+    def __start_election(
+        self
+    ):
+
+        with self.bully_lock:
+            if self.bully_state.election_in_progress:
+                # We do not want two elections running concurrently.
+                return
+            LOGGER.info('Starting an election.')
+            
+            # Mark that there is an election in progress.
+            self.bully_state.election_in_progress = True
+            self.bully_state.received_ok = False
+            self.bully_state.current_leader = None
+
+            # Higher peers.
+            higher = self.__higher_peers()
+        if len(higher) == 0:
+            LOGGER.info('There are no higher peers.')
+            # Case 1: There are no higher peers.
+            # for peer in self.peer_names:
+            #     self.send_message(peer, 'bully.leader', { 'peer': self.__internal_state() })
+            # self.on_become_leader()
+            self.__declare_self_leader()
+            return
+        else:
+            LOGGER.info('There exist higher peers.')
+            for peer in higher:
+                try:
+                    self.send_message_no_wait(peer.name, 'bully.election', { 'peer': self.__internal_state() })
+                except:
+                    pass
+            
+            # Wait two seconds.
+            start = time.time()
+            while time.time() - start < 5.0:
+                with self.bully_lock:
+                    # Check if we have received an OK, if
+                    # we have we can break out.
+                    if self.bully_state.received_ok:
+                        break
+                time.sleep(0.25)
+
+            with self.bully_lock:
+                got_ok = self.bully_state.received_ok
+                leader = self.bully_state.current_leader
+            
+            if leader is not None:
+                return
+
+            if not got_ok:
+                self.__declare_self_leader()
+
+            # print(f'ELAPSED!!!!!!!!')
+
+                # print(f'HIGHER: {peer.name}')
+
+    # def __on_elect_other(self):
+    #     # print(f'[{self.get_network_name()}] Hi! Another person has been elected. {self.node.get_leader_id()}')
+    #     leader = self.node.get_leader()
+    #     if leader is None:
+    #         return
+
+    #     try:
+    #         target = self.__translate_and_ensure_connect(leader)
+    #     except Exception as e:
+    #         print(
+    #             f"{Fore.RED}[BULLY][{self.get_network_name()}] "
+    #             f"failed to prepare leader link "
+    #             f"leader={leader.name} err={type(e).__name__}: {e}{Fore.RESET}"
+    #         )
+    #         return
+
+    #     self.host.launch_background_thread(
+    #         self.host.on_elect_leader,
+    #         function_args=(self.node.get_leader_id(), leader, target)
+    #     )
+
+ 
 
     def on_start_election(self):
         self.host.on_start_election()
 
     def on_become_leader(self):
+        # with self.bully_lock:
+            # self.bully_state.current_leader = self.node_map[self.get_network_name()]
+        LOGGER.info(f'We have become the leader.')
         self.host.on_become_leader()
-
-    def __translate_and_ensure_connect(self, destination: BullyPeer) -> Optional[str]:
-        # target, ip, port = self.peer_translator[destination]
-        entry = self.peer_map[destination.name]
-
-
-        # for i in range(10):
-        if entry.name == self.get_network_name():
-            return entry.name
-        
-
-        self._try_connect(entry)
-        
-
-        # if not self.has_connection(entry.name):
-        #     if not self._try_connect(entry):
-        #         raise ConnectionError(f'Failed to connect to destination {entry.name}')
-        #         # time.sleep(0.75)
-        #         # continue
-        #     # self.connect((ip, port))
-        return entry.name
-        # raise RuntimeError(f'Failed to ensure connection with target={target}')
-
-    def __handle_bully_message(self, message: BullyPacket):
-        # tries = 0
-        # while not self.is_shutting_down():
-            # tries += 1
-            # if tries > 1:
-            #     break
-        try:
-            if message.destination.name == self.get_network_name():
-                return
-            # print(f'Trying to send {message.destination.name}')
-            if not self.has_connection(message.destination.name):
-                # print(f'  BLOCKED!')
-                return
-            # print(f'Trying to send {message.destination.name}')
-            target = self.__translate_and_ensure_connect(message.destination)
-            if target is None:
-                return
-            self.send_message(
-                target=target,
-                method="handle.bully.msg",
-                body=_serialize_bully_packet(message)
-            )
-            return
-        except Exception as e:
-            LOGGER.error(
-                f"{Fore.RED}[{self.get_network_name()}] "
-                f"send failed type={message.type} "
-                f"dest={getattr(message.destination, 'name', 'unknown')} "
-                f"err={type(e).__name__}: {e} (RETRYING){Fore.RESET}"
-            )
-            time.sleep(1.0)
-            LOGGER.error("Failed to send a bully message.")
-        # raise Exception(f'Failed to send a bully message {message}')
-                
-        
-
-    def __handle_bully_messages(self, messages: list[BullyPacket]):
-        for message in messages:
-            self.host.launch_background_thread(
-                self.__handle_bully_message,
-                function_args=(message,)
-            )
-
-    @node_handler(name="handle.bully.msg")
-    def handle_bully_msg(self, body: dict, sender: str):
-        decoded = _deser_bully_packet(body)
-        # print(f'DECODED: {decoded}')
-        self.__recv_poll(decoded)
-        return {"status": "success"}
-
-    def __recv_poll(self, message: Optional[BullyPacket]):
-        self.node.receive(message)
-        self.__handle_bully_messages(self.node.poll())
-
-
-    @node_handler(name='bully.report.leader')
-    def bully_report_leader(self, _):
-        ids = self.node.get_leader()
-        if ids is not None:
-            ids = ids.model_dump(mode='json')
-        return { 'node': self.node.node_info.model_dump(mode='json'), 'leader': ids }
     
+    def on_elect_other(self, leader: str):
+        LOGGER.info(f'We have elected node={leader}')
 
-    # @node
-
-    # @node_handler(event=NodeEvent.ON_CONNECT)
-    # def on_connect_bully(self, name: str):
-    #     while True:
-    #         if self.node.get_leader_id() is None:
-    #             # We do not currently have a leader.
-    #             print(f'No current leader')
-    #             if name in self.peer_map:
-    #                 print(f'He')
-    #                 peer = self.peer_map[name]
-
-    #                 # Preallocate the connection/
-    #                 self._try_connect(peer)
-
-    #                 try:
-    #                 # print(f'Sending request...')
-    #                     check = self.send_message(peer.name, 'bully.report.leader', {}, timeout=5)
-    #                     if check['leader'] is None:
-    #                         self.__bully_pause = False
-    #                 except Exception as e:
-    #                     continue
-                # print(f'Check: {check}')
-
-            # print(f'CONNECTING LEADERLESS')
-
-    @node_handler(internal_ms=300)
-    def poll_bully_start(self):
-        if self.node.get_leader_id() is not None:
-            return
-        output = []
-        for peer in self.peers:
-            try:
-                ids = self.send_message(peer.name, 'bully.report.leader', {})['leader']
-                output.append((peer, ids))
-            except:
-                pass
-        if len(output) > 0:
-            peer, leader = output[0]
-            if leader is None:
-                self.__bully_pause = False
-            
-        print(f'Output: {output}')
-
-
-    @node_handler(event=NodeEvent.ON_DISCONNECT)
-    def on_bully_disconnect(self, name: str):
-        print("ON DISCONNECT")
-        connected_to_cluster = False
-        for peer in self.peers:
-            if self.has_connection(peer.name):
-                connected_to_cluster = True
-                break
-        if not connected_to_cluster:
-            LOGGER.info("Node has been disconnected from the cluster.")
-        # pass
-
-    @node_handler(internal_ms=50)
-    def poll_internal_node(self):
-        if self.__bully_pause:
-            return
-        self.__recv_poll(None)
