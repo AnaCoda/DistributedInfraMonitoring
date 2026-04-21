@@ -81,6 +81,6 @@ class RegionalNode(KeyInfraNode):
             # update to ONE of the nodes, not all of
             # them.
             for region in self.capitals:
-                if self.has_connection(region.name):
-                    self.__send_update_target(region.name)
-                    break
+                # if self.has_connection(region.name):
+                self.__send_update_target(region.name)
+                break
