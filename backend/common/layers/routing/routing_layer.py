@@ -1,12 +1,14 @@
 from __future__ import annotations
+from textwrap import wrap
 from ...components.template import NodeTemplate
+import traceback
 
 from typing import Callable, Any
 import inspect
 from ...components.events.event import NodeEvent, Event
 from ...components.events.connect import NodeConnectionType, EventOnConnectRegistry, EventOnDisconnectRegistry
 from dataclasses import dataclass
-from threading import Event
+from threading import Event, Thread
 from concurrent.futures import ThreadPoolExecutor
 from ...components.sync.signal import HoldSignal
 import time
@@ -39,7 +41,7 @@ class RoutingLayer(FunctionalLayer):
 
         # self.stop_event = Event()
         self.ready_signal = HoldSignal()
-        self.executor = ThreadPoolExecutor()
+        self.executor = ThreadPoolExecutor(max_workers=32)
 
         self.generate_routing_templates()
 
@@ -74,9 +76,11 @@ class RoutingLayer(FunctionalLayer):
         if self.is_shutting_down():
             return
         if function_args is None:
-            self.executor.submit(wrapped)
+            Thread(target=wrapped, daemon=True).start()
+            # self.executor.submit(wrapped)
         else:
-            self.executor.submit(wrapped, *function_args)
+            Thread(target=wrapped, args=function_args, daemon=True).start()
+            # self.executor.submit(wrapped, *function_args)
 
     def launch_interval_functor(
         self,
@@ -89,7 +93,8 @@ class RoutingLayer(FunctionalLayer):
                 try:
                     functor()
                 except Exception as e:
-                    print(f'{Fore.RED}[{self.get_network_name()}] Crash in interval functor (interval={interval}): {e}{Fore.RESET}')
+                    print(f'{Fore.RED}[{self.get_network_name()}] Crash in interval functor (interval={interval}): {type(e).__name__}: {e}{Fore.RESET}')
+                    traceback.print_exc()
                     # break
                 time.sleep(interval / 1000.0)
             

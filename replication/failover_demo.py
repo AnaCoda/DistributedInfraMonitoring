@@ -102,10 +102,11 @@ def main():
     }
 
     # from ...
-    infra = Hospital('Hospital-1', [
-        NetworkEntry(name='Carstairs-r1', address=NetworkAddress(ip='127.0.0.1', port=3051)),
-        NetworkEntry(name='Carstairs-r2', address=NetworkAddress(ip='127.0.0.1', port=3052))
-    ])
+    # infra = Hospital('Hospital-1', [
+    #     NetworkEntry(name='Carstairs-r1', address=NetworkAddress(ip='127.0.0.1', port=3051)),
+    #     NetworkEntry(name='Carstairs-r2', address=NetworkAddress(ip='127.0.0.1', port=3052))
+    # ])
+    # print(f'Infra Launched On: {infra._get_net_addr()}')
 
     full_capital_entries = [
         NetworkEntry(name=f'rm-{rid}', address=NetworkAddress(ip='127.0.0.1', port=port))
@@ -155,7 +156,7 @@ def main():
         (6, "replica_down", 2),
         (25, "replica_up", 2)
     ]
-    # timeline = []
+    timeline = []
 
     start_time = time.time()
     event_index = 0
@@ -213,8 +214,8 @@ def main():
                     
             count += 1
             time.sleep(1)
-            if count % 5 == 0:
-                infra.update_value()
+            # if count % 5 == 0:
+                # infra.update_value()
             print(f'Event Idx: {count}')
 
     except KeyboardInterrupt:
@@ -228,7 +229,7 @@ def main():
             stop_region_replica(replica_name, regions)
         print(f'Regions down.')
 
-        infra.shutdown()
+        # infra.shutdown()
         print(f'Infra')
 
 if __name__ == "__main__":

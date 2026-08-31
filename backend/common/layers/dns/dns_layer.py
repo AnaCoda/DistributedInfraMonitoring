@@ -23,30 +23,31 @@ class NameServiceLayer(NetLayer):
     without having th
     """
 
-    def __init__(self, network_name, address):
+    def __init__(self, network_name, address, use_dns: bool = False):
         super().__init__(network_name, address)
 
-
         self.name_service_backoff_loop = 0.5
-
         self.guard_map = {}
         self.guard_map_lock = Lock()
-        
 
         self.name_registry_lock = Lock()
-        self.name_registry: dict[str, NameRegistry] = {
-            
-        }
+        self.name_registry: dict[str, NameRegistry] = {}
 
-        self.__add_dns(NameRegistry(
-                'dns',
-                '127.0.0.1',
-                39
-            ))
+        # If usage is needed for local testing
+        self.use_dns = use_dns
+        if self.use_dns:
+            self.__add_dns(NameRegistry('dns', '127.0.0.1', 39))
+
+        # Am i being trolled?
+        # self.__add_dns(NameRegistry(
+        #         'dns',
+        #         '127.0.0.1',
+        #         39
+        #     ))
 
         # if self.get_network_name() == 'dns':
 
-        self.launch_background_thread(self.__dns_outreach, None)
+        # self.launch_background_thread(self.__dns_outreach, None)
 
     def _net_on_disconnect_evt(self, name):
         with self.name_registry_lock:
@@ -79,15 +80,17 @@ class NameServiceLayer(NetLayer):
                 continue
             # print('FLAG B')
             self.__safe_connect(name, registry)
+            if not self.has_connection(name):
+                continue
             # print('FLAG C')
             # print(f'Name: {name}')
-            result = self.send_message(
+            result = super().send_message(
                 target=name,
                 method='dns.lookup',
                 body={
                     '__this': asdict(NameRegistry(self.network_name, self.address[0], self.address[1])),
                     '__search': target
-                } 
+                }
             )
             # print('FLAG D')
             for name in result:
@@ -104,21 +107,20 @@ class NameServiceLayer(NetLayer):
 
     @node_handler(internal_ms=500)
     def handle_dns_ping(self):
-        if self.network_name == 'dns':
+        if self.network_name == "dns":
             return
-        
-        with self.name_registry_lock:
-            net_reg_items = list(self.name_registry.items())
 
-        for name, registry in net_reg_items:
-            if 'dns' not in name:
-                continue
-            self.__safe_connect(name, registry)
-            self.send_message(
-                target=name,
-                method='dns.register',
-                body=asdict(self.__get_self_registry_details())
-            )
+        with self.name_registry_lock:
+            has_dns = any("dns" in name for name in self.name_registry.keys())
+
+        if not has_dns:
+            return
+
+        self.send_message(
+            "dns",
+            "dns.ping",
+            {"name": self.network_name}
+        )
         
 
     def __add_dns(self, registry: NameRegistry):
@@ -159,22 +161,32 @@ class NameServiceLayer(NetLayer):
         # return None
 
     def __guarantee_connection(self, target: str):
+        if self.has_connection(target):
+            return
+
+        registry = self.__lookup_registry(target)
+        if registry is not None:
+            self.__safe_connect(registry.name, registry)
+            if self.has_connection(target):
+                return
+
+        if not getattr(self, "use_dns", False):
+            raise RuntimeError(f"COULD NOT LOCATE {target}")
+
+        for _ in range(3):
+            self.__dns_outreach(target)
+            registry = self.__lookup_registry(target)
+            if registry is None:
+                sleep(self.name_service_backoff_loop)
+                continue
+            if self.has_connection(target):
+                break
+            self.__safe_connect(registry.name, registry)
+            sleep(0.1)
+
         if not self.has_connection(target):
-           
-            for _ in range(3):
-                # print(f'DNS OUTREACH')
-                self.__dns_outreach(target)
-                # print(f'DONE!')
-                registry = self.__lookup_registry(target)
-                if registry is None:
-                    sleep(self.name_service_backoff_loop)
-                    continue
-                if self.has_connection(target):
-                    break
-                self.__safe_connect(registry.name, registry)
-                sleep(0.1)
-            if not self.has_connection(target):
-                raise RuntimeError("COULD NOT LOCATE")
+            raise RuntimeError(f"COULD NOT LOCATE {target}")
+        
     def send_message(self, target, method, body, timeout=2):
         # with self.__get_guard_map_lock(target):
         self.__guarantee_connection(target)

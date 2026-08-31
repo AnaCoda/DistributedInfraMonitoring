@@ -10,6 +10,10 @@ class Plugin(NodeTemplate):
         self.host._register_route(route, functor)
         # return super()._register_route(route, functor)
 
+    def is_shutting_down(self):
+        return self.host.is_shutting_down()
+        # return super().is_shutting_down()
+
     def wait_ready(self):
         return self.host.wait_ready()
         # return super().wait_ready()

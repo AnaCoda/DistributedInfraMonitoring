@@ -1,19 +1,25 @@
 
 from abc import abstractmethod
 from hashlib import sha256
+import time
 from typing import Any, Callable, Dict, List, Tuple
 
 from colorama import Fore, Style
 from pydantic import BaseModel
 
+from backend.common.components.events.connect import NodeConnectionType
 from backend.common.components.plugins.leader_elec.bully_plugin import BullyPlugin
 from backend.common.components.plugins.leader_elec.bully_state_machine import BullyPeer
 from backend.common.components.plugins.replication.replication_plugin import ReplicationPlugin
+from backend.common.components.storage.backend import StorageBackend
 from backend.common.components.storage.disk import DiskBackend
 from backend.common.components.storage.memory import MemoryStorageBackend
-from backend.common.components.util import NetworkEntry
+from backend.common.components.util import NetworkAddress, NetworkEntry
+from backend.common.layers.routing.routing_layer import node_handler
 from backend.common.raw import RawNode
 from json import dumps
+
+from backend.implementation.state.monitoring import ElectionState, HeartBeatState
 
 class KeyInfraNode(RawNode):
 
@@ -21,10 +27,12 @@ class KeyInfraNode(RawNode):
         self,
         entry: NetworkEntry,
         peers: List[NetworkEntry],
-        operation_routes: List[Tuple[str, Callable[..., Any]]]
+        operation_routes: List[Tuple[str, Callable[..., Any]]],
+        backend: StorageBackend
     ):
         super().__init__(entry.name, entry.address.to_tuple())
-        self.peers = peers
+        self.peers = [ peer for peer in peers if peer.name != self.get_network_name() ]
+       
 
         self.leader_election = self.register_plugin(BullyPlugin(
             host=self,
@@ -32,15 +40,16 @@ class KeyInfraNode(RawNode):
             peers={
                 BullyPeer(entry.name, entry.name, 1): (entry.name, entry.address.ip, entry.address.port)
 
-                for entry in peers
-            }
+                for entry in self.peers
+            },
+            heartbeat_interval_ms=8_000
         ))
 
         self.replication_plugin = self.register_plugin(ReplicationPlugin(
             host=self,
             name=self.get_network_name(),
-            backend=MemoryStorageBackend(),
-            replicas=[ r.name for r in peers ],
+            backend=backend,
+            replicas=[ r.name for r in self.peers ],
             routes=operation_routes
         ))
 
@@ -62,16 +71,147 @@ class KeyInfraNode(RawNode):
     def get_state(self) -> BaseModel:
         return self.__state
     
+    @node_handler(name='replication.version')
+    def handle_replication_version(self, body):
+        return { 'version': self.replication_plugin.get_seq_num() }
+    
+    
+    def election_state(self):
+        return ElectionState(
+            name=self.get_network_name(),
+            version=self.replication_plugin.get_seq_num(),
+            leader=self.leader_election.current_leader(),
+            heartbeat={
+                bully.name: HeartBeatState(
+                    heartbeat_state=state.state,
+                    last_heartbeat=time.time() - state.last_hb
+                )
+                for bully, state in self.leader_election.node.heartbeat.items()
+            }
+        )
+    
+    @node_handler(name='ping.re')
+    def handle_pingre(self, body: dict):
+        return { 'name': self.get_network_name() }
+    
+    @node_handler(internal_ms=10_000)
+    def pinger_int(self):
+        for peer in self.peers:
+            if peer.name == self.get_network_name():
+                continue
+            if not self.has_connection(peer.name):
+                try:
+                    self._try_connect(peer.address)
+                except Exception:
+                    pass
+            if self.has_connection(peer.name):
+                print(f'[PING] [{self.get_network_name()} -> {peer.name}] Starting ping...')
+                try:
+                    o = self.send_message(peer.name, 'ping.re', {})
+                    print(f'[PING] [{self.get_network_name()} -> {peer.name}] Ping succeeded: {o}')
+                except Exception as e:
+                    print(
+                        f'[PING] [{self.get_network_name()} -> {peer.name}] '
+                        f'Ping failed: {type(e).__name__}: {e}'
+                    )
+    @node_handler(name='election.state')
+    def handle_get_election_state(self, body: dict):
+        print(f'GOT A GET ELECTION STATE CALL')
+        return self.election_state().model_dump(mode='json')
+
+    @node_handler(on_connect=NodeConnectionType.OUTBOUND)
+    def handle_outbound_conn(self, name: str):
+        print(f'{Fore.YELLOW}[CONNECTION]{Fore.RESET} Connected to {name} (type=OUTBOUND)')
+
+    @node_handler(on_connect=NodeConnectionType.INBOUND)
+    def handle_inbound_conn(self, name: str):
+        print(f'{Fore.YELLOW}[CONNECTION]{Fore.RESET} Connected to {name} (type=INBOUND)')
+        if name in [ peer.name for peer in self.peers ]:
+            self.__run_challenge()
+
+
+    @node_handler(on_disconnect=NodeConnectionType.OUTBOUND)
+    def handle_outbound_dconn(self, name: str):
+        print(f'{Fore.YELLOW}[DISCONNECTION]{Fore.RESET} Disconnected from {name} (type=OUTBOUND)')
+
+    @node_handler(on_disconnect=NodeConnectionType.INBOUND)
+    def handle_inbound_dconn(self, name: str):
+        print(f'{Fore.YELLOW}[DISCONNECTION]{Fore.RESET} Disconnected from {name} (type=INBOUND)')
+
+    @node_handler(name='handle.catchup')
+    def handle_catchup(self, body: dict):
+        sequences = body['sequences']
+
+        return self.replication_plugin.serve_state_request(sequences)
+
+
+    
+
+    def __run_challenge(self):
+        if not self.replication_plugin.is_leader():
+            return
+
+        version_dict = {}
+        for peer in self.peers:
+            if peer.name == self.get_network_name():
+                continue
+            if self.has_connection(peer.name):
+                try:
+                    o = self.send_message(peer.name, 'replication.version', {})['version']
+                    version_dict[peer.name] = o
+                except Exception as e:
+                    print(f'[{self.get_network_name()}] Failed version check for {peer.name}: {type(e).__name__}: {e}')
+
+        versions = list(version_dict.items())
+        versions.sort(key=lambda x: x[1], reverse=True)
+        print(f'[{self.get_network_name()}] Peer challenge versions: {versions}')
+
+        if not versions:
+            print(f'[{self.get_network_name()}] No reachable peers responded to version challenge.')
+            return
+
+        top_peer, top_version = versions[0]
+        local_version = self.replication_plugin.get_seq_num()
+
+        if top_version <= local_version:
+            print(f'[{self.get_network_name()}] No fast-forward needed. local={local_version}, top={top_version}')
+            return
+
+        print(f'[{self.get_network_name()}] Leader is behind. local={local_version}, peer={top_peer}, peer_version={top_version}')
+        self.replication_plugin.leader_hold()
+
+        try:
+            o = self.send_message(top_peer, 'handle.catchup', {
+                'sequences': list(range(local_version + 1, top_version + 1))
+            })
+            print(f'[{self.get_network_name()}] CATCHUP RESULT: {o}')
+            self.replication_plugin.apply_catchup_payload(o)
+            print(f'[{self.get_network_name()}] Fast-forward complete. New version={self.replication_plugin.get_seq_num()}')
+        except Exception as e:
+            print(f'[{self.get_network_name()}] Fast-forward failed: {type(e).__name__}: {e}')
+            raise
+            # print(f'ON ELECT PEER DICT: {versions}')
+
+    def __on_elect(
+        self,
+        target: str
+    ):
+        
+
+        self.replication_plugin.set_leader(target)
+        self.__run_challenge()
 
 
     def on_start_election(self):
-        pass
+        self.replication_plugin.set_leader(None)
 
     def on_become_leader(self):
-        self.replication_plugin.set_leader(self.get_network_name())
+        self.__on_elect(self.get_network_name())
 
     def on_elect_leader(self, _l, _p, target):
-        self.replication_plugin.set_leader(target)
+
+        self.__on_elect(target)
+        # self.replication_plugin.set_leader(target)
         
     @abstractmethod
     def _default_state(self) -> BaseModel:

@@ -1,0 +1,58 @@
+#!/bin/bash
+set -euo pipefail
+
+dnf update -y
+dnf install -y git unzip
+curl -LsSf https://astral.sh/uv/install.sh | sh
+install -m 0755 /root/.local/bin/uv /usr/local/bin/uv
+if [ -f /root/.local/bin/uvx ]; then
+  install -m 0755 /root/.local/bin/uvx /usr/local/bin/uvx
+fi
+export PATH="/root/.local/bin:/home/ec2-user/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+
+id -u "${app_user}" >/dev/null 2>&1 || useradd -m "${app_user}"
+
+rm -rf "${app_dir}"
+install -d -o "${app_user}" -g "${app_user}" "$(dirname "${app_dir}")"
+sudo -u "${app_user}" git clone --branch "${repo_ref}" --single-branch "${repo_url}" "${app_dir}"
+
+cd "${app_dir}"
+sudo -u "${app_user}" /usr/local/bin/uv venv
+sudo -u "${app_user}" /usr/local/bin/uv sync || true
+sudo -u "${app_user}" /usr/local/bin/uv pip install websockets pydantic colorama
+
+mkdir -p /etc/distinfra
+
+cat >/etc/distinfra/infra.json <<EOF
+{
+  "node_name": "${node_name}",
+  "node_type": "${node_type}",
+  "regions": ${regions_json}
+}
+EOF
+
+cat >/etc/systemd/system/distinfra-infra.service <<EOF
+[Unit]
+Description=Distributed Infra ${node_name} Runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=${app_user}
+WorkingDirectory=${app_dir}
+Environment=HOME=/home/${app_user}
+Environment=PATH=/home/${app_user}/.local/bin:/root/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=NODE_CONFIG_PATH=/etc/distinfra/infra.json
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/local/bin/uv run python -u -m backend.runners.infra_runner
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable distinfra-infra.service
+systemctl restart distinfra-infra.service

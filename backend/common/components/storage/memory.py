@@ -12,6 +12,7 @@ class MemoryStorageBackend(StorageBackend):
     def write(self, table, key, value):
         if table not in self.tables:
             self.tables[table] = {}
+        # print(f'Writing {type(value)}')
         self.tables[table][key] = value
 
     def read(self, table, key):
@@ -20,6 +21,7 @@ class MemoryStorageBackend(StorageBackend):
         table_lk = self.tables[table]
         if key not in table_lk:
             return None
+        # print(f'Reading: {type(table_lk[key])}')
         return table_lk[key]
         # return super().read(table, key)
     

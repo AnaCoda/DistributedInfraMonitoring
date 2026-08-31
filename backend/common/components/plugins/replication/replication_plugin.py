@@ -1,8 +1,10 @@
+from colorama import Fore
+
 from ..plugin import Plugin
 from ...template import NodeTemplate
 from ...storage.backend import StorageBackend
 
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .rep_state_machine import (
     ReplicationStateMachineState,
@@ -41,24 +43,39 @@ class ReplicationPlugin(Plugin):
 
         self.__register_routes(routes)
 
+    def serve_state_request(self, sequences: list[int]) -> Dict[str, Any]:
+        with self.__core_lock:
+            ol = self.__core.replication_log.retrieve_at_idxs(sequences)
+            ol = [ asdict(o) for o in ol ]
+
+            state = self.__core.replication_log.log_state
+            return {
+                'state': state,
+                'logs': ol
+            }
+
+    def is_leader(self) -> bool:
+        return self.__core.is_leader()
+    
+    def leader_hold(self):
+        return self.__core._set_state(ReplicationStateMachineState.LEADER_SYNC)
+
     def get_seq_num(self) -> int:
         return self.__core.replication_log.get_sequence_pos()
 
-    def __register_routes(
-        self,
-        op_routes: list[tuple[str, Callable[..., Any]]]
-    ):
-        
+    def __register_routes(self, op_routes):
         for key, fn in op_routes:
-            @wraps(fn)
-            def bound(*args, **kwargs):
-                self.__handle_operation({
-                    'key': key,
-                    'args': list(args),
-                    'kwargs': kwargs
-                })
+            def make_bound(route_key):
+                @wraps(fn)
+                def bound(*args, **kwargs):
+                    return self.__handle_operation({
+                        'key': route_key,
+                        'args': list(args),
+                        'kwargs': kwargs
+                    })
+                return bound
             self.__op_map[key] = fn
-            self._register_route(key, bound)
+            self._register_route(key, make_bound(key))
         # def bound(*args, **kwargs):
 
 
@@ -66,6 +83,8 @@ class ReplicationPlugin(Plugin):
         with self.__core_lock:
             if name is None:
                 self.__leader_evt.clear()
+                if self.__core.is_leader():
+                    self.__core._set_state(ReplicationStateMachineState.INIT)
             else:
                 self.__leader_evt.set()
             self.__core.set_leader(name)
@@ -73,6 +92,7 @@ class ReplicationPlugin(Plugin):
     def __wait_leader(self):
         while not self.__leader_evt.is_set():
             self.__leader_evt.wait()
+
         with self.__core_lock:
             # If we are the leader there is an edge case
             # whereby we are not yet initialized.
@@ -88,11 +108,21 @@ class ReplicationPlugin(Plugin):
             return
         for poll in polled:
             # print(f'>> [{self.get_network_name()}] Sending {poll}')
-            self.send_message_no_wait(
-                target=poll.target,
-                body=asdict(poll),
-                method='plugin.replication'
-            )
+            if poll.target is None:
+                continue
+            if not self.has_connection(poll.target):
+                continue
+            try:
+                self.send_message_no_wait(
+                    target=poll.target,
+                    body=asdict(poll),
+                    method='plugin.replication'
+                )
+            except Exception:
+                try:
+                    self.disconnect(poll.target)
+                except Exception:
+                    pass
 
 
     
@@ -116,13 +146,14 @@ class ReplicationPlugin(Plugin):
         kwargs = operation.operation['kwargs']
         key = operation.operation['key']
 
-        self.__op_map[key](*args, **kwargs)
+        output = self.__op_map[key](*args, **kwargs)
 
         # Now we commit the operation.
         # print(f'[AO] commiting w/ {operation.sequence_number}')
         o = self.__core.receive(ReplicationMsg.from_op(ReplicationOp.COMMIT, { 'sequence': operation.sequence_number }))    
         # print(f'[AO] [{self.get_network_name()}] {o}')
-        return { 'ping': 1 }
+        # return { 'ping': 1 }
+        return output
     
     def load_state(self):
         with self.__core_lock:
@@ -141,11 +172,14 @@ class ReplicationPlugin(Plugin):
         # External operations must wait for the leader.
         self.__wait_leader()
 
+
+
         # The following requires manual locking and unlocking
         # of the core lock so we do not accidentally enter into
         # a deadlocked scenario.
         with self.__core_lock:
             is_leader = self.__core.is_leader()
+
 
         self.__core.wait_for_state(ReplicationStateMachineState.EXECUTING)
 
@@ -167,7 +201,9 @@ class ReplicationPlugin(Plugin):
                 try:
                     self.send_message_no_wait(replica, 'plugin.replication', asdict(operation))
                 except Exception as e:
+                    print(f'{Fore.RED}[{self.get_network_name()}] Failed to send to {replica} with error={e}{Fore.RESET}')
                     pass
+                print(f'[{self.get_network_name()}] Succesfully replicated option to replica={Fore.YELLOW}{replica}{Fore.RESET} with body={Fore.LIGHTBLACK_EX}{body}{Fore.RESET}')
                     # print(f'excepted {type(e)}')
             return output
         else:
@@ -187,8 +223,8 @@ class ReplicationPlugin(Plugin):
                 'message': 'unauthorized request, only for internal use of replicas.'
             }
         return self.__handle_operation(body)
-        
-    
+
+
     def get_version_locked(self):
         # if self.__core_lock.
         return self.__core.replication_log.get_sequence_pos()
@@ -259,8 +295,30 @@ class ReplicationPlugin(Plugin):
             self.__poll_unlocked()
             # print(f'[{self.get_network_name()}] State: {self.__core.get_state()}')
 
-    @node_handler(internal_ms=50)
+    @node_handler(internal_ms=200)
     def poll_internal_node(self):
         with self.__core_lock:
             # print(f'Polling: {self.get_network_name()}')
             self.__poll_unlocked()
+
+    def apply_catchup_payload(self, payload: Dict[str, Any]):
+        logs = payload.get('logs', [])
+        if not logs:
+            with self.__core_lock:
+                self.__core._set_state(ReplicationStateMachineState.EXECUTING)
+            return
+
+        operations = [Operation(**op) for op in logs]
+        operations.sort(key=lambda op: op.get_seq_num())
+
+        with self.__core_lock:
+            for op in operations:
+                if op.get_seq_num() <= self.__core.replication_log.get_sequence_pos():
+                    continue
+
+                self.__core.replication_log.add_log(op)
+                print(f'[{self.get_network_name()}] added catchup op seq={op.get_seq_num()} -> log_pos={self.__core.replication_log.get_sequence_pos()}')
+                self.__apply_operation(op)
+            print(f'[{self.get_network_name()}] Catchup applied through seq={self.__core.replication_log.get_sequence_pos()}')
+            self.__core._set_state(ReplicationStateMachineState.EXECUTING)
+        print(f'[{self.get_network_name()}] final catchup log_pos={self.__core.replication_log.get_sequence_pos()}')

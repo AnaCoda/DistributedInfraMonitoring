@@ -1,5 +1,9 @@
 from __future__ import annotations
+from typing import Dict, Optional
 from pydantic import BaseModel
+
+from backend.common.components.plugins.leader_elec.bully_state_machine import HBMsgState
+from backend.common.components.util import NetworkEntry
 
 
 
@@ -16,3 +20,15 @@ class InfrastructureState(BaseModel):
     resource_type: str
     value: int | str
 
+
+
+
+class HeartBeatState(BaseModel):
+    heartbeat_state: HBMsgState
+    last_heartbeat: float
+
+class ElectionState(BaseModel):
+    name: str
+    leader: Optional[str]
+    version: int
+    heartbeat: Dict[str, HeartBeatState]

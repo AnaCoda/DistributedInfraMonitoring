@@ -1,5 +1,7 @@
 from typing import Dict, List
 
+from backend.common.components.storage.backend import StorageBackend
+from backend.common.components.storage.memory import MemoryStorageBackend
 from backend.common.components.util import NetworkEntry
 from backend.common.layers.routing.routing_layer import node_handler
 from backend.implementation.keyinfra.keyinfra import KeyInfraNode
@@ -12,13 +14,14 @@ class RegionalNode(KeyInfraNode):
             region_name: str,
             entry: NetworkEntry,
             capital_addresses: List[NetworkEntry],
-            peers: List[NetworkEntry]
+            peers: List[NetworkEntry],
+            backend: StorageBackend = MemoryStorageBackend()
         ):
         self.region_name = region_name
 
         super().__init__(entry, peers, [
             ('infra.update', self.handle_infra_update)
-        ])
+        ], backend)
 
         
         self.capitals = capital_addresses
@@ -52,10 +55,14 @@ class RegionalNode(KeyInfraNode):
         self,
         target: str
     ):
-        current_state: dict = self.get_state().model_dump()
+        try:
+            current_state: dict = self.get_state().model_dump()
 
-        self.send_message(target, 'region.update', current_state)
-        self.__dirty = False
+            print(f'SENDING UPDATE')
+            self.send_message(target, 'region.update', current_state)
+            self.__dirty = False
+        except Exception as e:
+            print(f'[{self.get_network_name()}] Failed to send region update to target: {target} with exception={e}')
 
     @node_handler(internal_ms=500)
     def periodical(self):

@@ -1,31 +1,68 @@
-# DistributedInfraMonitoring
-CPSC 559 - Group 9 Final Project
+# Distributed Wartime Monitoring Infrastructure
+> **By:** Group 9
+> **Class:** CPSC5529
+
+## Configuration
+1. You must first configure your AWS CLI with the Access Key + Secret Key. Fam Ghaly has this.
+2. You must make a `terraform.tfvars` file in the `Terraform/` directory. It should have the following file contents:
+```tf
+aws_region = "us-west-2"
+
+allowed_ssh_cidr_blocks      = ["<YOUR_IP>/32"]
+allowed_frontend_cidr_blocks = ["<YOUR_IP>/32"]
+
+key_name = "<KEYPAIR_NAME>"
+```
+3. If you wish to re-deploy infrastructure, then you can use the Hashicorp Terraform teardown-and-redeploy:
+```bash
+$ terraform destroy
+$ terraform apply
+```
+4. **However in most cases we are simply interested in updating the codebase** and thus we can run the following command:
+```bash
+$ uv run python -m replication.redeploy --key "$HOME\.ssh\Homer-Sus2.pem"
+```
+
+
+## Monitoring
+You can use the following command to watch infrastructure:
+```bash
+$ uv run python -m replication.watch --service Hospital-1 --key "$HOME\.ssh\Homer-Sus2.pem"
+```
+
+
+Monitoring
+
+```
+sudo journalctl -u distinfra-capital.service -n 4000 -f -o cat
+sudo journalctl -u distinfra-infra.service -n 4000 -f -o cat
+```
 
 ## Backend
-
 ```bash
-python -m venv .venv
-.venv\Scripts\activate   # Windows
-.venv/bin/activate       # Unix/Mac
-pip install -r requirements.txt
-
-python -m backend.setup     
+$ uv run python -m replication.failover_demo
 ```
 
-## Active Replication  (run INSTEAD of `python -m backend.setup`)
+## Tests
 ```bash
-python -m replication.rmtest
+$ uv run python -m backend.tests
 ```
 
-## Replica Failover Demo
-
+## Query Tool
+The general form of the command is the following:
 ```bash
-python -m replication.failover_demo
+$ uv run python -m replication.query_tool --ip localhost:4001 --name homer --route query.capital
 ```
-- Around 10s, replica 1 goes down
-- Around 20s, replica 1 comes back up
-- Around 30s, replica 2 goes down
-- Around 40s, replica 1 goes down again, leaving only replica 3 up
+Here are some useful commands:
+- `infra.random` (INFRASTRUCTURE): This causes the infrastructure node to generate a new randomized state.
+- `query.capital` (CAPITAL): Causes the capital to return the current state of the system.
+
+## Methods
+### Any Node
+- `sim.down`: The payload for this request is `{ duration: INTEGER }` and it will return success if it deems that the request is valid. There are limits on how long a node is allowed to sleep and the request may be rejected.
+
+### Infrastructure Nodes
+- `infra.random`: This causes the infrastructure node to generate a new randomized state on demand.
 
 ## Frontend
 

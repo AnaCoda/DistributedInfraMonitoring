@@ -5,6 +5,8 @@
 
 from random import randint
 
+from colorama import Fore
+
 from backend.common.components.events.connect import NodeConnectionType
 
 from ...common.raw import RawNode, node_handler
@@ -24,7 +26,7 @@ class InfrastructureNode(RawNode):
         network_name,
         regions: List[NetworkEntry]
     ):
-        super().__init__(network_name)
+        super().__init__(network_name, address=('0.0.0.0', 4000))
 
         self.regions = regions
         self.resource_value = 0
@@ -59,16 +61,20 @@ class InfrastructureNode(RawNode):
         self,
         target: str
     ):
+        print(f'{Fore.YELLOW}[{self.get_network_name()}] Pushing update of infrastructure to the regional node. Current state: {self.__state.model_dump()}{Fore.RESET}')
         with self.__state_lock:
             current_state: dict = self.__state.model_dump()
 
         
-        self.send_message(target, 'infra.update', current_state)
+        self.send_message_no_wait(target, 'infra.update', current_state)
         with self.__region_notify_lock:
             self.__notified_region = True
+        print(f'{Fore.GREEN}[{self.get_network_name()}] Succesfully notified the regional nodes of a change.')
 
 
-
+    @node_handler(name='infra.random')
+    def handle_infra_random(self, body: dict):
+        self.update_value()
     
     
     @node_handler(internal_ms=200)

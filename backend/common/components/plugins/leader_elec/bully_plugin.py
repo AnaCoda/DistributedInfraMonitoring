@@ -1,3 +1,7 @@
+import time
+
+from colorama import Fore
+
 from backend.common.components.util import NetworkAddress
 
 from ..plugin import Plugin
@@ -48,8 +52,8 @@ class BullyPlugin(Plugin):
         host,
         node: BullyPeer,
         peers: dict[BullyPeer, tuple[str, str, int]],
-        heartbeat_interval_ms: int = 1500,
-        leader_timeout_ms: int = 2500,
+        heartbeat_interval_ms: int = 4000,
+        leader_timeout_ms: int = 3000,
         verbose: bool = True
     ):
         super().__init__(host)
@@ -74,8 +78,8 @@ class BullyPlugin(Plugin):
         self,
         node: BullyPeer,
         peer_names: dict[BullyPeer, tuple[str, str, int]],
-        heartbeat_interval_ms: int = 1500,
-        leader_timeout_ms: int = 1500,
+        heartbeat_interval_ms: int = 4000,
+        leader_timeout_ms: int = 3000,
         verbose: bool = True
     ):
         self.peer_translator = peer_names
@@ -98,7 +102,15 @@ class BullyPlugin(Plugin):
         if leader is None:
             return
 
-        target = self.__translate_and_ensure_connect(leader)
+        try:
+            target = self.__translate_and_ensure_connect(leader)
+        except Exception as e:
+            print(
+                f"{Fore.RED}[BULLY][{self.get_network_name()}] "
+                f"failed to prepare leader link "
+                f"leader={leader.name} err={type(e).__name__}: {e}{Fore.RESET}"
+            )
+            return
 
         self.host.launch_background_thread(
             self.host.on_elect_leader,
@@ -111,24 +123,53 @@ class BullyPlugin(Plugin):
     def on_become_leader(self):
         self.host.on_become_leader()
 
-    def __translate_and_ensure_connect(self, destination: BullyPeer) -> str:
+    def __translate_and_ensure_connect(self, destination: BullyPeer) -> Optional[str]:
         target, ip, port = self.peer_translator[destination]
 
+
+        # for i in range(10):
+        if target == self.get_network_name():
+            return target
+
         if not self.has_connection(target):
-            self._try_connect(NetworkAddress(ip=ip, port=port))
+            if not self._try_connect(NetworkAddress(ip=ip, port=port)):
+                raise ConnectionError(f'Failed to connect to destination {target}')
+                # time.sleep(0.75)
+                # continue
             # self.connect((ip, port))
         return target
+        # raise RuntimeError(f'Failed to ensure connection with target={target}')
 
     def __handle_bully_message(self, message: BullyPacket):
-        try:
-            target = self.__translate_and_ensure_connect(message.destination)
-            self.send_message_no_wait(
-                target=target,
-                method="handle.bully.msg",
-                body=_serialize_bully_packet(message)
-            )
-        except Exception:
-            pass
+        tries = 0
+        while not self.is_shutting_down():
+            tries += 1
+            if tries > 5:
+                break
+            try:
+                if message.destination.name == self.get_network_name():
+                    return
+                target = self.__translate_and_ensure_connect(message.destination)
+                if target is None:
+                    time.sleep(0.5)
+                    continue
+                self.send_message(
+                    target=target,
+                    method="handle.bully.msg",
+                    body=_serialize_bully_packet(message)
+                )
+                return
+            except Exception as e:
+                print(
+                    f"{Fore.RED}[BULLY][{self.get_network_name()}] "
+                    f"send failed type={message.type} "
+                    f"dest={getattr(message.destination, 'name', 'unknown')} "
+                    f"err={type(e).__name__}: {e} (RETRYING, tries={tries}){Fore.RESET}"
+                )
+                time.sleep(0.5)
+        raise Exception(f'Failed to send a bully message {message}')
+                
+        
 
     def __handle_bully_messages(self, messages: list[BullyPacket]):
         for message in messages:

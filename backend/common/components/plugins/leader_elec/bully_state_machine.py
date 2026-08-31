@@ -29,15 +29,15 @@ class BullyPacket:
     source: Optional[BullyPeer] = None
 
 
-class _HBMsgState(Enum):
+class HBMsgState(Enum):
     IDLE = 0
     WAIT = 1
     DEAD = 2
 
 
 @dataclass
-class _HBState:
-    state: _HBMsgState
+class HBState:
+    state: HBMsgState
     last_hb: float
 
 
@@ -122,8 +122,8 @@ class BullyElectionNode(BaseStateMachine):
             threading.Thread(target=fn).start()
 
     def __reset_heartbeats(self):
-        self.heartbeat: dict[BullyPeer, _HBState] = {
-            p: _HBState(_HBMsgState.IDLE, self.get_time())
+        self.heartbeat: dict[BullyPeer, HBState] = {
+            p: HBState(HBMsgState.IDLE, self.get_time())
             for p in self.peer_list
             if p.election_id != self.node_id
         }
@@ -230,7 +230,7 @@ class BullyElectionNode(BaseStateMachine):
         if self.current_leader is None or self.election_in_progress:
             return
 
-        self.heartbeat[packet.source].state = _HBMsgState.IDLE
+        self.heartbeat[packet.source].state = HBMsgState.IDLE
         self.heartbeat[packet.source].last_hb = self.get_time()
 
     def get_leader_id(self) -> Optional[tuple[int, str]]:
@@ -251,25 +251,25 @@ class BullyElectionNode(BaseStateMachine):
         now = self.get_time()
         for node_info, state in self.heartbeat.items():
             should_send = (
-                state.state == _HBMsgState.IDLE
-                and now - state.last_hb > self.hb_timeout / 3.0
+                state.state == HBMsgState.IDLE
+                and now - state.last_hb > self.hb_timeout / 5.0
             )
 
             if should_send:
                 self.outbox.append(BullyPacket('HEARTBEAT', node_info))
                 state.last_hb = now
-                state.state = _HBMsgState.WAIT
-            elif state.state == _HBMsgState.WAIT and (now - state.last_hb) > self.hb_timeout:
+                state.state = HBMsgState.WAIT
+            elif state.state == HBMsgState.WAIT and (now - state.last_hb) > self.hb_timeout:
                 if self.current_leader == node_info.election_id:
                     self.current_leader = None
                     self.election_in_progress = False
                     self.__set_state(_BullyState.IDLE)
                     self.__start_election()
                 else:
-                    state.state = _HBMsgState.DEAD
+                    state.state = HBMsgState.DEAD
                     self.__print(
                         f'[{self.node_info.name}] Detected non-leader node crash: '
-                        f'{node_info.name} ({(now - state.last_hb):.2f})'
+                        f'{node_info.name} ({(now - state.last_hb):.2f}, timeout_threshold={self.hb_timeout})'
                     )
 
     def receive(self, packet: Optional[BullyPacket]):
@@ -277,6 +277,8 @@ class BullyElectionNode(BaseStateMachine):
             return self.__receive(packet)
 
     def __receive(self, packet: Optional[BullyPacket]):
+        # if packet is not None:
+            # self.__print(f'[{self.node_info.name}] Receiving bully packet={packet} in state={self.state}')
         if (
             not (packet is not None and packet.type == 'BULLY')
             and self.state == _BullyState.WAIT_ELECTION
